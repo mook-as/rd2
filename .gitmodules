@@ -1,0 +1,16 @@
+[submodule "bats/lib/bats-core"]
+	path = bats/lib/bats-core
+	url = https://github.com/rancher-sandbox/bats-core.git
+	branch = master
+[submodule "bats/lib/bats-file"]
+	path = bats/lib/bats-file
+	url = https://github.com/rancher-sandbox/bats-file.git
+	branch = master
+[submodule "bats/lib/bats-assert"]
+	path = bats/lib/bats-assert
+	url = https://github.com/rancher-sandbox/bats-assert.git
+	branch = master
+[submodule "bats/lib/bats-support"]
+	path = bats/lib/bats-support
+	url = https://github.com/rancher-sandbox/bats-support.git
+	branch = master

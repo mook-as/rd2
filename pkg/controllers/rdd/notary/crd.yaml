@@ -1,0 +1,72 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.18.0
+  name: notaries.rdd.rancherdesktop.io
+spec:
+  group: rdd.rancherdesktop.io
+  names:
+    kind: Notary
+    listKind: NotaryList
+    plural: notaries
+    singular: notary
+  scope: Namespaced
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: Notary is the Schema for the notaries API.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: NotarySpec defines the desired state of Notary.
+            properties:
+              configMapName:
+                description: ConfigMapName is the name of the ConfigMap where the history
+                  will be stored
+                type: string
+              value:
+                description: Value is the field that will be tracked for changes
+                type: string
+            required:
+            - configMapName
+            - value
+            type: object
+          status:
+            description: NotaryStatus defines the observed state of Notary.
+            properties:
+              changeCount:
+                description: ChangeCount is the number of changes recorded so far
+                type: integer
+              configMapStatus:
+                description: ConfigMapStatus indicates the status of the ConfigMap
+                  operation
+                type: string
+              lastRecordedValue:
+                description: LastRecordedValue is the last value that was recorded
+                  in the ConfigMap
+                type: string
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

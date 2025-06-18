@@ -24,15 +24,17 @@ RDD can be installed side-by-side with "Rancher Desktop 1.x". They can be instal
 
 [^ports]: There may be port conflicts between the GUIs of "Rancher Desktop 1" and "Rancher Desktop 2", so the GUIs may not be able to run concurrently. Ideally this should be resolved.
 
-Multiple instances of RDD (same or different versions) can be running at the same time; they will use separate service and path directories and are completely independent of each other[^profile]. 
+Multiple instances of RDD (same or different versions) can be running at the same time; they will use separate service and path directories and are completely independent of each other[^profile].
 
 Supporting multiple RDD instances in parallel allows developers to run BATS integration tests without interfering with their regular RDD configuration.
 
 It also makes it possible to compare 2 different configurations running concurrently without having to switch back and forth using snapshots. This makes it easy to test a new release without affecting the current "production" version.
 
-This is controlled by the `RDD_INSTANCE` variable (defaults to `2`). With `RDD_INSTANCE=bats` the  service directory becomes `$APPDATA/rancher-desktop-bats` and the path directory becomes `~/.rdbats`.
+This is controlled by the `RDD_INSTANCE` environment variable (defaults to `2`) or the global `--instance` flag. With `RDD_INSTANCE=bats` or `rdd --instance=bats` the service directory becomes `$APPDATA/rancher-desktop-bats` and the path directory becomes `~/.rdbats`.
 
 Similarly the docker and kube contexts (normally `rancher-desktop-2`) become `rancher-desktop-bats`.
+
+The `--instance` flag takes precedence over the `RDD_INSTANCE` environment variable if both are specified.
 
 [^profile]: The only exception is the system [deployment profile](profile.md), which applies to all instances.
 

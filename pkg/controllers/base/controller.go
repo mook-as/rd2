@@ -1,0 +1,135 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: SUSE LLC
+// SPDX-FileCopyrightText: The Rancher Desktop Authors
+
+package base
+
+import (
+	"os"
+	"os/exec"
+	"path/filepath"
+	"sync"
+
+	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/clientcmd"
+	"k8s.io/klog/v2"
+	ctrl "sigs.k8s.io/controller-runtime"
+)
+
+// Controller defines the interface that all RDD controllers must implement.
+// This interface supports both external and embedded execution modes.
+type Controller interface {
+	// GetName returns the controller name for logging and identification
+	GetName() string
+
+	// GetAPIGroup returns the API group this controller belongs to
+	GetAPIGroup() string
+
+	// GetCRDData returns the embedded CRD YAML data
+	GetCRDData() string
+
+	// RegisterWithManager provides complete controller registration including scheme and setup
+	RegisterWithManager(mgr ctrl.Manager) error
+}
+
+// WebhookController is an optional interface that controllers can implement
+// to receive the webhook port allocated by SharedControllerManager and
+// participate in shared webhook certificate management.
+type WebhookController interface {
+	// SetWebhookPort provides the actual webhook port to the controller
+	SetWebhookPort(port int)
+
+	// GetWebhookServiceName returns the DNS service name that should be
+	// included in the shared webhook certificate SANs. This will be expanded
+	// to include full Kubernetes service FQDNs (e.g., "service", "service.default",
+	// "service.default.svc", "service.default.svc.cluster.local").
+	GetWebhookServiceName() string
+}
+
+// Registry holds all registered controllers.
+type Registry struct {
+	mu          sync.RWMutex
+	controllers []Controller
+}
+
+// Global registry instance.
+var defaultRegistry = &Registry{
+	controllers: make([]Controller, 0),
+}
+
+// RegisterController registers a controller with the global registry.
+// This function is called by controller init functions.
+func RegisterController(controller Controller) {
+	defaultRegistry.Register(controller)
+}
+
+// Register adds a controller to the registry.
+func (r *Registry) Register(controller Controller) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.controllers = append(r.controllers, controller)
+	klog.V(2).Infof("Registered controller %s in API group %s", controller.GetName(), controller.GetAPIGroup())
+}
+
+// GetAllControllers returns all registered controllers as a slice.
+func (r *Registry) GetAllControllers() []Controller {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	result := make([]Controller, len(r.controllers))
+	copy(result, r.controllers)
+	return result
+}
+
+// GetAllControllers returns all registered controllers as a slice using the global registry.
+func GetAllControllers() []Controller {
+	return defaultRegistry.GetAllControllers()
+}
+
+// GetKubeConfigFromRDD returns the Kubernetes configuration by running `rdd svc config`.
+// This function is used by external controllers to retrieve kubeconfig dynamically.
+func GetKubeConfigFromRDD() (*rest.Config, error) {
+	// Get kubeconfig from rdd svc config command
+	kubeconfigYAML, err := getRDDKubeConfig()
+	if err != nil {
+		return nil, err
+	}
+
+	// Parse the YAML kubeconfig
+	config, err := clientcmd.RESTConfigFromKubeConfig(kubeconfigYAML)
+	if err != nil {
+		return nil, err
+	}
+
+	return config, nil
+}
+
+// getRDDKubeConfig executes `rdd svc config` and returns the kubeconfig YAML.
+// It first tries to find rdd on PATH, then looks in the same directory as the current executable.
+func getRDDKubeConfig() ([]byte, error) {
+	// First try to find rdd on PATH
+	rddPath, err := exec.LookPath("rdd")
+	if err != nil {
+		// If not found on PATH, look in the same directory as this executable
+		execPath, execErr := os.Executable()
+		if execErr != nil {
+			return nil, execErr
+		}
+		rddPath = filepath.Join(filepath.Dir(execPath), "rdd")
+
+		// Check if rdd exists in the same directory
+		if _, statErr := os.Stat(rddPath); statErr != nil {
+			return nil, err // Return the original LookPath error
+		}
+	}
+
+	// Execute rdd svc config command
+	cmd := exec.Command(rddPath, "svc", "config")
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, err
+	}
+
+	return output, nil
+}

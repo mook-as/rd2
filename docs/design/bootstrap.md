@@ -13,7 +13,7 @@ Running `rdd start` will now bootstrap Rancher Desktop 2. When it returns the us
 
 ## Starting the Control Plane and the App
 
-Conceptually `rdd start` (with the default `RDD_INSTANCE=2`) will trigger these actions:
+Conceptually `rdd start` (with the default instance name `2` from `RDD_INSTANCE=2` or `--instance=2`) will trigger these actions:
 
 * `rdd start` calls `rdd service config` to get a kube config to talk to the control plane.
 
@@ -32,7 +32,7 @@ Conceptually `rdd start` (with the default `RDD_INSTANCE=2`) will trigger these 
       * It starts the apiserver and the controller-manager, which start the builtin controllers that have been specified in `config.json`. This will also create the certs and service account required to authenticate to the apiserver.
 
       * It copies the configuration into a config map in the `rdd-system` namespace.
-    
+
     * `rdd service start` waits until `rdd.pid` exists. Then it tries to connect to the apiserver and authenticate until it succeeds.
 
   * `rdd service config` returns a kube config file that can be used to talk to the control plane.

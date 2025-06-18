@@ -1,0 +1,7 @@
+apiVersion: app.rancherdesktop.io/v1alpha1
+kind: Demo
+metadata:
+  name: demo
+spec:
+  message: "Hello from RDD singleton Demo controller!"
+  count: 5

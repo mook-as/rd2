@@ -30,7 +30,7 @@ status:
   status: cached
 ```
 
-The combination of `namespace`, `name`, and `group` uniquely identifies a resource **globally**. 
+The combination of `namespace`, `name`, and `group` uniquely identifies a resource **globally**.
 The `kind` is optional and only exists for discovery (e.g. "select all resource whose `kind` is `k3s`" to get a list of all `k3s` version for a GUI dialog).
 
 ## Checkout objects

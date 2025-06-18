@@ -1,0 +1,9 @@
+apiVersion: rdd.rancherdesktop.io/v1alpha1
+kind: Notary
+metadata:
+  labels:
+    app.kubernetes.io/name: rancher-desktop-daemon
+  name: notary-sample
+spec:
+  value: "initial-value"
+  configMapName: "notary-sample-history"

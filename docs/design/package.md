@@ -26,7 +26,7 @@ All of them can be store in an RDD package. One package may include multiple sna
 
 ### Airgap installation bundles
 
-It is possible to bundle all 
+It is possible to bundle all
 
 ## Other
 

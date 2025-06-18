@@ -1,0 +1,223 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: SUSE LLC
+// SPDX-FileCopyrightText: The Rancher Desktop Authors
+
+// Package external provides the common main function for external API group controllers.
+package external
+
+import (
+	"context"
+	"flag"
+	"fmt"
+	"os"
+	"sync"
+	"time"
+
+	"github.com/go-logr/logr"
+	"k8s.io/client-go/rest"
+	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+
+	"github.com/rancher-sandbox/rancher-desktop-daemon/pkg/controllers/base"
+	"github.com/rancher-sandbox/rancher-desktop-daemon/pkg/service/controllers"
+)
+
+// RunControllers is the main function for external API group controllers.
+// It handles command line parsing, kubeconfig retrieval, discovery checking, and shared manager setup.
+func RunControllers(apiGroupName string, controllersFunc func() []base.Controller) {
+	var desiredMetricsPort int
+	var desiredHealthPort int
+
+	flag.IntVar(&desiredMetricsPort, "metrics-port", 8080, "The desired port the metric endpoint binds to.")
+	flag.IntVar(&desiredHealthPort, "health-port", 8081, "The desired port the health probe endpoint binds to.")
+
+	opts := zap.Options{
+		Development: true,
+	}
+	opts.BindFlags(flag.CommandLine)
+	flag.Parse()
+
+	setupLog := ctrl.Log.WithName("setup")
+	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
+
+	// Get Kubernetes configuration from `rdd svc config`
+	config, err := base.GetKubeConfigFromRDD()
+	if err != nil {
+		setupLog.Error(err, "Failed to get kubeconfig")
+		os.Exit(1)
+	}
+
+	// Get the list of controllers for this API group
+	apiControllers := controllersFunc()
+
+	// Check which controllers should start and filter the list
+	var controllersToStart []base.Controller
+
+	ctx := ctrl.SetupSignalHandler()
+
+	for _, controller := range apiControllers {
+		shouldStart, err := shouldStartController(ctx, config, controller.GetName(), setupLog)
+		if err != nil {
+			setupLog.Error(err, "Failed to check for running controller, starting anyway", "controller", controller.GetName())
+			controllersToStart = append(controllersToStart, controller)
+		} else if shouldStart {
+			controllersToStart = append(controllersToStart, controller)
+		} else {
+			setupLog.Info("Controller is already running in RDD, skipping", "controller", controller.GetName())
+		}
+	}
+
+	// If no controllers need to start, exit
+	if len(controllersToStart) == 0 {
+		setupLog.Info("All controllers are already running in RDD controller manager, exiting")
+		os.Exit(0)
+	}
+
+	// Create a cancellable context for control plane monitoring
+	monitorCtx, cancelMonitor := context.WithCancel(ctx)
+	defer cancelMonitor()
+
+	// Start control plane monitoring in background
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		monitorControlPlane(monitorCtx, config, setupLog, cancelMonitor)
+	}()
+
+	// Get available ports for metrics and health endpoints
+	metricsPort, err := controllers.GetAvailablePort(desiredMetricsPort)
+	if err != nil {
+		setupLog.Error(err, "Failed to get available metrics port")
+		os.Exit(1)
+	}
+
+	healthPort, err := controllers.GetAvailablePort(desiredHealthPort)
+	if err != nil {
+		setupLog.Error(err, "Failed to get available health port")
+		os.Exit(1)
+	}
+
+	// Create shared controller manager for this API group
+	sharedManager := controllers.NewSharedControllerManager(config, metricsPort, healthPort)
+
+	// Register only the controllers that should start
+	for _, controller := range controllersToStart {
+		if err := sharedManager.RegisterController(controller); err != nil {
+			setupLog.Error(err, "Failed to register controller", "controller", controller.GetName())
+			os.Exit(1)
+		}
+	}
+
+	setupLog.Info(fmt.Sprintf("Starting %s controller manager", apiGroupName), "controllers", sharedManager.GetRegisteredControllers())
+
+	// Start the shared manager (this blocks until context is cancelled)
+	if err := sharedManager.Start(monitorCtx); err != nil {
+		setupLog.Error(err, fmt.Sprintf("Problem running %s controller manager", apiGroupName))
+		os.Exit(1)
+	}
+
+	// Wait for monitoring goroutine to finish
+	wg.Wait()
+	setupLog.Info("External controller manager shutting down")
+}
+
+// monitorControlPlane monitors the control plane lifecycle and cancels the context when it's no longer available.
+// This allows external controllers to automatically exit when `rdd svc stop` or `rdd svc delete` is called.
+func monitorControlPlane(ctx context.Context, config *rest.Config, log logr.Logger, cancel context.CancelFunc) {
+	discovery, err := controllers.NewControllerManagerDiscovery(config)
+	if err != nil {
+		log.Error(err, "Failed to create discovery service for monitoring")
+		return
+	}
+
+	// Wait until the external controller has successfully registered in discovery
+	// This ensures we don't start monitoring until the controller is actually running
+	log.V(1).Info("Waiting for external controller to register in discovery system")
+
+	registered := false
+	for range 60 { // Wait up to 2 minutes for registration
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(2 * time.Second):
+		}
+
+		info, err := discovery.DiscoverControllerManager(ctx)
+		if err == nil && info != nil {
+			log.V(1).Info("External controller successfully registered, starting monitoring")
+			registered = true
+			break
+		}
+	}
+
+	if !registered {
+		log.Info("External controller failed to register in discovery system, starting monitoring anyway")
+	}
+
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	consecutiveFailures := 0
+	const maxFailures = 3 // 6 seconds of failures (3 * 2 seconds) - sufficient for local connections
+
+	log.V(1).Info("Starting control plane monitoring")
+
+	for {
+		select {
+		case <-ctx.Done():
+			log.V(1).Info("Control plane monitoring stopped due to context cancellation")
+			return
+		case <-ticker.C:
+			// Check if the control plane is still running by looking for the discovery ConfigMap
+			info, err := discovery.DiscoverControllerManager(ctx)
+			if err != nil || info == nil {
+				consecutiveFailures++
+				log.V(2).Info("Control plane discovery failed",
+					"consecutiveFailures", consecutiveFailures,
+					"maxFailures", maxFailures,
+					"error", err)
+
+				if consecutiveFailures >= maxFailures {
+					log.Info("Control plane appears to have stopped - shutting down external controller")
+					cancel()
+					return
+				}
+			} else {
+				// Reset failure counter if we successfully discover the control plane
+				if consecutiveFailures > 0 {
+					log.V(2).Info("Control plane discovered successfully, resetting failure counter",
+						"previousFailures", consecutiveFailures)
+					consecutiveFailures = 0
+				}
+			}
+		}
+	}
+}
+
+// shouldStartController checks if an external controller should start based on RDD discovery.
+// Returns true if no RDD controller manager is running or the specific controller is not enabled.
+func shouldStartController(ctx context.Context, config *rest.Config, controllerName string, log logr.Logger) (bool, error) {
+	discovery, err := controllers.NewControllerManagerDiscovery(config)
+	if err != nil {
+		return false, fmt.Errorf("failed to create discovery service: %w", err)
+	}
+
+	isRunning, info, err := discovery.IsControllerRunning(ctx, controllerName)
+	if err != nil {
+		return false, fmt.Errorf("failed to discover controller: %w", err)
+	}
+
+	if !isRunning {
+		// No controller manager running or controller not enabled
+		return true, nil
+	}
+
+	// Controller is already running in RDD
+	log.Info("Controller is already running in RDD controller manager",
+		"controller", controllerName,
+		"healthEndpoint", info.HealthEndpoint,
+		"metricsEndpoint", info.MetricsEndpoint)
+
+	return false, nil
+}

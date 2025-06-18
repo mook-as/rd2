@@ -1,0 +1,20 @@
+apiVersion: rdd.rancherdesktop.io/v1alpha1
+kind: ConfigMapReplicaSet
+metadata:
+  name: example-configmapreplicaset
+  namespace: default
+spec:
+  replicas: 3
+  data:
+    config.yaml: |
+      app:
+        name: "example-app"
+        version: "1.0.0"
+        debug: true
+      database:
+        host: "localhost"
+        port: 5432
+        name: "example_db"
+    app.properties: |
+      server.port=8080
+      logging.level.root=INFO

@@ -6,15 +6,15 @@ Service commands are for working with the control plane. The [Service API](api_s
 
 ### Service Directory
 
-In this document all filenames are relative to the service directory `$APPDATA/rancher-desktop-$RDD_INSTANCE`.
+In this document all filenames are relative to the service directory `$APPDATA/rancher-desktop-$INSTANCE_NAME`, where `$INSTANCE_NAME` comes from the `RDD_INSTANCE` environment variable or the `--instance` flag.
 
 This service directory contains the following files:
 
 | File | Description |
 | --- | --- |
-| `config.json` | service config settings (written by `rdd service create` or `rdd service start`) 
+| `config.json` | service config settings (written by `rdd service create` or `rdd service start`)
 | `rdd.pid`     | pid of the control plane process (normally a background daemon) |
-| `rdd.sqlite3` | control plane data store | 
+| `rdd.sqlite3` | control plane data store |
 
 "Runs `rdd service ...`" means that the command performs the functionality in-progress, with the exception of `rdd service serve`, which will launch a background process.
 
@@ -24,7 +24,7 @@ The path directory contains the following files and directories:
 
 | File | Description |
 | --- | --- |
-| `bin`         | contains utilities like `docker`, `helm`, etc. May be symlinks | 
+| `bin`         | contains utilities like `docker`, `helm`, etc. May be symlinks |
 | `kube.config` | Kubernetes config only containing the `rancher-desktop-2` context |
 | `lima`        | `LIMA_HOME` is located here because of socket name length restrictions |
 
@@ -44,7 +44,7 @@ Configuration options (incomplete):
 
 *   `--controllers=*,-app`
 
-    Specify which builtin controllers should be started. E.g during rapid development the `app` 
+    Specify which builtin controllers should be started. E.g during rapid development the `app`
     controller may be run as an external process, so the daemon doesn't need to be restarted all
     the time.
 

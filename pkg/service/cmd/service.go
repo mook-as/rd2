@@ -1,0 +1,801 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: SUSE LLC
+// SPDX-FileCopyrightText: The Rancher Desktop Authors
+// SPDX-FileCopyrightText: The KCP Authors
+
+package service
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"syscall"
+	"time"
+
+	"github.com/spf13/cobra"
+
+	apiextensionapiserver "k8s.io/apiextensions-apiserver/pkg/apiserver"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	kerrors "k8s.io/apimachinery/pkg/util/errors"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/apimachinery/pkg/util/sets"
+	// Justify blank import.
+	_ "k8s.io/apiserver/pkg/admission"
+	genericapifilters "k8s.io/apiserver/pkg/endpoints/filters"
+	genericapiserver "k8s.io/apiserver/pkg/server"
+	utilfeature "k8s.io/apiserver/pkg/util/feature"
+	"k8s.io/apiserver/pkg/util/notfoundhandler"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/clientcmd"
+	cliflag "k8s.io/component-base/cli/flag"
+	"k8s.io/component-base/cli/globalflag"
+	"k8s.io/component-base/logs"
+	logsapi "k8s.io/component-base/logs/api/v1"
+	// Justify blank import.
+	_ "k8s.io/component-base/metrics/prometheus/workqueue"
+	"k8s.io/component-base/term"
+	"k8s.io/component-base/version"
+	"k8s.io/component-base/version/verflag"
+	"k8s.io/klog/v2"
+	aggregatorapiserver "k8s.io/kube-aggregator/pkg/apiserver"
+	controlplaneapiserver "k8s.io/kubernetes/pkg/controlplane/apiserver"
+	// Justify blank import.
+	_ "k8s.io/kubernetes/pkg/features"
+
+	"github.com/rancher-sandbox/rancher-desktop-daemon/pkg/cli/help"
+	"github.com/rancher-sandbox/rancher-desktop-daemon/pkg/controllers/base"
+	// Import controller packages to trigger init() functions for embedded mode.
+	_ "github.com/rancher-sandbox/rancher-desktop-daemon/pkg/controllers/app/demo"
+	_ "github.com/rancher-sandbox/rancher-desktop-daemon/pkg/controllers/rdd/configmapreplicaset"
+	_ "github.com/rancher-sandbox/rancher-desktop-daemon/pkg/controllers/rdd/notary"
+	"github.com/rancher-sandbox/rancher-desktop-daemon/pkg/instance"
+	"github.com/rancher-sandbox/rancher-desktop-daemon/pkg/service/cmd/options"
+	"github.com/rancher-sandbox/rancher-desktop-daemon/pkg/service/controllers"
+	"github.com/rancher-sandbox/rancher-desktop-daemon/pkg/service/datastore"
+	"github.com/rancher-sandbox/rancher-desktop-daemon/pkg/service/readiness"
+)
+
+// API groups that RDD requires and enables.
+var requiredAPIGroups = sets.NewString(
+	"apiextensions.k8s.io",         // CRDs
+	"authorization.k8s.io",         // Authorization
+	"rbac.authorization.k8s.io",    // RBAC
+	"admissionregistration.k8s.io", // Admission
+	"coordination.k8s.io",          // Coordination (for controller-runtime compatibility)
+)
+
+// ErrControllerManagerNotFound is returned when no controller manager is found
+var ErrControllerManagerNotFound = errors.New("no running controller manager found")
+
+// GetKubeconfig returns the kubeconfig by reading it directly from disk.
+func GetKubeconfig() ([]byte, error) {
+	if !Running() {
+		return nil, fmt.Errorf("control plane %q is not running", instance.Name())
+	}
+	data, err := os.ReadFile(instance.KubeConfig())
+	if err != nil {
+		return nil, fmt.Errorf("could not read kubeconfig from %s: %w (control plane may still be starting)", instance.KubeConfig(), err)
+	}
+	return data, nil
+}
+
+// GetKubeRestConfig generates and returns the kubeconfig as a *rest.Config.
+func GetKubeRestConfig() (*rest.Config, error) {
+	kubeConfigData, err := GetKubeconfig()
+	if err != nil {
+		return nil, err
+	}
+	return clientcmd.RESTConfigFromKubeConfig(kubeConfigData)
+}
+
+// storeKubeConfigToDisk stores the actual kubeconfig YAML to disk
+func storeKubeConfigToDisk(adminToken, userToken, serverURL, tlsServerName string, caCert []byte) error {
+	kubeConfig := options.CreateKubeConfig(adminToken, userToken, serverURL, tlsServerName, caCert)
+	data, err := clientcmd.Write(*kubeConfig)
+	if err != nil {
+		return fmt.Errorf("failed to marshal kubeconfig: %w", err)
+	}
+	if err := os.WriteFile(instance.KubeConfig(), data, 0o600); err != nil {
+		return fmt.Errorf("failed to write kubeconfig to %s: %w", instance.KubeConfig(), err)
+	}
+	return nil
+}
+
+// Order for settings:
+// Options -> CompletedOptions -> Config -> CompletedConfig -> Server -> Prepared -> Run
+
+func init() {
+	utilruntime.Must(logsapi.AddFeatureGates(utilfeature.DefaultMutableFeatureGate))
+}
+
+func Exists() bool {
+	_, err := os.Stat(instance.ArgsFile())
+	return err == nil
+}
+
+const PIDNotFound = 0
+
+func PID() int {
+	pidStr, err := os.ReadFile(instance.PIDFile())
+	if err != nil {
+		return PIDNotFound
+	}
+	pid, err := strconv.Atoi(string(pidStr))
+	if err == nil {
+		var process *os.Process
+		process, err = os.FindProcess(pid)
+		if err == nil {
+			// This will not work properly on Windows
+			err = process.Signal(syscall.Signal(0))
+		}
+	}
+	if err != nil {
+		_ = os.Remove(instance.PIDFile())
+		return PIDNotFound
+	}
+	return pid
+}
+
+func Running() bool {
+	return PID() != PIDNotFound
+}
+
+func Create(args []string) error {
+	if Exists() {
+		return fmt.Errorf("%q control plane already exists", instance.Name())
+	}
+	if err := os.MkdirAll(instance.Dir(), 0o700); err != nil {
+		return err
+	}
+	desiredSecurePort := 6443 + instance.Index()
+	securePort, err := controllers.GetAvailablePort(desiredSecurePort)
+	if err != nil {
+		return fmt.Errorf("failed to get available secure port: %w", err)
+	}
+	args = append([]string{"--secure-port", strconv.Itoa(securePort)}, args...)
+
+	data, err := json.MarshalIndent(args, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(instance.ArgsFile(), data, 0o600)
+}
+
+// getRuntimeControllersFromCluster retrieves the actual running controller configuration from the cluster
+func getRuntimeControllersFromCluster(ctx context.Context) ([]string, error) {
+	// Try to get the running controller configuration from the cluster
+	config, err := GetKubeRestConfig()
+	if err != nil {
+		klog.V(2).Infof("getRuntimeControllersFromCluster: kubeconfig error: %v", err)
+		return nil, fmt.Errorf("Could not get kubeconfig to read running controllers: %v", err)
+	}
+
+	discovery, err := controllers.NewControllerManagerDiscovery(config)
+	if err != nil {
+		klog.V(2).Infof("getRuntimeControllersFromCluster: discovery creation error: %v", err)
+		return nil, fmt.Errorf("Could not create discovery client: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+
+	info, err := discovery.DiscoverControllerManager(ctx)
+	if err != nil {
+		klog.V(2).Infof("getRuntimeControllersFromCluster: discovery error: %v", err)
+		return nil, fmt.Errorf("Could not discover running controllers: %v", err)
+	}
+
+	if info == nil {
+		klog.V(2).Info("getRuntimeControllersFromCluster: no controller manager found")
+		return nil, ErrControllerManagerNotFound
+	}
+
+	klog.V(2).Infof("getRuntimeControllersFromCluster: found controllers: %v", info.EnabledControllers)
+	return info.EnabledControllers, nil
+}
+
+func Start(ctx context.Context, args []string) error {
+	if !Exists() {
+		return fmt.Errorf("%q create control plane does not exist", instance.Name())
+	}
+	if Running() {
+		return fmt.Errorf("%q control plane is already running", instance.Name())
+	}
+
+	// TODO The log files should eventually move to the log directory
+	stdoutPath := filepath.Join(instance.Dir(), "rdd.stdout.log")
+	stderrPath := filepath.Join(instance.Dir(), "rdd.stderr.log")
+	if err := os.RemoveAll(stdoutPath); err != nil {
+		return err
+	}
+	if err := os.RemoveAll(stderrPath); err != nil {
+		return err
+	}
+	stdout, err := os.Create(stdoutPath)
+	if err != nil {
+		return err
+	}
+	stderr, err := os.Create(stderrPath)
+	if err != nil {
+		return err
+	}
+
+	if err != nil {
+		return err
+	}
+
+	cmdArgs := []string{"service", "serve"}
+	// If no args were provided, use saved args from create
+	if len(args) == 0 {
+		savedArgs := ServeArgs()
+		cmdArgs = append(cmdArgs, savedArgs...)
+	} else {
+		cmdArgs = append(cmdArgs, args...)
+	}
+
+	executable, err := os.Executable()
+	cmd := exec.CommandContext(ctx, executable, cmdArgs...)
+	// TODO This will not work on Windows
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
+	return cmd.Start()
+}
+
+func Wait(ctx context.Context) error {
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+			config, err := GetKubeRestConfig()
+			if err != nil {
+				klog.V(2).Infof("Waiting for kubeconfig to be available: %v", err)
+				continue
+			}
+
+			// Wait for the controller manager to register with the actual running controllers
+			// Discovery service is the single source of truth - no fallbacks
+			runtimeControllers, err := getRuntimeControllersFromCluster(ctx)
+			if err != nil {
+				// Check if this is a "no controller manager found" error, which indicates --controllers=""
+				if errors.Is(err, ErrControllerManagerNotFound) {
+					klog.V(2).Info("No controller manager found - checking if this is truly no-controllers mode")
+
+					// Check the original command args to see if --controllers="" was specified
+					serveArgs := ServeArgs()
+					isNoControllersMode := false
+					for i, arg := range serveArgs {
+						if arg == "--controllers" && i+1 < len(serveArgs) && serveArgs[i+1] == "" {
+							isNoControllersMode = true
+							break
+						}
+					}
+
+					if isNoControllersMode {
+						// Check if API server is ready for basic operations
+						if err := readiness.WaitForReady(ctx, config, false); err == nil {
+							klog.V(2).Info("API server ready and no controllers expected - no controllers mode")
+							return readiness.WaitForReadyWithCRDs(ctx, config, []base.Controller{}, false)
+						}
+						klog.V(2).Info("API server not ready yet, continuing to wait...")
+					} else {
+						klog.V(2).Info("Controllers expected but discovery configmap not found yet - waiting for external controllers to register...")
+					}
+				} else {
+					klog.V(2).Infof("getRuntimeControllersFromCluster: %v", err)
+				}
+				continue
+			}
+			klog.V(2).Infof("Waiting for %d runtime controllers to be ready", len(runtimeControllers))
+			if len(runtimeControllers) == 0 {
+				// This shouldn't happen since we handle it above, but keeping as fallback
+				// Check if API server is ready for basic operations
+				if err := readiness.WaitForReady(ctx, config, false); err == nil {
+					klog.V(2).Info("API server ready but no controllers registered - assuming no controllers mode")
+					return readiness.WaitForReadyWithCRDs(ctx, config, []base.Controller{}, false)
+				}
+				klog.V(2).Info("Waiting for controller manager to register in cluster...")
+				continue
+			}
+
+			// Get the controller objects for the actually running controllers
+			allControllers := base.GetAllControllers()
+			var enabledControllers []base.Controller
+
+			for _, controller := range allControllers {
+				for _, enabledName := range runtimeControllers {
+					if controller.GetName() == enabledName {
+						enabledControllers = append(enabledControllers, controller)
+						break
+					}
+				}
+			}
+
+			klog.V(2).Infof("Discovery service found running controllers: %v", runtimeControllers)
+
+			// Debug: Log all available controllers
+			allControllerNames := make([]string, len(allControllers))
+			for i, c := range allControllers {
+				allControllerNames[i] = c.GetName()
+			}
+			klog.V(2).Infof("All available controllers: %v", allControllerNames)
+
+			// Debug: Log enabled controllers
+			enabledControllerNames := make([]string, len(enabledControllers))
+			for i, c := range enabledControllers {
+				enabledControllerNames[i] = c.GetName()
+			}
+			klog.V(2).Infof("Enabled controllers for readiness: %v", enabledControllerNames)
+
+			return readiness.WaitForReadyWithCRDs(ctx, config, enabledControllers, false)
+		}
+	}
+}
+
+func WaitWithTimeout(ctx context.Context) error {
+	ctx, cancel := context.WithTimeout(ctx, 90*time.Second) // Increased timeout for CRD establishment
+	defer cancel()
+	return Wait(ctx)
+}
+
+func StopWithWait(wait bool) error {
+	if !Running() {
+		return fmt.Errorf("%q control plane is not running", instance.Name())
+	}
+
+	// Clean up discovery configmap while cluster is still accessible
+	_ = cleanupDiscoveryConfigMap() // Clean up discovery configmap to prevent stale controller info
+
+	pid := PID()
+	if err := syscall.Kill(pid, syscall.SIGKILL); err != nil {
+		return fmt.Errorf("failed to stop %q control plane with pid %d: %w", instance.Name(), pid, err)
+	}
+
+	if wait {
+		// Wait for the process to actually terminate
+		timeout := time.After(10 * time.Second)
+		ticker := time.NewTicker(100 * time.Millisecond)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-timeout:
+				return fmt.Errorf("timed out waiting for %q control plane with pid %d to stop", instance.Name(), pid)
+			case <-ticker.C:
+				if !Running() {
+					_ = os.Remove(instance.KubeConfig()) // Ignore error as file might not exist
+					return nil
+				}
+			}
+		}
+	}
+
+	_ = os.Remove(instance.KubeConfig()) // Ignore error as file might not exist
+	return nil
+}
+
+func Stop() error {
+	// For backward compatibility, always wait
+	return StopWithWait(true)
+}
+
+// cleanupDiscoveryConfigMap removes the discovery configmap to prevent readiness check confusion
+func cleanupDiscoveryConfigMap() error {
+	// Try to get kubeconfig, but ignore errors since control plane might be stopped
+	config, err := GetKubeRestConfig()
+	if err != nil {
+		klog.V(2).InfoS("Could not get kubeconfig for discovery cleanup, control plane likely stopped", "error", err)
+		return nil // Not an error, just means control plane is already stopped
+	}
+
+	client, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		klog.V(2).InfoS("Could not create kubernetes client for discovery cleanup", "error", err)
+		return nil // Not a critical error during shutdown
+	}
+
+	configMapClient := client.CoreV1().ConfigMaps(controllers.RDDSystemNamespace)
+	discoveryConfigMapName := controllers.ControllerManagerConfigMapName
+
+	err = configMapClient.Delete(context.TODO(), discoveryConfigMapName, metav1.DeleteOptions{})
+	if err != nil {
+		if !apierrors.IsNotFound(err) {
+			klog.V(2).InfoS("Failed to delete discovery configmap", "configmap", discoveryConfigMapName, "error", err)
+		} else {
+			klog.V(2).InfoS("Discovery configmap not found, nothing to clean up", "configmap", discoveryConfigMapName)
+		}
+	} else {
+		klog.InfoS("Successfully deleted stale discovery configmap", "configmap", discoveryConfigMapName)
+	}
+
+	return nil // Don't fail stop operation due to discovery cleanup issues
+}
+
+func Delete() error {
+	if !Exists() {
+		return fmt.Errorf("%q control plane does not exist", instance.Name())
+	}
+	_ = Stop()
+	return os.RemoveAll(instance.Dir())
+}
+
+func ServeArgs() []string {
+	data, err := os.ReadFile(instance.ArgsFile())
+	if err == nil {
+		var args []string
+		if err := json.Unmarshal(data, &args); err == nil {
+			return args
+		}
+	}
+	return nil
+}
+
+// shouldEnableController determines if a controller should be enabled based on the controllers specification.
+func shouldEnableController(controllerName, spec string) bool {
+	// Handle empty spec - no controllers should be enabled
+	if spec == "" {
+		return false
+	}
+
+	// Controller to API group mapping
+	controllerAPIGroups := map[string]string{
+		"configmapreplicaset": "rdd",
+		"notary":              "rdd",
+		"demo":                "app",
+	}
+
+	// Get API group for this controller
+	apiGroup, exists := controllerAPIGroups[controllerName]
+	if !exists {
+		return false // Unknown controller
+	}
+
+	var included bool
+	var excluded bool
+
+	parts := strings.Split(spec, ",")
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+
+		isExclusion := strings.HasPrefix(part, "-")
+		if isExclusion {
+			part = strings.TrimPrefix(part, "-")
+		}
+
+		// Check for wildcard
+		if part == "*" {
+			if isExclusion {
+				excluded = true
+			} else {
+				included = true
+			}
+			continue
+		}
+
+		// Check if it matches the API group
+		if part == apiGroup {
+			if isExclusion {
+				excluded = true
+			} else {
+				included = true
+			}
+			continue
+		}
+
+		// Check if it matches the specific controller
+		if part == controllerName {
+			if isExclusion {
+				excluded = true
+			} else {
+				included = true
+			}
+			continue
+		}
+	}
+
+	// Return true if included and not excluded
+	return included && !excluded
+}
+
+// NewServeCommand creates a *cobra.Command object with default parameters.
+func NewServeCommand() *cobra.Command {
+	s := options.NewOptions(instance.Dir())
+
+	command := &cobra.Command{
+		Use:          "serve",
+		Long:         "The RDD controlplane is the backend service for Rancher Desktop 2",
+		Args:         cobra.NoArgs,
+		SilenceUsage: true,
+		PersistentPreRunE: func(*cobra.Command, []string) error {
+			// silence client-go warnings.
+			// kube-apiserver loopback clients should not log self-issued warnings.
+			rest.SetDefaultWarningHandler(rest.NoWarnings{})
+			return nil
+		},
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			klog.Infof("os.Args: %v", os.Args)
+			if Running() {
+				return fmt.Errorf("control plane %q is already running", instance.Name())
+			}
+			if !Exists() {
+				if err := Create(nil); err != nil {
+					return err
+				}
+			}
+
+			pid := []byte(strconv.Itoa(os.Getpid()))
+			if err := os.WriteFile(instance.PIDFile(), pid, 0o600); err != nil {
+				return fmt.Errorf("failed to write %q: %w", instance.PIDFile(), err)
+			}
+
+			verflag.PrintAndExitIfRequested()
+			fs := cmd.Flags()
+
+			// Activate logging as soon as possible, after that
+			// show flags with the final logging configuration.
+			if err := logsapi.ValidateAndApply(s.ControlPlane.Logs, utilfeature.DefaultFeatureGate); err != nil {
+				return err
+			}
+			cliflag.PrintFlags(fs)
+
+			completedOptions, err := s.Complete()
+			if err != nil {
+				return err
+			}
+
+			if errs := completedOptions.Validate(); len(errs) != 0 {
+				return kerrors.NewAggregate(errs)
+			}
+
+			// add feature enablement metrics
+			utilfeature.DefaultMutableFeatureGate.AddMetrics()
+			ctx := genericapiserver.SetupSignalContext()
+
+			// change into instance dir because kine will create the db relative to the current dir
+			if err := os.Chdir(instance.Dir()); err != nil {
+				return fmt.Errorf("cannot chdir to %q: %w", instance.Dir(), err)
+			}
+			return Run(ctx, *completedOptions)
+		},
+	}
+
+	var namedFlagSets cliflag.NamedFlagSets
+	s.AddFlags(&namedFlagSets)
+	verflag.AddFlags(namedFlagSets.FlagSet("global"))
+	globalflag.AddGlobalFlags(namedFlagSets.FlagSet("global"), command.Name(), logs.SkipLoggingConfigurationFlags())
+
+	fs := command.Flags()
+	for _, f := range namedFlagSets.FlagSets {
+		fs.AddFlagSet(f)
+	}
+
+	cols, _, _ := term.TerminalSize(command.OutOrStdout())
+	cliflag.SetUsageAndHelpFunc(command, namedFlagSets, cols)
+
+	startOptionsCmd := &cobra.Command{
+		Use:   "options",
+		Short: "Show all start command options",
+		Long: help.Doc(`
+			Show all start command options
+
+			"rdd start"" has a large number of options. This command shows all of them.
+		`),
+		PersistentPreRunE: func(*cobra.Command, []string) error {
+			// silence client-go warnings.
+			// apiserver loopback clients should not log self-issued warnings.
+			rest.SetDefaultWarningHandler(rest.NoWarnings{})
+			return nil
+		},
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			_, _ = fmt.Fprintf(cmd.OutOrStderr(), usageFmt, command.UseLine())
+			cliflag.PrintSections(cmd.OutOrStderr(), namedFlagSets, cols)
+			return nil
+		},
+	}
+	command.AddCommand(startOptionsCmd)
+
+	setPartialUsageAndHelpFunc(command, namedFlagSets, cols, []string{
+		"etcd-servers",
+	})
+
+	help.FitTerminal(command.OutOrStdout())
+
+	return command
+}
+
+// Run runs the specified APIServer. This should never exit.
+func Run(ctx context.Context, opts options.CompletedOptions) error {
+	klog.Infof("Version: %+v", version.Get())
+	klog.InfoS("Golang settings", "GOGC", os.Getenv("GOGC"), "GOMAXPROCS", os.Getenv("GOMAXPROCS"), "GOTRACEBACK", os.Getenv("GOTRACEBACK"))
+
+	config, err := options.NewConfig(opts)
+	if err != nil {
+		return err
+	}
+	completed, err := config.Complete()
+	if err != nil {
+		return err
+	}
+
+	// the etcd server must be up before NewServer because storage decorators access it right away
+	if completed.Datastore.Config != nil {
+		klog.Warningf("Starting kine/sqlite server listening on %s", completed.Datastore.EndpointConfig.Listener)
+		if err := datastore.NewServer(completed.Datastore).Run(ctx); err != nil {
+			return fmt.Errorf("failed to start kine server: %w", err)
+		}
+	}
+
+	server, err := createServerChain(completed)
+	if err != nil {
+		return err
+	}
+
+	prepared, err := server.PrepareRun()
+	if err != nil {
+		return err
+	}
+
+	externalCACert, _ := completed.ControlPlane.Generic.SecureServing.Cert.CurrentCertKeyContent()
+	externalKubeConfigHost := fmt.Sprintf("https://%s", completed.ControlPlane.Generic.ExternalAddress)
+
+	if err := storeKubeConfigToDisk(
+		completed.ExtraConfig.AdminToken,
+		completed.ExtraConfig.UserToken,
+		externalKubeConfigHost,
+		"", // TLSServerName
+		externalCACert,
+	); err != nil {
+		klog.Warningf("Failed to store kubeconfig to disk: %v", err)
+		return err
+	}
+
+	// Run the server and wait for readiness
+	go func() {
+		if err := prepared.Run(ctx); err != nil {
+			klog.Fatal(err, "Failed to run server")
+		}
+	}()
+
+	// Start shared controller manager for enabled controllers
+	var enabledControllers []base.Controller
+
+	// Get all registered controllers from the registry
+	allControllers := base.GetAllControllers()
+
+	// Get enabled controllers from the --controllers flag directly
+	controllersSpec := completed.Controllers.Controllers
+	for _, controller := range allControllers {
+		if shouldEnableController(controller.GetName(), controllersSpec) {
+			enabledControllers = append(enabledControllers, controller)
+		}
+	}
+
+	// Start shared controller manager if any controllers are enabled
+	if len(enabledControllers) > 0 {
+		go func() {
+			klog.InfoS("Starting shared controller manager", "controllers", len(enabledControllers))
+
+			// Get available ports for metrics and health endpoints with instance offset
+			instanceOffset := 2 * instance.Index()
+			metricsPort, err := controllers.GetAvailablePort(8082 + instanceOffset)
+			if err != nil {
+				klog.Error(err, "Failed to get available metrics port")
+				return
+			}
+
+			healthPort, err := controllers.GetAvailablePort(8083 + instanceOffset)
+			if err != nil {
+				klog.Error(err, "Failed to get available health port")
+				return
+			}
+
+			// Create shared controller manager with dynamic ports
+			sharedManager := controllers.NewSharedControllerManager(
+				completed.ControlPlane.Generic.LoopbackClientConfig,
+				metricsPort,
+				healthPort,
+			)
+
+			// Register all enabled controllers
+			for _, controller := range enabledControllers {
+				if err := sharedManager.RegisterController(controller); err != nil {
+					klog.Error(err, "Failed to register controller", "controller", controller.GetName())
+					return
+				}
+			}
+
+			// Start the shared manager (this blocks until context is cancelled)
+			if err := sharedManager.Start(ctx); err != nil {
+				klog.Error(err, "Failed to start shared controller manager")
+			}
+		}()
+	}
+
+	klog.Info("Waiting for control plane to be ready")
+
+	restConfig, err := GetKubeRestConfig()
+	if err != nil {
+		return err
+	}
+	err = readiness.WaitForReady(ctx, restConfig, true)
+	if err != nil {
+		return err
+	}
+
+	<-ctx.Done()
+
+	return nil
+}
+
+// createServerChain creates the apiservers connected via delegation.
+func createServerChain(config options.CompletedConfig) (*aggregatorapiserver.APIAggregator, error) {
+	// 1. Basic not found handler
+	notFoundHandler := notfoundhandler.New(config.ControlPlane.Generic.Serializer, genericapifilters.NoMuxAndDiscoveryIncompleteKey)
+
+	var aggregatorServer *aggregatorapiserver.APIAggregator
+	var apiExtensionsServer *apiextensionapiserver.CustomResourceDefinitions
+	var nativeAPIs *controlplaneapiserver.Server
+	var err error
+
+	// CRDs are always enabled - create extension server
+	apiExtensionsServer, err = config.APIExtensions.New(genericapiserver.NewEmptyDelegateWithCustomHandler(notFoundHandler))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create apiextensions-apiserver: %w", err)
+	}
+
+	nativeAPIs, err = config.ControlPlane.New("rdd-controlplane", apiExtensionsServer.GenericAPIServer)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create RDD controlplane apiserver: %w", err)
+	}
+
+	client, err := kubernetes.NewForConfig(config.ControlPlane.Generic.LoopbackClientConfig)
+	if err != nil {
+		return nil, err
+	}
+	storageProviders, err := config.ControlPlane.GenericStorageProviders(client.Discovery())
+	if err != nil {
+		return nil, fmt.Errorf("failed to create storage providers: %w", err)
+	}
+
+	// Filter to only required API groups
+	var filteredProviders []controlplaneapiserver.RESTStorageProvider
+	for _, provider := range storageProviders {
+		// Only include required API groups
+		if requiredAPIGroups.Has(provider.GroupName()) || provider.GroupName() == "" {
+			filteredProviders = append(filteredProviders, provider)
+		}
+	}
+	storageProviders = filteredProviders
+
+	if err := nativeAPIs.InstallAPIs(storageProviders...); err != nil {
+		return nil, fmt.Errorf("failed to install APIs: %w", err)
+	}
+	for _, storageProvider := range storageProviders {
+		klog.Infof("Serving %s", storageProvider.GroupName())
+	}
+
+	// 3. Aggregator for APIServices, discovery and OpenAPI
+	// CRDs are always enabled - wire in aggregator server
+	aggregatorServer, err = controlplaneapiserver.CreateAggregatorServer(config.Aggregator, nativeAPIs.GenericAPIServer, apiExtensionsServer.Informers.Apiextensions().V1().CustomResourceDefinitions(), false, controlplaneapiserver.DefaultGenericAPIServicePriorities())
+	if err != nil {
+		// we don't need special handling for innerStopCh because the aggregator server doesn't create any go routines
+		return nil, fmt.Errorf("failed to create kube-aggregator: %w", err)
+	}
+
+	return aggregatorServer, nil
+}
