@@ -1,36 +1,31 @@
-/*
-Copyright 2025.
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: SUSE LLC
+// SPDX-FileCopyrightText: The Rancher Desktop Authors
 
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-*/
-
-package controller
+package controllers
 
 import (
 	"context"
 
+	"github.com/rancher-sandbox/rancher-desktop-daemon/pkg/controllers/base"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
-	limav1alpha1 "github.com/rancher-sandbox/rancher-desktop-daemon/api/v1alpha1"
+	"github.com/rancher-sandbox/rancher-desktop-daemon/pkg/apis/lima/v1alpha1"
+)
+
+const (
+	// FinalizerName is the finalizer name used for LimaVM cleanup.
+	FinalizerName = "rdd.rancherdesktop.io/limavm-cleanup"
 )
 
 // LimaVMReconciler reconciles a LimaVM object
 type LimaVMReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
+	Scheme          *runtime.Scheme
+	FinalizerHelper *base.FinalizerHelper
 }
 
 // +kubebuilder:rbac:groups=lima.rancherdesktop.io,resources=limavms,verbs=get;list;watch;create;update;patch;delete
@@ -57,7 +52,7 @@ func (r *LimaVMReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 // SetupWithManager sets up the controller with the Manager.
 func (r *LimaVMReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&limav1alpha1.LimaVM{}).
+		For(&v1alpha1.LimaVM{}).
 		Named("limavm").
 		Complete(r)
 }

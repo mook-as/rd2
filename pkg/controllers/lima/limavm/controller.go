@@ -2,16 +2,16 @@
 // SPDX-FileCopyrightText: SUSE LLC
 // SPDX-FileCopyrightText: The Rancher Desktop Authors
 
-package configmapreplicaset
+package limavm
 
 import (
 	_ "embed"
 
 	ctrl "sigs.k8s.io/controller-runtime"
 
-	"github.com/rancher-sandbox/rancher-desktop-daemon/pkg/apis/rdd/v1alpha1"
+	"github.com/rancher-sandbox/rancher-desktop-daemon/pkg/apis/lima/v1alpha1"
 	"github.com/rancher-sandbox/rancher-desktop-daemon/pkg/controllers/base"
-	"github.com/rancher-sandbox/rancher-desktop-daemon/pkg/controllers/rdd/configmapreplicaset/controllers"
+	"github.com/rancher-sandbox/rancher-desktop-daemon/pkg/controllers/lima/limavm/controllers"
 )
 
 func init() {
@@ -19,15 +19,15 @@ func init() {
 }
 
 // ControllerName is the name of this controller.
-const ControllerName = "configmapreplicaset"
+const ControllerName = "limavm"
 
 // APIGroup is the API group this controller belongs to.
-const APIGroup = "rdd"
+const APIGroup = "lima"
 
 //go:embed crd.yaml
-var configMapReplicaSetCRD string
+var limaCRD string
 
-// Controller implements the base.Controller interface for configmapreplicaset.
+// Controller implements the base.Controller interface for limavm.
 type Controller struct{}
 
 // Verify that Controller implements base.Controller interface.
@@ -50,7 +50,7 @@ func (c *Controller) GetAPIGroup() string {
 
 // GetCRDData returns the embedded CRD YAML data.
 func (c *Controller) GetCRDData() string {
-	return configMapReplicaSetCRD
+	return limaCRD
 }
 
 // RegisterWithManager implements the complete controller registration for both embedded and external modes.
@@ -61,7 +61,7 @@ func (c *Controller) RegisterWithManager(mgr ctrl.Manager) error {
 	}
 
 	// Create and set up the controller with the manager
-	return (&controllers.ConfigMapReplicaSetReconciler{
+	return (&controllers.LimaVMReconciler{
 		Client:          mgr.GetClient(),
 		Scheme:          mgr.GetScheme(),
 		FinalizerHelper: base.NewFinalizerHelper(mgr.GetClient(), mgr.GetScheme(), controllers.FinalizerName),
