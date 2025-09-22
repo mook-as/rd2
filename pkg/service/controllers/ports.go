@@ -39,7 +39,7 @@ func GetAvailablePort(ctx context.Context, desiredPort int) (int, error) {
 func isPortAvailable(ctx context.Context, port int) (int, error) {
 	address := ":" + strconv.Itoa(port)
 	listenConfig := net.ListenConfig{
-		Control: func(_network, _address string, c syscall.RawConn) error {
+		Control: func(_, _ string, c syscall.RawConn) error {
 			return c.Control(func(fd uintptr) {
 				_ = unix.SetsockoptLinger(int(fd), unix.SOL_SOCKET, unix.SO_LINGER, &unix.Linger{Linger: 0})
 			})
