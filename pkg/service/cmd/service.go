@@ -72,7 +72,7 @@ var requiredAPIGroups = sets.NewString(
 	"coordination.k8s.io",          // Coordination (for controller-runtime compatibility)
 )
 
-// ErrControllerManagerNotFound is returned when no controller manager is found
+// ErrControllerManagerNotFound is returned when no controller manager is found.
 var ErrControllerManagerNotFound = errors.New("no running controller manager found")
 
 // GetKubeconfig returns the kubeconfig by reading it directly from disk.
@@ -96,7 +96,7 @@ func GetKubeRestConfig() (*rest.Config, error) {
 	return clientcmd.RESTConfigFromKubeConfig(kubeConfigData)
 }
 
-// storeKubeConfigToDisk stores the actual kubeconfig YAML to disk
+// storeKubeConfigToDisk stores the actual kubeconfig YAML to disk.
 func storeKubeConfigToDisk(adminToken, userToken, serverURL, tlsServerName string, caCert []byte) error {
 	kubeConfig := options.CreateKubeConfig(adminToken, userToken, serverURL, tlsServerName, caCert)
 	data, err := clientcmd.Write(*kubeConfig)
@@ -169,19 +169,19 @@ func Create(args []string) error {
 	return os.WriteFile(instance.ArgsFile(), data, 0o600)
 }
 
-// getRuntimeControllersFromCluster retrieves the actual running controller configuration from the cluster
+// getRuntimeControllersFromCluster retrieves the actual running controller configuration from the cluster.
 func getRuntimeControllersFromCluster(ctx context.Context) ([]string, error) {
 	// Try to get the running controller configuration from the cluster
 	config, err := GetKubeRestConfig()
 	if err != nil {
 		klog.V(2).Infof("getRuntimeControllersFromCluster: kubeconfig error: %v", err)
-		return nil, fmt.Errorf("Could not get kubeconfig to read running controllers: %v", err)
+		return nil, fmt.Errorf("Could not get kubeconfig to read running controllers: %w", err)
 	}
 
 	discovery, err := controllers.NewControllerManagerDiscovery(config)
 	if err != nil {
 		klog.V(2).Infof("getRuntimeControllersFromCluster: discovery creation error: %v", err)
-		return nil, fmt.Errorf("Could not create discovery client: %v", err)
+		return nil, fmt.Errorf("Could not create discovery client: %w", err)
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
@@ -190,7 +190,7 @@ func getRuntimeControllersFromCluster(ctx context.Context) ([]string, error) {
 	info, err := discovery.DiscoverControllerManager(ctx)
 	if err != nil {
 		klog.V(2).Infof("getRuntimeControllersFromCluster: discovery error: %v", err)
-		return nil, fmt.Errorf("Could not discover running controllers: %v", err)
+		return nil, fmt.Errorf("Could not discover running controllers: %w", err)
 	}
 
 	if info == nil {
@@ -391,7 +391,7 @@ func Stop() error {
 	return StopWithWait(true)
 }
 
-// cleanupDiscoveryConfigMap removes the discovery configmap to prevent readiness check confusion
+// cleanupDiscoveryConfigMap removes the discovery configmap to prevent readiness check confusion.
 func cleanupDiscoveryConfigMap() error {
 	// Try to get kubeconfig, but ignore errors since control plane might be stopped
 	config, err := GetKubeRestConfig()

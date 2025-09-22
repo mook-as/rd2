@@ -337,7 +337,6 @@ func (scm *SharedControllerManager) installControllerCRDs(ctx context.Context) e
 			}
 			return false, nil
 		})
-
 		if err != nil {
 			return fmt.Errorf("failed to establish CRD for controller %s: %w", controllerName, err)
 		}
@@ -419,8 +418,7 @@ func (scm *SharedControllerManager) cleanupUnusedCRDs(ctx context.Context, contr
 	return nil
 }
 
-
-// cleanupStaleDiscovery removes the discovery configmap to prevent readiness check confusion
+// cleanupStaleDiscovery removes the discovery configmap to prevent readiness check confusion.
 func (scm *SharedControllerManager) cleanupStaleDiscovery(ctx context.Context) error {
 	client, err := kubernetes.NewForConfig(scm.kubeConfig)
 	if err != nil {

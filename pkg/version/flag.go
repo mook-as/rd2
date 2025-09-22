@@ -107,7 +107,7 @@ func PrintAndExit(format string) {
 //
 // Returns the created flag for additional configuration if needed.
 func AddVersionFlag(flags *pflag.FlagSet) *pflag.Flag {
-	versionFlag := flags.VarPF(&Value{}, "version", "", 
+	versionFlag := flags.VarPF(&Value{}, "version", "",
 		"--version, --version=raw prints version information and quits; --version=vX.Y.Z... sets the reported version")
 	versionFlag.NoOptDefVal = "true" // This allows --version without =value
 	return versionFlag

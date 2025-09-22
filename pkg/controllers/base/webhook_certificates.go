@@ -35,8 +35,8 @@ const (
 // SharedWebhookCertificateManager handles webhook certificate generation and management
 // for multiple controllers sharing the same webhook server infrastructure.
 type SharedWebhookCertificateManager struct {
-	certDir     string
-	serverIP    string
+	certDir      string
+	serverIP     string
 	serviceNames []string // DNS names for all webhook services
 }
 
@@ -276,7 +276,7 @@ func (cm *SharedWebhookCertificateManager) certificateIncludesAllServiceNames(ce
 func (cm *SharedWebhookCertificateManager) GetWebhookCertPaths() (certPath, keyPath string) {
 	certPath = filepath.Join(cm.certDir, DefaultWebhookCertFileName)
 	keyPath = filepath.Join(cm.certDir, DefaultWebhookKeyFileName)
-	return
+	return certPath, keyPath
 }
 
 // AddServiceNames adds new service names to the certificate manager.

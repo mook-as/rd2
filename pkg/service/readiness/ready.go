@@ -28,7 +28,7 @@ import (
 	"github.com/rancher-sandbox/rancher-desktop-daemon/pkg/controllers/base"
 )
 
-// WaitForReady waits for the control plane to be ready
+// WaitForReady waits for the control plane to be ready.
 func WaitForReady(ctx context.Context, config *rest.Config, logging bool) error {
 	logger := klog.FromContext(ctx)
 	if logging {
@@ -84,7 +84,7 @@ func WaitForReady(ctx context.Context, config *rest.Config, logging bool) error 
 	return nil
 }
 
-// WaitForReadyWithCRDs waits for the control plane to be ready and all expected CRDs to be established
+// WaitForReadyWithCRDs waits for the control plane to be ready and all expected CRDs to be established.
 func WaitForReadyWithCRDs(ctx context.Context, config *rest.Config, expectedControllers []base.Controller, logging bool) error {
 	logger := klog.FromContext(ctx)
 
@@ -122,7 +122,7 @@ func WaitForReadyWithCRDs(ctx context.Context, config *rest.Config, expectedCont
 	return nil
 }
 
-// waitForCRDsEstablished waits for all CRDs from the given controllers to be established
+// waitForCRDsEstablished waits for all CRDs from the given controllers to be established.
 func waitForCRDsEstablished(ctx context.Context, config *rest.Config, controllers []base.Controller, logging bool) error {
 	if len(controllers) == 0 {
 		if logging {
@@ -257,10 +257,10 @@ func waitForCRDsEstablished(ctx context.Context, config *rest.Config, controller
 			missing := expectedCRDs.Difference(establishedCRDs)
 			mu.Unlock()
 			klog.ErrorS(watchCtx.Err(), "CRD establishment timeout", "established", established, "missing", sets.List(missing), "expected", expectedCRDNames)
-			return fmt.Errorf("timeout waiting for CRDs to be established")
+			return errors.New("timeout waiting for CRDs to be established")
 		case event, ok := <-watcher.ResultChan():
 			if !ok {
-				return fmt.Errorf("watch channel closed unexpectedly")
+				return errors.New("watch channel closed unexpectedly")
 			}
 
 			crd, ok := event.Object.(*apiextensionsv1.CustomResourceDefinition)
@@ -297,7 +297,7 @@ func waitForCRDsEstablished(ctx context.Context, config *rest.Config, controller
 	}
 }
 
-// isCRDEstablished checks if a CRD has the Established condition set to true
+// isCRDEstablished checks if a CRD has the Established condition set to true.
 func isCRDEstablished(crd *apiextensionsv1.CustomResourceDefinition) bool {
 	for _, condition := range crd.Status.Conditions {
 		if condition.Type == apiextensionsv1.Established && condition.Status == apiextensionsv1.ConditionTrue {
@@ -307,7 +307,7 @@ func isCRDEstablished(crd *apiextensionsv1.CustomResourceDefinition) bool {
 	return false
 }
 
-// waitForWebhookConfigurations waits for all webhook configurations from the given controllers to be created
+// waitForWebhookConfigurations waits for all webhook configurations from the given controllers to be created.
 func waitForWebhookConfigurations(ctx context.Context, config *rest.Config, controllers []base.Controller, logging bool) error {
 	if len(controllers) == 0 {
 		if logging {
@@ -435,7 +435,7 @@ func waitForWebhookConfigurations(ctx context.Context, config *rest.Config, cont
 	}
 }
 
-// getWebhookConfigurationName returns the expected webhook configuration name for a controller
+// getWebhookConfigurationName returns the expected webhook configuration name for a controller.
 func getWebhookConfigurationName(controllerName string) string {
 	// Based on the notary controller pattern: "notary-validator"
 	return controllerName + "-validator"
@@ -457,7 +457,7 @@ func unreadyComponentsFromError(err error) sets.Set[string] {
 	return unreadyComponents
 }
 
-// isCertificateError checks if an error is related to x509 certificate verification
+// isCertificateError checks if an error is related to x509 certificate verification.
 func isCertificateError(err error) bool {
 	if err == nil {
 		return false
@@ -490,4 +490,3 @@ func isCertificateError(err error) bool {
 	return strings.Contains(errMsg, "failed to verify certificate") ||
 		strings.Contains(errMsg, "x509:")
 }
-

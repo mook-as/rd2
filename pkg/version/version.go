@@ -10,13 +10,13 @@ import (
 )
 
 var (
-	// These variables are set at build time via ldflags
+	// These variables are set at build time via ldflags.
 	Version   = "v0.0.0-dev"
 	GitCommit = "unknown"
 	BuildDate = "unknown"
 )
 
-// Info contains version information
+// Info contains version information.
 type Info struct {
 	Version   string `json:"version"`
 	GitCommit string `json:"gitCommit"`
@@ -26,7 +26,7 @@ type Info struct {
 	Platform  string `json:"platform"`
 }
 
-// Get returns the version information
+// Get returns the version information.
 func Get() Info {
 	return Info{
 		Version:   Version,
@@ -38,7 +38,7 @@ func Get() Info {
 	}
 }
 
-// String returns a string representation of the version information
+// String returns a string representation of the version information.
 func (i Info) String() string {
 	return i.Version
 }

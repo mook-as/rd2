@@ -223,4 +223,3 @@ func (d *ControllerManagerDiscovery) ensureNamespace(ctx context.Context) error 
 	}
 	return err
 }
-

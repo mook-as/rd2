@@ -61,12 +61,15 @@ var Dir = sync.OnceValue(func() string {
 var ArgsFile = sync.OnceValue(func() string {
 	return filepath.Join(Dir(), "args.json")
 })
+
 var KubeConfig = sync.OnceValue(func() string {
 	return filepath.Join(Dir(), "kubeconfig.yaml")
 })
+
 var PIDFile = sync.OnceValue(func() string {
 	return filepath.Join(Dir(), "rdd.pid")
 })
+
 var TLSDir = sync.OnceValue(func() string {
 	return filepath.Join(Dir(), "tls")
 })

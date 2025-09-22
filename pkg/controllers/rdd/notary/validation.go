@@ -5,6 +5,7 @@
 package notary
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -23,7 +24,7 @@ func ValidateNotaryValue(value string) error {
 // ValidateNotary validates a complete Notary object and returns warnings.
 func ValidateNotary(notary *v1alpha1.Notary) ([]string, error) {
 	if notary == nil {
-		return nil, fmt.Errorf("notary object cannot be nil")
+		return nil, errors.New("notary object cannot be nil")
 	}
 
 	var warnings []string

@@ -165,4 +165,3 @@ func TestValidateNotary(t *testing.T) {
 		})
 	}
 }
-

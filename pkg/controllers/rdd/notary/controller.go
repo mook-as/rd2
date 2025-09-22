@@ -37,7 +37,7 @@ const ControllerName = "notary"
 // APIGroup is the API group this controller belongs to.
 const APIGroup = "rdd"
 
-// Webhook configuration constants
+// Webhook configuration constants.
 const (
 	// WebhookName is the name used for the webhook configuration.
 	WebhookName = "notary.rdd.rancherdesktop.io"
