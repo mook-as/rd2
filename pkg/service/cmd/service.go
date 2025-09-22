@@ -54,6 +54,7 @@ import (
 	"github.com/rancher-sandbox/rancher-desktop-daemon/pkg/controllers/base"
 	// Import controller packages to trigger init() functions for embedded mode.
 	_ "github.com/rancher-sandbox/rancher-desktop-daemon/pkg/controllers/app/demo"
+	_ "github.com/rancher-sandbox/rancher-desktop-daemon/pkg/controllers/lima/limavm"
 	_ "github.com/rancher-sandbox/rancher-desktop-daemon/pkg/controllers/rdd/configmapreplicaset"
 	_ "github.com/rancher-sandbox/rancher-desktop-daemon/pkg/controllers/rdd/notary"
 	"github.com/rancher-sandbox/rancher-desktop-daemon/pkg/instance"
@@ -443,24 +444,14 @@ func ServeArgs() []string {
 }
 
 // shouldEnableController determines if a controller should be enabled based on the controllers specification.
-func shouldEnableController(controllerName, spec string) bool {
+func shouldEnableController(controller base.Controller, spec string) bool {
 	// Handle empty spec - no controllers should be enabled
 	if spec == "" {
 		return false
 	}
 
-	// Controller to API group mapping
-	controllerAPIGroups := map[string]string{
-		"configmapreplicaset": "rdd",
-		"notary":              "rdd",
-		"demo":                "app",
-	}
-
-	// Get API group for this controller
-	apiGroup, exists := controllerAPIGroups[controllerName]
-	if !exists {
-		return false // Unknown controller
-	}
+	controllerName := controller.GetName()
+	apiGroup := controller.GetAPIGroup()
 
 	var included bool
 	var excluded bool
@@ -680,7 +671,7 @@ func Run(ctx context.Context, opts options.CompletedOptions) error {
 	// Get enabled controllers from the --controllers flag directly
 	controllersSpec := completed.Controllers.Controllers
 	for _, controller := range allControllers {
-		if shouldEnableController(controller.GetName(), controllersSpec) {
+		if shouldEnableController(controller, controllersSpec) {
 			enabledControllers = append(enabledControllers, controller)
 		}
 	}
