@@ -6,6 +6,8 @@
 // Kubernetes components match.
 //
 // This must be run with internet access, and may modify `go.mod` and `go.sum`.
+//
+// See `.github/workflows/go-mod-k8s-sync.yaml` for where this is run on CI.
 package main
 
 import (
@@ -20,11 +22,15 @@ import (
 
 	"golang.org/x/mod/modfile"
 	"golang.org/x/mod/module"
+
+	"sigs.k8s.io/yaml"
 )
 
 const (
 	// The name of the main Kubernetes package.
 	anchorPackage = "k8s.io/kubernetes"
+	// Path to dependabot configuration.
+	dependabotConfigPath = ".github/dependabot.yml"
 )
 
 // Run the command, setting up stdout/stderr.
@@ -133,7 +139,58 @@ func updateGoMod(ctx context.Context) error {
 		return err
 	}
 
+	if err := checkDependabotConfig(targetModules); err != nil {
+		return err
+	}
+
 	return nil
+}
+
+// Check the dependabot configuration to make sure it is ignoring all of the
+// Kubernetes modules correctly; print out a list of missing modules and return
+// an error if any are missing.  We do not modify the file in-place because
+// doing so would end up dropping any comments in the file.
+func checkDependabotConfig(modules map[string]bool) error {
+	buf, err := os.ReadFile(dependabotConfigPath)
+	if err != nil {
+		return fmt.Errorf("error reading dependabot configuration: %w", err)
+	}
+	var config struct {
+		Updates []struct {
+			PackageEcosystem string `json:"package-ecosystem"`
+			Ignore           []struct {
+				DependencyName string `json:"dependency-name"`
+			}
+		}
+	}
+	if err := yaml.Unmarshal(buf, &config); err != nil {
+		return fmt.Errorf("failed to unmarshal dependabot configuration: %w", err)
+	}
+	for _, updates := range config.Updates {
+		if updates.PackageEcosystem != "gomod" {
+			continue
+		}
+		found := make(map[string]bool)
+		for _, dependency := range updates.Ignore {
+			found[dependency.DependencyName] = true
+		}
+		var missing []string
+		for module := range modules {
+			if _, ok := found[module]; !ok {
+				missing = append(missing, module)
+			}
+		}
+		if len(missing) == 0 {
+			return nil
+		}
+		slices.Sort(missing)
+		fmt.Fprintf(os.Stderr, "Dependabot configuration is missing ignore packages:\n")
+		for _, module := range missing {
+			fmt.Fprintf(os.Stderr, "  - { dependency-name: %s } # spellchecker:%s\n", module, "ignore")
+		}
+		return errors.New("dependabot configuration is not ignoring Kubernetes packages")
+	}
+	return errors.New("failed to find dependabot golang configuration")
 }
 
 func main() {
