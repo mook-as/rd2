@@ -9,6 +9,7 @@ jobs:
   golangci-lint:
     name: golangci-lint
     runs-on: ubuntu-latest
+    if: ${{!(github.event_name == 'push' && github.repository_owner == 'rancher-sandbox' && github.ref_type == 'branch' && !github.ref_protected)}}
     strategy:
       matrix:
         os: [darwin, linux, windows]
