@@ -1,6 +1,6 @@
 # bats file_tags=opensuse
 
-load '../helpers/load'
+load 'load'
 
 ########################################################################
 
@@ -48,6 +48,18 @@ succeeds() {
 fails() {
     # shellcheck disable=SC2086 # we want to split on whitespace
     run ${BATS_TEST_DESCRIPTION}
+    assert_failure
+}
+
+########################################################################
+
+errexit() {
+    false
+    true
+}
+
+@test 'run() calls functions with errexit enabled' {
+    run errexit
     assert_failure
 }
 
