@@ -99,74 +99,10 @@ ltag:
 	go tool ltag -v -t .ltag -path . --excludes=lib
 .PHONY: ltag
 
-# BATS integration testing targets
-BATS_CORE := ./bats/lib/bats-core/bin/bats
-
-# Check if BATS core exists
-check-bats:
-	@if [ ! -f "$(BATS_CORE)" ]; then \
-		echo "BATS core not found. Please run 'git submodule update --init --recursive' to initialize BATS submodules."; \
-		exit 1; \
-	fi
-.PHONY: check-bats
-
-# Run BATS tests for BATS helpers
-bats-helpers: check-bats
-	$(BATS_CORE) bats/helpers/
-.PHONY: bats-helpers
-
-# Run CLI tests
-bats-cli: check-bats build-rdd
-	PATH="$(PWD)/bin:$$PATH" RDD_INSTANCE=bats-cli $(BATS_CORE) bats/tests/10-cli/
-.PHONY: bats-cli
-
-# Run service tests
-bats-service: check-bats build-rdd
-	PATH="$(PWD)/bin:$$PATH" RDD_INSTANCE=bats-service $(BATS_CORE) bats/tests/20-service/
-.PHONY: bats-service
-
-# Run RDD API group controller tests
-bats-rdd: check-bats build-rdd build-rdd-controller
-	PATH="$(PWD)/bin:$$PATH" RDD_INSTANCE=bats-rdd-controller $(BATS_CORE) bats/tests/31-rdd-controllers/
-.PHONY: bats-rdd
-
-# Run app API group controller tests
-bats-app: check-bats build-rdd
-	PATH="$(PWD)/bin:$$PATH" RDD_INSTANCE=bats-app-controller $(BATS_CORE) bats/tests/32-app-controllers/
-.PHONY: bats-app
-
-# Run all controller tests
-bats-controllers: bats-rdd bats-app
-.PHONY: bats-controllers
-
-# Run all BATS tests
-bats-all: bats-helpers bats-cli bats-service bats-controllers
-.PHONY: bats-all
-
-# Run BATS tests with timeout to prevent hanging
-bats-timeout: check-bats build-rdd
-	PATH="$(PWD)/bin:$$PATH" timeout 600 $(BATS_CORE) bats/tests/
-.PHONY: bats-timeout
-
-# Run specific BATS test file
-# Usage: make bats-file FILE=bats/tests/31-rdd-controllers/configmapreplicaset.bats
-bats-file: check-bats build-rdd build-all-controllers
-	@if [ -z "$(FILE)" ]; then \
-		echo "Usage: make bats-file FILE=path/to/test.bats"; \
-		exit 1; \
-	fi
-	PATH="$(PWD)/bin:$$PATH" $(BATS_CORE) "$(FILE)"
-.PHONY: bats-file
-
-# Run BATS tests with trace output for debugging
-# Usage: make bats-trace FILE=bats/tests/31-rdd-controllers/configmapreplicaset.bats
-bats-trace: check-bats build-rdd build-all-controllers
-	@if [ -z "$(FILE)" ]; then \
-		echo "Usage: make bats-trace FILE=path/to/test.bats"; \
-		exit 1; \
-	fi
-	PATH="$(PWD)/bin:$$PATH" RDD_TRACE=true $(BATS_CORE) "$(FILE)"
-.PHONY: bats-trace
+BATS_TARGETS := $(shell $(MAKE) -C bats --print-data-base --question --no-builtin-variables | awk -F: '$$1 ~ /^bats-/ { print $$1 }')
+$(BATS_TARGETS):
+	@$(MAKE) -C bats $@
+.PHONY: $(BATS_TARGETS)
 
 clean:
 	-rm -r bin
