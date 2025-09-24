@@ -19,16 +19,23 @@ get_kubeconfig_port() {
     sed 's/.*127\.0\.0\.1:\([0-9]*\).*/\1/' <<<"$output"
 }
 
-# Check if a port is available on localhost
-is_port_available() {
+# Get the status of a port on localhost; e,g, "LISTEN", "TIME_WAIT"
+get_port_status() {
     local port="$1"
     # some Linux distros no longer include netstat, but ss is not available on macOS
-    if command -v ss >/dev/null; then
+    if command -v ss &>/dev/null; then
         run -0 ss -an -f inet
+        awk "/^tcp.*127\.0\.0\.1:${port} / { print \$2; exit }" <<<"$output"
     else
         run -0 netstat -an -f inet
+        awk "/^tcp.*127\.0\.0\.1\.${port} / { print \$NF; exit }" <<<"$output"
     fi
-    ! grep -q "^tcp.*127\.0\.0\.1\.$port " <<<"$output"
+}
+
+# Check if a port is available on localhost
+is_port_available() {
+    local port="$1" status
+    [[ -z $(get_port_status "$port") ]]
 }
 
 # Test basic functionality without port conflicts
@@ -64,6 +71,14 @@ is_port_available() {
 
     # Calculate expected port dynamically and occupy it
     expected_port=$(get_expected_port)
+
+    while [[ "$(get_port_status "$expected_port")" == "TIME_WAIT" ]]; do
+        sleep 1
+    done
+    if ! is_port_available "$expected_port"; then
+        skip "Port $expected_port is not available for testing"
+    fi
+
     nc -l 127.0.0.1 "$expected_port" &
     NETCAT_PIDS+=($!)
 
