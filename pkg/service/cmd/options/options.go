@@ -11,9 +11,13 @@ import (
 	"crypto/rsa"
 	"fmt"
 	"net"
+	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
+
+	"github.com/k3s-io/kine/pkg/endpoint"
 
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apiserver/pkg/admission"
@@ -64,7 +68,7 @@ type CompletedOptions struct {
 }
 
 // NewOptions creates a new Options with default parameters.
-func NewOptions(rootDir string) *Options {
+func NewOptions(ctx context.Context, rootDir string) *Options {
 	o := &Options{
 		ControlPlane:        *controlplaneapiserveroptions.NewOptions(),
 		Datastore:           *datastore.NewOptions(),
@@ -97,7 +101,18 @@ func NewOptions(rootDir string) *Options {
 	o.ControlPlane.Authentication.ServiceAccounts.OptionalTokenGetter = factory
 
 	o.ControlPlane.Authentication.ServiceAccounts.Issuers = []string{"https://rdd.default.svc"}
-	o.ControlPlane.Etcd.StorageConfig.Transport.ServerList = []string{"unix://kine.sock"}
+	kineListener := endpoint.KineSocket
+	if runtime.GOOS == "windows" {
+		// On Windows, unix:// isn't supported; however, kine/grpc doesn't support
+		// named pipes either.  Try to find a free port and use that.
+		if l, err := (&net.ListenConfig{}).Listen(ctx, "tcp", "127.0.0.1:0"); err != nil {
+			klog.Background().Error(err, "failed to find port for kine")
+		} else {
+			kineListener = fmt.Sprintf("http://%s", l.Addr())
+			_ = l.Close()
+		}
+	}
+	o.ControlPlane.Etcd.StorageConfig.Transport.ServerList = []string{kineListener}
 	o.ControlPlane.Features.EnablePriorityAndFairness = false
 	// turn on the watch cache
 	o.ControlPlane.Etcd.EnableWatchCache = true
@@ -125,9 +140,17 @@ func (o *Options) Complete(ctx context.Context) (*CompletedOptions, error) {
 	if len(servers) > 0 && strings.HasPrefix(servers[0], "http") {
 		// use default etcd port instead of unix://kine.socket
 		// this works with e.g. `--etcd-servers http://127.0.0.1:2379`
-		o.Datastore.EndpointConfig.Listener = "tcp://0.0.0.0:2379"
+		hostPort := "127.0.0.1:2379"
+		if u, err := url.Parse(servers[0]); err == nil {
+			hostPort = u.Host
+			if _, _, err := net.SplitHostPort(hostPort); err != nil {
+				// The hostPort part does not contain a port; add it.
+				hostPort = net.JoinHostPort(u.Hostname(), "2379")
+			}
+		}
+		o.Datastore.EndpointConfig.Listener = fmt.Sprintf("tcp://%s", hostPort)
 	}
-	klog.Background().Info("enabling embedded kine/sqlite server")
+	klog.Background().Info("enabling embedded kine/sqlite server", "listener", o.Datastore.EndpointConfig.Listener)
 	o.Datastore.Enabled = true
 
 	completedControllers := o.Controllers.Complete()

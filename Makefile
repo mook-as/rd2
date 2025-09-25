@@ -7,10 +7,10 @@ EXE := $(if $(shell sh -c 'command -v winver.exe'),.exe,)
 KUBE_VERSION := $(shell go$(EXE) list -m -f '{{.Version}}' 'k8s.io/kubernetes')
 KUBE_MAJOR_VERSION := $(shell echo $(KUBE_VERSION) | sed 's/v\([0-9]*\).*/\1/')
 KUBE_MINOR_VERSION := $(shell echo $(KUBE_VERSION) | sed "s/v[0-9]*\.\([0-9]*\).*/\1/")
-GIT_COMMIT := $(shell git rev-parse --short HEAD || echo 'local')
-GIT_DIRTY := $(shell git diff --quiet && echo 'clean' || echo 'dirty')
-GIT_VERSION := $(KUBE_VERSION)+rdd-$(shell git describe --tags --match='v*' --abbrev=14 "$(GIT_COMMIT)^{commit}" 2>/dev/null || echo v0.0.0-$(GIT_COMMIT))
-RDD_VERSION := $(shell git describe --match 'v[0-9]*' --dirty='.m' --always --tags)
+GIT_COMMIT := $(shell git$(EXE) rev-parse --short HEAD || echo 'local')
+GIT_DIRTY := $(shell git$(EXE) diff --quiet && echo 'clean' || echo 'dirty')
+GIT_VERSION := $(KUBE_VERSION)+rdd-$(shell git$(EXE) describe --tags --match='v*' --abbrev=14 "$(GIT_COMMIT)^{commit}" 2>/dev/null || echo v0.0.0-$(GIT_COMMIT))
+RDD_VERSION := $(shell git$(EXE) describe --match 'v[0-9]*' --dirty='.m' --always --tags)
 RDD_VERSION_TRIMMED := $(RDD_VERSION:v%=%)
 BUILD_DATE := $(shell date -u +'%Y-%m-%dT%H:%M:%SZ')
 PACKAGE := github.com/rancher-sandbox/rancher-desktop-daemon
@@ -48,25 +48,25 @@ build: build-rdd build-all-controllers
 GOLANG_SOURCES := $(shell find . -name '*.go') go.mod go.sum
 
 bin/rdd$(EXE): $(GOLANG_SOURCES)
-	CGO_CFLAGS="-DSQLITE_ENABLE_DBSTAT_VTAB=1 -DSQLITE_USE_ALLOCA=1" \
-	CGO_ENABLED=1 go build -tags="$(TAGS)" -buildvcs=false -gcflags="all=${GCFLAGS}" -ldflags="$(LDFLAGS)" -o $@ ./cmd/rdd
+	CGO_CFLAGS="-DSQLITE_ENABLE_DBSTAT_VTAB=1 -DSQLITE_USE_ALLOCA=1" CGO_ENABLED=1 \
+	go$(EXE) build -tags="$(TAGS)" -buildvcs=false -gcflags="all=${GCFLAGS}" -ldflags="$(LDFLAGS)" -o $@ ./cmd/rdd
 	ls -lh $@
 build-rdd: bin/rdd$(EXE)
 .PHONY: build-rdd
 
 # API Group Controller management - Auto-discovery of API groups
-API_GROUPS := $(notdir $(shell find pkg/controllers -type d -mindepth 1 -maxdepth 1 -not -name base))
+API_GROUPS := $(notdir $(shell find pkg/controllers -mindepth 1 -maxdepth 1 -type d -not -name base))
 
 # Generate build targets for API group controllers
 define API_GROUP_CONTROLLER_TARGETS
 bin/$(1)-controller$$(EXE): $$(GOLANG_SOURCES)
-	CGO_ENABLED=0 go build -tags="$(TAGS)" -buildvcs=false -gcflags="all=$${GCFLAGS}" -ldflags="$(LDFLAGS)" -o $$@ ./cmd/$(1)-controller
+	CGO_ENABLED=0 go$$(EXE) build -tags="$(TAGS)" -buildvcs=false -gcflags="all=$${GCFLAGS}" -ldflags="$(LDFLAGS)" -o $$@ ./cmd/$(1)-controller
 	ls -lh $$@
-build-$(1)-controller: bin/$(1)-controller$(EXE)
+build-$(1)-controller: bin/$(1)-controller$$(EXE)
 .PHONY: build-$(1)-controller
 
 test-$(1)-controllers:
-	go test -v ./pkg/controllers/$(1)/...
+	go$(EXE) test -v ./pkg/controllers/$(1)/...
 .PHONY: test-$(1)-controllers
 
 run-$(1)-controller: bin/$(1)-controller$(EXE)
@@ -105,11 +105,11 @@ run: bin/rdd$(EXE)
 
 lint:
 	$(MAKE) -C bats lint
-	golangci-lint run
+	golangci-lint$(EXE) run
 .PHONY: lint
 
 format:
-	golangci-lint fmt
+	golangci-lint$(EXE) fmt
 .PHONY: format
 
 .github/actions/spelling/expect/golang-generated.txt: scripts/spell-check-generate-golang-expect.go $(GOLANG_SOURCES)
@@ -120,9 +120,9 @@ spelling: scripts/check-spelling.sh .github/actions/spelling/expect/golang-gener
 
 ltag:
 	# exclude bats/lib, but --excludes only takes a dir name, not a path name
-	go tool ltag -v -t .ltag -path . --excludes='lib check-spelling'
+	go$(EXE) tool ltag -v -t .ltag -path . --excludes='lib check-spelling'
 check-ltag:
-	go tool ltag -v -t .ltag -path . --excludes='lib check-spelling' --check
+	go$(EXE) tool ltag -v -t .ltag -path . --excludes='lib check-spelling' --check
 .PHONY: ltag check-ltag
 
 BATS_TARGETS := $(shell $(MAKE) -C bats --print-data-base --question --no-builtin-variables | awk -F: '$$1 ~ /^bats-/ { print $$1 }')

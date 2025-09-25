@@ -43,7 +43,7 @@ jobs:
         runs-on:
         - macos-15-intel
         - ubuntu-latest
-        # - windows-latest # Windows is not supported yet
+        - windows-latest
     runs-on: ${{ matrix.runs-on }}
     steps:
     - name: "Linux: Install prerequisites"

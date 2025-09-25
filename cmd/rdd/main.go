@@ -6,6 +6,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strings"
@@ -135,7 +136,7 @@ func main() {
 
 	cmd.AddCommand(
 		newKubectlCommand(),
-		newServiceCommand(),
+		newServiceCommand(context.Background()),
 		newVersionCommand(),
 	)
 	if err := cli.RunNoErrOutput(cmd); err != nil {

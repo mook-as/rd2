@@ -66,14 +66,18 @@ assert_klog_level() {
 @test 'default log level in developer mode creates -v 1' {
     run -0 rdd svc delete
     # Developer mode should default to debug level
-    run -0 env RDD_DEVELOPER_MODE=1 rdd svc create --controllers=""
+    # shellcheck disable=SC2030,SC2031 # This only applies to the subshell
+    export RDD_DEVELOPER_MODE=1
+    run -0 rdd svc create --controllers=""
     assert_klog_level 1
 }
 
 @test 'default log level in non-developer mode creates -v 0' {
     run -0 rdd svc delete
     # Non-developer mode should default to warning level
-    run -0 env RDD_DEVELOPER_MODE=0 rdd svc create --controllers=""
+    # shellcheck disable=SC2030,SC2031 # This only applies to the subshell
+    export RDD_DEVELOPER_MODE=0
+    run -0 rdd svc create --controllers=""
     assert_klog_level 0
 }
 

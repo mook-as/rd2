@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -134,8 +135,12 @@ func PID() int {
 		var process *os.Process
 		process, err = os.FindProcess(pid)
 		if err == nil {
-			// This will not work properly on Windows
-			err = process.Signal(syscall.Signal(0))
+			// on non-Windows, FindProcess may return without the process being
+			// alive; on Windows, the result encapsulates a valid handle.
+			if runtime.GOOS != "windows" {
+				err = process.Signal(syscall.Signal(0))
+			}
+			_ = process.Release()
 		}
 	}
 	if err != nil {
@@ -380,6 +385,8 @@ func StopWithWait(wait bool) error {
 					_ = os.Remove(instance.KubeConfig()) // Ignore error as file might not exist
 					return nil
 				}
+			default:
+				time.Sleep(100 * time.Millisecond)
 			}
 		}
 	}
@@ -505,8 +512,8 @@ func shouldEnableController(controller base.Controller, spec string) bool {
 }
 
 // NewServeCommand creates a *cobra.Command object with default parameters.
-func NewServeCommand() *cobra.Command {
-	s := options.NewOptions(instance.Dir())
+func NewServeCommand(ctx context.Context) *cobra.Command {
+	s := options.NewOptions(ctx, instance.Dir())
 
 	command := &cobra.Command{
 		Use:          "serve",
