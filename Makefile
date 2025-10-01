@@ -3,7 +3,8 @@
 # SPDX-FileCopyrightText: The Rancher Desktop Authors
 # SPDX-FileCopyrightText: The KCP Authors
 
-KUBE_VERSION := $(shell go list -m -f '{{.Version}}' 'k8s.io/kubernetes')
+EXE := $(if $(shell sh -c 'command -v winver.exe'),.exe,)
+KUBE_VERSION := $(shell go$(EXE) list -m -f '{{.Version}}' 'k8s.io/kubernetes')
 KUBE_MAJOR_VERSION := $(shell echo $(KUBE_VERSION) | sed 's/v\([0-9]*\).*/\1/')
 KUBE_MINOR_VERSION := $(shell echo $(KUBE_VERSION) | sed "s/v[0-9]*\.\([0-9]*\).*/\1/")
 GIT_COMMIT := $(shell git rev-parse --short HEAD || echo 'local')
@@ -98,6 +99,12 @@ lint:
 format:
 	golangci-lint fmt
 .PHONY: format
+
+.github/actions/spelling/expect/golang-generated.txt: scripts/spell-check-generate-golang-expect.go $(GOLANG_SOURCES)
+	go$(EXE) run $<
+spelling: scripts/check-spelling.sh .github/actions/spelling/expect/golang-generated.txt
+	$<
+.PHONY: spelling
 
 ltag:
 	# exclude bats/lib, but --excludes only takes a dir name, not a path name
