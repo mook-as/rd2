@@ -45,7 +45,7 @@ type DemoStatus struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
-// +kubebuilder:resource:scope=Cluster
+// +kubebuilder:resource:scope=Cluster,path=demos
 // +kubebuilder:validation:XValidation:rule="self.metadata.name == 'demo'",message="Demo resource must be named 'demo'"
 
 // Demo is the Schema for the demos API.

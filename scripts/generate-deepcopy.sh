@@ -6,7 +6,11 @@
 
 set -o errexit -o nounset
 
-API_GROUPS=$(find pkg/controllers -type d -mindepth 1 -maxdepth 1 -not -name base -exec basename {} \;)
+API_GROUPS=$(
+	cd pkg/controllers
+	# shellcheck disable=SC2012
+	ls -d -- */ | tr -d / | grep -v base
+)
 
 # Generate deepcopy for each API group
 for apigroup in $API_GROUPS; do

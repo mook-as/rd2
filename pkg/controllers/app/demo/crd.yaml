@@ -3,7 +3,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.18.0
+    controller-gen.kubebuilder.io/version: v0.19.0
   name: demos.app.rancherdesktop.io
 spec:
   group: app.rancherdesktop.io
@@ -53,23 +53,11 @@ spec:
             description: DemoStatus defines the observed state of Demo.
             properties:
               conditions:
-                description: Conditions represent the latest available observations of the demo's current state
+                description: Conditions represent the latest available observations
+                  of the demo's current state
                 items:
-                  description: |
-                    Condition contains details for one aspect of the current state of this API Resource.
-                    ---
-                    This struct is intended for direct use as an array at the field path .status.conditions.  For example,
-
-                      type FooStatus struct{
-                          // Represents the observations of a foo's current state.
-                          // Known .status.conditions.type are: "Available", "Progressing", and "Degraded"
-                          // +patchMergeKey=type
-                          // +patchStrategy=merge
-                          // +listType=map
-                          // +listMapKey=type
-                          Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type" protobuf:"bytes,1,rep,name=conditions"`
-                          // other fields
-                      }
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
                   properties:
                     lastTransitionTime:
                       description: |-
@@ -110,12 +98,7 @@ spec:
                       - Unknown
                       type: string
                     type:
-                      description: |-
-                        type of condition in CamelCase or in foo.example.com/CamelCase.
-                        ---
-                        Many .condition.type values are consistent across resources like Available, but because arbitrary conditions can be
-                        useful (see .node.status.conditions), the ability to resolve conflicts is important.
-                        The regex it matches is (dns1123SubdomainFmt/)?(qualifiedNameFmt)
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
                       maxLength: 316
                       pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
                       type: string
@@ -130,20 +113,20 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
-                x-kubernetes-patch-merge-key: type
-                x-kubernetes-patch-strategy: merge
               lastProcessed:
-                description: LastProcessed is the timestamp when the message was last processed
+                description: LastProcessed is the timestamp when the message was last
+                  processed
                 type: string
               processedCount:
-                description: ProcessedCount is the number of times the message has been processed
+                description: ProcessedCount is the number of times the message has
+                  been processed
                 format: int32
                 type: integer
             type: object
         type: object
         x-kubernetes-validations:
-        - rule: "self.metadata.name == 'demo'"
-          message: "Demo resource must be named 'demo' - only one singleton instance is allowed"
+        - message: Demo resource must be named 'demo'
+          rule: self.metadata.name == 'demo'
     served: true
     storage: true
     subresources:

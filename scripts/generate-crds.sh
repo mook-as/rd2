@@ -6,10 +6,15 @@
 
 set -o errexit -o nounset
 
-API_GROUPS=$(find pkg/controllers -type d -mindepth 1 -maxdepth 1 -not -name base -exec basename {} \;)
+API_GROUPS=$(
+	cd pkg/controllers
+	# shellcheck disable=SC2012
+	ls -d -- */ | tr -d / | grep -v base
+)
 
 TMPDIR=$(mktemp -d)
-trap 'rm -rf $TMPDIR' EXIT
+readonly TMPDIR
+trap 'rm -rf "$TMPDIR"' EXIT
 
 for apigroup in $API_GROUPS; do
 	# Generate all CRDs for this API group to temp directory
@@ -19,10 +24,12 @@ for apigroup in $API_GROUPS; do
 	for controller_dir in "pkg/controllers/${apigroup}"/*/; do
 		if [ -f "$controller_dir/crd.yaml" ]; then
 			controller=$(basename "$controller_dir")
-			# Try plural form first (e.g., configmapreplicasets), then singular (e.g., notary)
-			crd_file=$(ls "$TMPDIR"/*_"${controller}"s.yaml 2>/dev/null || ls "$TMPDIR"/*_"${controller}".yaml 2>/dev/null || echo "")
-			if [ -n "$crd_file" ] && [ -f "$crd_file" ]; then
-				mv "$crd_file" "$controller_dir/crd.yaml"
+			crd_file=$(grep --ignore-case --files-with-matches "^ *kind: ${controller}$" "$TMPDIR"/*.yaml || :)
+			if [[ -n $crd_file ]] && [[ -f $crd_file ]]; then
+				mv "$crd_file" "${controller_dir}/crd.yaml"
+			else
+			  echo "Could not locate CRD for ${controller}"
+			  exit 1
 			fi
 		fi
 	done
