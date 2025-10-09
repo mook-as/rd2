@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"sync"
 	"time"
 
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
@@ -182,7 +183,11 @@ func (scm *SharedControllerManager) Start(ctx context.Context) error {
 		}()
 	}
 
-	// Register all controllers with the manager
+	// Track webhook setup goroutines
+	var webhookWaitGroup sync.WaitGroup
+	webhookErrors := make(chan error, len(scm.registrations))
+
+	// Register all controllers with the manager and start webhook setup immediately
 	for _, registration := range scm.registrations {
 		klog.InfoS("Registering controller with shared manager", "controller", registration.GetName())
 
@@ -195,7 +200,36 @@ func (scm *SharedControllerManager) Start(ctx context.Context) error {
 		if err := registration.RegisterWithManager(mgr); err != nil {
 			return fmt.Errorf("failed to register controller %s: %w", registration.GetName(), err)
 		}
+
+		// Start webhook setup immediately if this controller has one
+		if webhookController, ok := registration.(base.WebhookController); ok {
+			if manager := webhookController.GetWebhookManager(); manager != nil {
+				name := registration.GetName()
+				webhookWaitGroup.Add(1)
+				go func() {
+					defer webhookWaitGroup.Done()
+					klog.Infof("Starting webhook setup for controller %s", name)
+					if err := manager.Setup(); err != nil {
+						webhookErrors <- fmt.Errorf("controller %s: %w", name, err)
+					}
+				}()
+			}
+		}
 	}
+
+	webhookWaitGroup.Wait()
+	close(webhookErrors)
+
+	var errors []error
+	for err := range webhookErrors {
+		errors = append(errors, err)
+	}
+
+	if len(errors) > 0 {
+		return fmt.Errorf("webhook setup errors: %v", errors)
+	}
+
+	klog.Info("All webhook configurations created successfully")
 
 	scm.started = true
 

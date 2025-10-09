@@ -45,6 +45,10 @@ type WebhookController interface {
 	// to include full Kubernetes service FQDNs (e.g., "service", "service.default",
 	// "service.default.svc", "service.default.svc.cluster.local").
 	GetWebhookServiceName() string
+
+	// GetWebhookManager returns the WebhookManager for parallel setup.
+	// Returns nil if the controller doesn't use webhooks.
+	GetWebhookManager() *WebhookManager
 }
 
 // Registry holds all registered controllers.

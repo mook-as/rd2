@@ -117,12 +117,16 @@ join_map() {
     echo "$result"
 }
 
-# Run jq on the current $output
+# Extract raw value from a JSON object in a string (last argument).
 # Note that when capturing $output, you may need to use `run --separate-stderr`
 # to avoid also capturing stderr and ending up with invalid JSON.
-jq_output() {
-    local json=$output
-    run jq --raw-output "$@" <<<"${json}"
+jq_raw() {
+    local args=("$@")
+    local last=$((${#args[@]} - 1))
+    local json=${args[$last]}
+    unset "args[$last]"
+
+    run jq --raw-output "${args[@]}" <<<"${json}"
     if [[ -n $output ]]; then
         echo "$output"
         if [[ $output == null ]]; then
@@ -131,11 +135,16 @@ jq_output() {
     elif ((status == 0)); then
         # The command succeeded, so we should be able to run it again without error
         # If the jq command emitted a newline, then we want to emit a newline too.
-        if [ "$(jq --raw-output "$@" <<<"${json}" | wc -c)" -gt 0 ]; then
+        if [ "$(jq --raw-output "${args[@]}" <<<"${json}" | wc -c)" -gt 0 ]; then
             echo ""
         fi
     fi
     return "$status"
+}
+
+# Run jq_raw on the current $output
+jq_output() {
+    jq_raw "$@" "$output"
 }
 
 # semver returns the first semver version from its first argument (which may be multiple lines).
