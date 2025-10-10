@@ -21,7 +21,7 @@ get_kubeconfig_port() {
 
 # Get the status of a port on localhost; e,g, "LISTEN", "TIME_WAIT"
 get_port_status() {
-    local port="$1"
+    local port=$1
     # some Linux distros no longer include netstat, but ss is not available on macOS
     if command -v ss &>/dev/null; then
         run -0 ss -an -f inet
@@ -34,7 +34,7 @@ get_port_status() {
 
 # Check if a port is available on localhost
 is_port_available() {
-    local port="$1" status
+    local port=$1
     [[ -z $(get_port_status "$port") ]]
 }
 
@@ -72,9 +72,7 @@ is_port_available() {
     # Calculate expected port dynamically and occupy it
     expected_port=$(get_expected_port)
 
-    while [[ "$(get_port_status "$expected_port")" == "TIME_WAIT" ]]; do
-        sleep 1
-    done
+    try --max 30 --delay 1 is_port_available "$expected_port"
     if ! is_port_available "$expected_port"; then
         skip "Port $expected_port is not available for testing"
     fi
