@@ -21,6 +21,13 @@ $(TOPLEVEL_TARGETS):
 	@$(MAKE) -C .. $@
 .PHONY: $(TOPLEVEL_TARGETS)
 
+ifneq ($(shell sh -c 'command -v winver.exe'),)
+# On Windows, make sure we pass the environment variables back to RDD
+export WSLENV := $(WSLENV):RDD_INSTANCE:RDD_DEVELOPER_MODE
+# Use the Windows temporary directory
+export TMPDIR := $(shell wslpath -u $$(cmd.exe /c "echo %TEMP%"))
+endif
+
 # Run BATS tests for BATS helpers
 bats-helpers: check-bats
 	$(BATS_CORE) helpers/

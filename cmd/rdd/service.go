@@ -29,7 +29,7 @@ func logrusLevelToKlog() string {
 	}
 }
 
-func newServiceCommand() *cobra.Command {
+func newServiceCommand(ctx context.Context) *cobra.Command {
 	command := &cobra.Command{
 		Use:           "service",
 		Short:         "Manage the RDD control plane management",
@@ -41,7 +41,7 @@ func newServiceCommand() *cobra.Command {
 		newServiceConfigCommand(),
 		newServiceCreateCommand(),
 		newServiceStartCommand(),
-		service.NewServeCommand(),
+		service.NewServeCommand(ctx),
 		newServiceStopCommand(),
 		newServiceDeleteCommand(),
 		newServiceStatusCommand(),

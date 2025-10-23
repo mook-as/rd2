@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sync"
 
 	"k8s.io/client-go/rest"
@@ -113,15 +114,19 @@ func GetKubeConfigFromRDD(ctx context.Context) (*rest.Config, error) {
 // getRDDKubeConfig executes `rdd svc config` and returns the kubeconfig YAML.
 // It first tries to find rdd on PATH, then looks in the same directory as the current executable.
 func getRDDKubeConfig(ctx context.Context) ([]byte, error) {
+	exeName := "rdd"
+	if runtime.GOOS == "windows" {
+		exeName = "rdd.exe"
+	}
 	// First try to find rdd on PATH
-	rddPath, err := exec.LookPath("rdd")
+	rddPath, err := exec.LookPath(exeName)
 	if err != nil {
 		// If not found on PATH, look in the same directory as this executable
 		execPath, execErr := os.Executable()
 		if execErr != nil {
 			return nil, execErr
 		}
-		rddPath = filepath.Join(filepath.Dir(execPath), "rdd")
+		rddPath = filepath.Join(filepath.Dir(execPath), exeName)
 
 		// Check if rdd exists in the same directory
 		if _, statErr := os.Stat(rddPath); statErr != nil {
