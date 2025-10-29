@@ -19,12 +19,12 @@ assert_resource_count() {
     local expected=$4
 
     run rdd ctl get "${resource_type}" -n "${RDD_NAMESPACE}" -l "app.kubernetes.io/managed-by=${controller_name},app.kubernetes.io/instance=${name}" -o json
-    if [ "$status" -eq 0 ]; then
-        run -0 jq '.items | length' <<<"$output"
+    if [[ "${status}" -eq 0 ]]; then
+        run -0 jq '.items | length' <<<"${output}"
     else
         output="0"
     fi
-    assert_output "$expected"
+    assert_output "${expected}"
 }
 
 # Wait for resources to reach expected count
@@ -52,7 +52,7 @@ assert_resource_status() {
     local expected=$4
 
     run -0 get_resource_status "${resource_type}" "${name}" "${field}"
-    assert_output "$expected"
+    assert_output "${expected}"
 }
 
 wait_for_resource_status() {

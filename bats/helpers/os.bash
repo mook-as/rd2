@@ -4,7 +4,7 @@ UNAME=$(uname)
 ARCH=$(uname -m)
 ARCH=${ARCH/arm64/aarch64}
 
-case $UNAME in
+case ${UNAME} in
 Darwin)
     # OS matches the directory name of the PATH_RESOURCES directory,
     # so uses "darwin" and not "macos".
@@ -18,32 +18,32 @@ Linux)
     fi
     ;;
 *)
-    echo "Unexpected uname: $UNAME" >&2
+    echo "Unexpected uname: ${UNAME}" >&2
     exit 1
     ;;
 esac
 
 is_linux() {
-    if [ -z "${1:-}" ]; then
-        test "$OS" = linux
+    if [[ -z "${1:-}" ]]; then
+        test "${OS}" = linux
     else
-        test "$OS" = linux -a "$ARCH" = "$1"
+        test "${OS}" = linux -a "${ARCH}" = "$1"
     fi
 }
 
 is_macos() {
-    if [ -z "${1:-}" ]; then
-        test "$OS" = darwin
+    if [[ -z "${1:-}" ]]; then
+        test "${OS}" = darwin
     else
-        test "$OS" = darwin -a "$ARCH" = "$1"
+        test "${OS}" = darwin -a "${ARCH}" = "$1"
     fi
 }
 
 is_windows() {
-    if [ -z "${1:-}" ]; then
-        test "$OS" = windows
+    if [[ -z "${1:-}" ]]; then
+        test "${OS}" = windows
     else
-        test "$OS" = windows -a "$ARCH" = "$1"
+        test "${OS}" = windows -a "${ARCH}" = "$1"
     fi
 }
 
@@ -66,11 +66,11 @@ skip_on_unix() {
 needs_port() {
     local port=$1
     if is_linux; then
-        if [ "$(sysctl -n net.ipv4.ip_unprivileged_port_start)" -gt "$port" ]; then
+        if [[ "$(sysctl -n net.ipv4.ip_unprivileged_port_start)" -gt "${port}" ]]; then
             # Run sudo non-interactive, so don't prompt for password
-            run sudo -n sysctl -w "net.ipv4.ip_unprivileged_port_start=$port"
+            run sudo -n sysctl -w "net.ipv4.ip_unprivileged_port_start=${port}"
             if ((status > 0)); then
-                skip "net.ipv4.ip_unprivileged_port_start must be $port or less"
+                skip "net.ipv4.ip_unprivileged_port_start must be ${port} or less"
             fi
         fi
     fi

@@ -42,21 +42,21 @@ assert_demo_condition() {
     run rdd ctl get demo "demo" -o json
     assert_success
 
-    run -0 jq -r ".status.conditions[] | select(.type == \"${condition_type}\") | .status" <<<"$output"
-    assert_output "$expected_status"
+    run -0 jq -r ".status.conditions[] | select(.type == \"${condition_type}\") | .status" <<<"${output}"
+    assert_output "${expected_status}"
 }
 
 wait_for_demo_condition() {
     local condition_type=${1:-Ready}
     local expected_status=${2:-True}
 
-    try --max 12 --delay 5 -- assert_demo_condition "$condition_type" "$expected_status"
+    try --max 12 --delay 5 -- assert_demo_condition "${condition_type}" "${expected_status}"
 }
 
 wait_for_demo_completion() {
     local expected=$1
 
-    try --max 20 --delay 2 -- assert_demo_status "processedCount" "$expected"
+    try --max 20 --delay 2 -- assert_demo_status "processedCount" "${expected}"
     wait_for_demo_condition "Completed" "True"
 }
 
@@ -88,40 +88,40 @@ local_setup_file() {
     # Processing condition might be True briefly or False if already completed
     # So just verify we have the Ready condition and some processing has occurred
     run -0 get_demo_status "processedCount"
-    [ "$output" -ge 0 ] # Should have some status
+    [[ "${output}" -ge 0 ]] # Should have some status
 }
 
 @test 'verify initial Demo status' {
     run -0 rdd ctl get demo demo -o json
-    local demo_json="$output"
+    local demo_json="${output}"
 
-    run -0 jq -r 'has("status")' <<<"$demo_json"
+    run -0 jq -r 'has("status")' <<<"${demo_json}"
     assert_output "true"
 
-    run -0 jq -r '.status | has("processedCount")' <<<"$demo_json"
+    run -0 jq -r '.status | has("processedCount")' <<<"${demo_json}"
     assert_output "true"
 
     # Should have at least started processing (processedCount >= 1)
     run -0 get_demo_status "processedCount"
-    [ "$output" -ge 1 ]
+    [[ "${output}" -ge 1 ]]
 }
 
 @test 'verify Demo conditions are properly set during processing' {
     run -0 rdd ctl get demo demo -o json
-    local demo_json="$output"
+    local demo_json="${output}"
 
     # Should have conditions array
-    run -0 jq -r '.status | has("conditions")' <<<"$demo_json"
+    run -0 jq -r '.status | has("conditions")' <<<"${demo_json}"
     assert_output "true"
 
     # Check for all three condition types
-    run -0 jq -r '.status.conditions | map(.type) | @json' <<<"$demo_json"
+    run -0 jq -r '.status.conditions | map(.type) | @json' <<<"${demo_json}"
     assert_output --partial "Ready"
     assert_output --partial "Processing"
     assert_output --partial "Completed"
 
     # Ready should be True during processing
-    run -0 jq -r '.status.conditions[] | select(.type == "Ready") | .status' <<<"$demo_json"
+    run -0 jq -r '.status.conditions[] | select(.type == "Ready") | .status' <<<"${demo_json}"
     assert_output "True"
 }
 
@@ -131,26 +131,26 @@ local_setup_file() {
 
 @test 'verify Demo status after completion' {
     run -0 rdd ctl get demo demo -o json
-    local demo_json="$output"
+    local demo_json="${output}"
 
     # Should have processed all 3 messages
-    run -0 jq -r '.status.processedCount' <<<"$demo_json"
+    run -0 jq -r '.status.processedCount' <<<"${demo_json}"
     assert_output "3"
 
     # Should have lastProcessed timestamp
-    run -0 jq -r '.status | has("lastProcessed")' <<<"$demo_json"
+    run -0 jq -r '.status | has("lastProcessed")' <<<"${demo_json}"
     assert_output "true"
 
     # Ready should be True
-    run -0 jq -r '.status.conditions[] | select(.type == "Ready") | .status' <<<"$demo_json"
+    run -0 jq -r '.status.conditions[] | select(.type == "Ready") | .status' <<<"${demo_json}"
     assert_output "True"
 
     # Processing should be False (completed)
-    run -0 jq -r '.status.conditions[] | select(.type == "Processing") | .status' <<<"$demo_json"
+    run -0 jq -r '.status.conditions[] | select(.type == "Processing") | .status' <<<"${demo_json}"
     assert_output "False"
 
     # Completed should be True
-    run -0 jq -r '.status.conditions[] | select(.type == "Completed") | .status' <<<"$demo_json"
+    run -0 jq -r '.status.conditions[] | select(.type == "Completed") | .status' <<<"${demo_json}"
     assert_output "True"
 }
 
@@ -197,7 +197,7 @@ EOF
     # ProcessedCount might not be explicitly set to 0, or could be missing
     run -0 rdd ctl get demo demo -o json
     # Just verify completed condition is True for zero count
-    run -0 jq -r '.status.conditions[] | select(.type == "Completed") | .status' <<<"$output"
+    run -0 jq -r '.status.conditions[] | select(.type == "Completed") | .status' <<<"${output}"
     assert_output "True"
 }
 
@@ -213,8 +213,8 @@ EOF
 
     # Verify we have a Processing condition (might be True or False)
     local processing_exists
-    processing_exists=$(echo "$output" | jq -r '.status.conditions[] | select(.type == "Processing") | .type')
-    [ "$processing_exists" = "Processing" ]
+    processing_exists=$(echo "${output}" | jq -r '.status.conditions[] | select(.type == "Processing") | .type')
+    [[ "${processing_exists}" = "Processing" ]]
 }
 
 @test 'test Demo update during processing' {
@@ -231,12 +231,12 @@ EOF
 
     # Verify final state
     run -0 rdd ctl get demo demo -o json
-    local demo_json="$output"
+    local demo_json="${output}"
 
-    run -0 jq -r '.status.processedCount' <<<"$demo_json"
+    run -0 jq -r '.status.processedCount' <<<"${demo_json}"
     assert_output "15"
 
-    run -0 jq -r '.spec.message' <<<"$demo_json"
+    run -0 jq -r '.spec.message' <<<"${demo_json}"
     assert_output "Updated message"
 }
 
@@ -265,12 +265,12 @@ EOF
 
     # Verify it works
     run -0 rdd ctl get demo demo -o json
-    local demo_json="$output"
+    local demo_json="${output}"
 
-    run -0 jq -r '.status.processedCount' <<<"$demo_json"
+    run -0 jq -r '.status.processedCount' <<<"${demo_json}"
     assert_output "2"
 
-    run -0 jq -r '.spec.message' <<<"$demo_json"
+    run -0 jq -r '.spec.message' <<<"${demo_json}"
     assert_output "Recreation test"
 }
 
@@ -283,7 +283,7 @@ EOF
     # Check that no finalizers are set (Demo controller doesn't use finalizers)
     run rdd ctl get demo demo -o jsonpath='{.metadata.finalizers}'
     # Should be empty or null
-    [ -z "$output" ] || [ "$output" = "null" ]
+    [[ -z "${output}" ]] || [[ "${output}" = "null" ]]
 }
 
 @test 'demo status reflects current processing state' {
@@ -294,31 +294,31 @@ EOF
 
     # Check comprehensive status
     run -0 rdd ctl get demo demo -o json
-    local demo_json="$output"
+    local demo_json="${output}"
 
-    run -0 jq -r 'has("status")' <<<"$demo_json"
+    run -0 jq -r 'has("status")' <<<"${demo_json}"
     assert_output "true"
 
-    run -0 jq -r '.status.processedCount' <<<"$demo_json"
+    run -0 jq -r '.status.processedCount' <<<"${demo_json}"
     assert_output "2"
 
-    run -0 jq -r '.status | has("lastProcessed")' <<<"$demo_json"
+    run -0 jq -r '.status | has("lastProcessed")' <<<"${demo_json}"
     assert_output "true"
 
-    run -0 jq -r '.status | has("conditions")' <<<"$demo_json"
+    run -0 jq -r '.status | has("conditions")' <<<"${demo_json}"
     assert_output "true"
 
     # Extract condition statuses using jq
-    run -0 jq -r '.status.conditions[] | select(.type == "Ready") | .status' <<<"$demo_json"
-    local ready_status="$output"
+    run -0 jq -r '.status.conditions[] | select(.type == "Ready") | .status' <<<"${demo_json}"
+    local ready_status="${output}"
 
-    run -0 jq -r '.status.conditions[] | select(.type == "Processing") | .status' <<<"$demo_json"
-    local processing_status="$output"
+    run -0 jq -r '.status.conditions[] | select(.type == "Processing") | .status' <<<"${demo_json}"
+    local processing_status="${output}"
 
-    run -0 jq -r '.status.conditions[] | select(.type == "Completed") | .status' <<<"$demo_json"
-    local completed_status="$output"
+    run -0 jq -r '.status.conditions[] | select(.type == "Completed") | .status' <<<"${demo_json}"
+    local completed_status="${output}"
 
-    [ "$ready_status" = "True" ]
-    [ "$processing_status" = "False" ]
-    [ "$completed_status" = "True" ]
+    [[ "${ready_status}" = "True" ]]
+    [[ "${processing_status}" = "False" ]]
+    [[ "${completed_status}" = "True" ]]
 }

@@ -10,7 +10,7 @@ is_true() {
     # case-insensitive check; false values: '', '0', 'no', and 'false'
     local value
     value=$(to_lower "$1")
-    [[ ! $value =~ ^(0|no|false)?$ ]]
+    [[ ! ${value} =~ ^(0|no|false)?$ ]]
 }
 
 is_false() {
@@ -35,11 +35,11 @@ validate_enum() {
     local var=$1
     shift
     for value in "$@"; do
-        if [[ ${!var} == "$value" ]]; then
+        if [[ ${!var} == "${value}" ]]; then
             return
         fi
     done
-    fatal "$var=${!var} is not a valid setting; select from [$*]"
+    fatal "${var}=${!var} is not a valid setting; select from [$*]"
 }
 
 # Ensure that the variable contains a valid semver (major.minor.path) version, e.g.
@@ -47,7 +47,7 @@ validate_enum() {
 validate_semver() {
     local var=$1
     if ! semver_is_valid "${!var}"; then
-        fatal "$var=${!var} is not a valid semver value (major.minor.patch)"
+        fatal "${var}=${!var} is not a valid semver value (major.minor.patch)"
     fi
 }
 
@@ -91,7 +91,7 @@ refute_file_contains() {
 ########################################################################
 
 extract_msg() {
-    echo "$output" | sed -n 's/.*msg="\(.*\)"$/\1/p' | sed 's/\\"/"/g'
+    echo "${output}" | sed -n 's/.*msg="\(.*\)"$/\1/p' | sed 's/\\"/"/g'
 }
 
 # Convert raw string into properly quoted JSON string
@@ -111,14 +111,14 @@ join_map() {
     local elem
     local result=""
     for elem in "$@"; do
-        elem=$(eval "$map" '"$elem"')
-        if [[ -z $result ]]; then
-            result=$elem
+        elem=$(eval "${map}" '"$elem"')
+        if [[ -z ${result} ]]; then
+            result=${elem}
         else
             result="${result}${sep}${elem}"
         fi
     done
-    echo "$result"
+    echo "${result}"
 }
 
 # Extract raw value from a JSON object in a string (last argument).
@@ -127,28 +127,28 @@ join_map() {
 jq_raw() {
     local args=("$@")
     local last=$((${#args[@]} - 1))
-    local json=${args[$last]}
-    unset "args[$last]"
+    local json=${args[${last}]}
+    unset "args[${last}]"
 
     run jq --raw-output "${args[@]}" <<<"${json}"
-    if [[ -n $output ]]; then
-        echo "$output"
-        if [[ $output == null ]]; then
+    if [[ -n ${output} ]]; then
+        echo "${output}"
+        if [[ ${output} == null ]]; then
             status=1
         fi
     elif ((status == 0)); then
         # The command succeeded, so we should be able to run it again without error
         # If the jq command emitted a newline, then we want to emit a newline too.
-        if [ "$(jq --raw-output "${args[@]}" <<<"${json}" | wc -c)" -gt 0 ]; then
+        if [[ "$(jq --raw-output "${args[@]}" <<<"${json}" | wc -c)" -gt 0 ]]; then
             echo ""
         fi
     fi
-    return "$status"
+    return "${status}"
 }
 
 # Run jq_raw on the current $output
 jq_output() {
-    jq_raw "$@" "$output"
+    jq_raw "$@" "${output}"
 }
 
 # semver returns the first semver version from its first argument (which may be multiple lines).
@@ -160,20 +160,20 @@ jq_output() {
 semver() {
     local input=$1
     local semver
-    semver=$(awk 'match($0, /([0-9]+\.[0-9]+\.[0-9]+)/) {print substr($0, RSTART, RLENGTH); exit}' <<<"$input")
-    if [[ -z $semver ]]; then
-        semver=$(awk 'match($0, /([0-9]+\.[0-9]+)/) {print substr($0, RSTART, RLENGTH); exit}' <<<"$input")
+    semver=$(awk 'match($0, /([0-9]+\.[0-9]+\.[0-9]+)/) {print substr($0, RSTART, RLENGTH); exit}' <<<"${input}")
+    if [[ -z ${semver} ]]; then
+        semver=$(awk 'match($0, /([0-9]+\.[0-9]+)/) {print substr($0, RSTART, RLENGTH); exit}' <<<"${input}")
     fi
-    if [[ -z $semver ]]; then
-        semver=$(awk 'match($0, /([0-9]+)/) {print substr($0, RSTART, RLENGTH); exit}' <<<"$input")
+    if [[ -z ${semver} ]]; then
+        semver=$(awk 'match($0, /([0-9]+)/) {print substr($0, RSTART, RLENGTH); exit}' <<<"${input}")
     fi
-    if [[ -z $semver ]]; then
+    if [[ -z ${semver} ]]; then
         return 1
     fi
-    until [[ $semver =~ \..+\. ]]; do
+    until [[ ${semver} =~ \..+\. ]]; do
         semver="${semver}.0"
     done
-    sed -E 's/^0*([0-9])/\1/; s/\.0*([0-9])/.\1/g' <<<"$semver"
+    sed -E 's/^0*([0-9])/\1/; s/\.0*([0-9])/.\1/g' <<<"${semver}"
 }
 
 # Check if the argument is a valid 3-tuple version number with no leading 0s and no newlines
@@ -238,16 +238,16 @@ calling_function() {
 # Set CALLER to print a calling function higher up in the call stack.
 comment() {
     local prefix=""
-    if is_true "$RDD_TRACE"; then
+    if is_true "${RDD_TRACE}"; then
         local caller="${CALLER:-$(calling_function)}"
         prefix="($(date -u +"%FT%TZ"): ${caller}): "
     fi
     local line
     while IFS= read -r line; do
         if [[ -e /dev/fd/3 ]]; then
-            printf "# %s%s\n" "$prefix" "$line" >&3
+            printf "# %s%s\n" "${prefix}" "${line}" >&3
         else
-            printf "# %s%s\n" "$prefix" "$line" >&2
+            printf "# %s%s\n" "${prefix}" "${line}" >&2
         fi
     done <<<"$*"
 }
@@ -255,7 +255,7 @@ comment() {
 # Write a comment to the TAP stream if RDD_TRACE is set.
 # Set CALLER to print a calling function higher up in the call stack.
 trace() {
-    if is_true "$RDD_TRACE"; then
+    if is_true "${RDD_TRACE}"; then
         CALLER=${CALLER:-$(calling_function)} comment "$@"
     fi
 }
@@ -307,20 +307,20 @@ try() {
             success=$((status == 0))
         fi
         if ((success || ++count >= max)); then
-            trace "$count/$max tries: $*"
+            trace "${count}/${max} tries: $*"
             break
         fi
-        sleep "$delay"
+        sleep "${delay}"
     done
-    echo "$output"
-    if [ -n "${stderr:-}" ]; then
-        echo "$stderr" >&2
+    echo "${output}"
+    if [[ -n "${stderr:-}" ]]; then
+        echo "${stderr}" >&2
     fi
     # When using --until-fail, return 0 if we successfully waited for failure, 1 if we timed out
     if ((until_fail)); then
         return $((success ? 0 : 1))
     fi
-    return "$status"
+    return "${status}"
 }
 
 image_without_tag_as_json_string() {
@@ -328,7 +328,7 @@ image_without_tag_as_json_string() {
     # If the tag looks like a port number and follows something that looks
     # like a domain name, then don't strip the tag (e.g. foo.io:5000).
     if [[ ${image##*:} =~ ^[0-9]+(/|$) && ${image%:*} =~ \.[a-z]+$ ]]; then
-        json_string "$image"
+        json_string "${image}"
     else
         json_string "${image%:*}"
     fi
@@ -344,8 +344,8 @@ update_allowed_patterns() {
     # If the enabled state changes, then the container engine will be restarted.
     # Record PID of the current daemon process so we can wait for it to be ready again.
     local pid
-    if [ "$enabled" != "$(get_setting .containerEngine.allowedImages.enabled)" ]; then
-        pid=$(get_service_pid "$CONTAINER_ENGINE_SERVICE")
+    if [[ "${enabled}" != "$(get_setting .containerEngine.allowedImages.enabled)" ]]; then
+        pid=$(get_service_pid "${CONTAINER_ENGINE_SERVICE}")
     fi
 
     rdctl api settings -X PUT --input - <<EOF
@@ -353,15 +353,15 @@ update_allowed_patterns() {
   "version": 8,
   "containerEngine": {
     "allowedImages": {
-      "enabled": $enabled,
-      "patterns": [$patterns]
+      "enabled": ${enabled},
+      "patterns": [${patterns}]
     }
   }
 }
 EOF
     # Wait for container engine (and Kubernetes) to be ready again
     if [[ -n ${pid:-} ]]; then
-        try --max 15 --delay 5 refute_service_pid "$CONTAINER_ENGINE_SERVICE" "$pid"
+        try --max 15 --delay 5 refute_service_pid "${CONTAINER_ENGINE_SERVICE}" "${pid}"
         wait_for_container_engine
         if [[ $(get_setting .kubernetes.enabled) == "true" ]]; then
             wait_for_kubelet
@@ -379,8 +379,8 @@ create_file() {
     # where the WSL view of the filesystem is desynchronized from the Windows
     # view, so we end up having ghost files that can't be deleted from Windows.
     if ! is_windows; then
-        mkdir -p "$(dirname "$dest")"
-        cat >"$dest"
+        mkdir -p "$(dirname "${dest}")"
+        cat >"${dest}"
         return
     fi
 
@@ -389,11 +389,11 @@ create_file() {
 
     local winParent
     local winDest
-    winParent="$(wslpath -w "$(dirname "$dest")")"
-    winDest="$(wslpath -w "$dest")"
-    PowerShell.exe -NoProfile -NoLogo -NonInteractive -Command "New-Item -ItemType Directory -ErrorAction SilentlyContinue '$winParent'" || true
-    local command="[IO.File]::WriteAllBytes('$winDest', \$([System.Convert]::FromBase64String('$contents')))"
-    PowerShell.exe -NoProfile -NoLogo -NonInteractive -Command "$command"
+    winParent="$(wslpath -w "$(dirname "${dest}")")"
+    winDest="$(wslpath -w "${dest}")"
+    PowerShell.exe -NoProfile -NoLogo -NonInteractive -Command "New-Item -ItemType Directory -ErrorAction SilentlyContinue '${winParent}'" || true
+    local command="[IO.File]::WriteAllBytes('${winDest}', \$([System.Convert]::FromBase64String('${contents}')))"
+    PowerShell.exe -NoProfile -NoLogo -NonInteractive -Command "${command}"
 }
 
 # unique_filename /tmp/image .png
@@ -406,8 +406,8 @@ unique_filename() {
 
     while true; do
         local filename="${basename}${suffix}${extension}"
-        if [[ ! -e $filename ]]; then
-            echo "$filename"
+        if [[ ! -e ${filename} ]]; then
+            echo "${filename}"
             return
         fi
         suffix="_$((++index))"
@@ -419,14 +419,14 @@ skip_unless_host_ip() {
         # Make sure the exit code is 0 even when netsh.exe or grep fails, in case errexit is in effect
         HOST_IP=$(netsh.exe interface ip show addresses 'vEthernet (WSL)' | grep -Po 'IP Address:\s+\K[\d.]+' || :)
         # The veth interface name changed at some time on Windows 11, so try the new name if the old one doesn't exist
-        if [[ -z $HOST_IP ]]; then
+        if [[ -z ${HOST_IP} ]]; then
             HOST_IP=$(netsh.exe interface ip show addresses 'vEthernet (WSL (Hyper-V firewall))' | grep -Po 'IP Address:\s+\K[\d.]+' || :)
         fi
     else
         # TODO determine if the Lima VM has its own IP address
         HOST_IP=""
     fi
-    if [[ -z $HOST_IP ]]; then
+    if [[ -z ${HOST_IP} ]]; then
         skip "Test requires a routable host ip address"
     fi
 }
@@ -437,11 +437,11 @@ skip_unless_host_ip() {
 # Versions can be filtered by RD_K3S_MIN and RD_K3S_MAX.
 foreach_k3s_version() {
     local k3s_version
-    for k3s_version in $RD_K3S_VERSIONS; do
-        if semver_lte "$RD_K3S_MIN" "$k3s_version" "$RD_K3S_MAX"; then
+    for k3s_version in ${RD_K3S_VERSIONS}; do
+        if semver_lte "${RD_K3S_MIN}" "${k3s_version}" "${RD_K3S_MAX}"; then
             local cmd
             for cmd in "$@"; do
-                bats_test_function --description "$cmd $k3s_version" -- _foreach_k3s_version "$k3s_version" "$cmd"
+                bats_test_function --description "${cmd} ${k3s_version}" -- _foreach_k3s_version "${k3s_version}" "${cmd}"
             done
         fi
     done
@@ -451,8 +451,8 @@ _foreach_k3s_version() {
     local RD_KUBERNETES_VERSION=$1
     local skip_kubernetes_version
     skip_kubernetes_version=$(cat "${BATS_FILE_TMPDIR}/skip-kubernetes-version" 2>/dev/null || echo none)
-    if [[ $skip_kubernetes_version == "$RD_KUBERNETES_VERSION" ]]; then
-        skip "All remaining tests for Kubernetes $RD_KUBERNETES_VERSION are skipped"
+    if [[ ${skip_kubernetes_version} == "${RD_KUBERNETES_VERSION}" ]]; then
+        skip "All remaining tests for Kubernetes ${RD_KUBERNETES_VERSION} are skipped"
     fi
     "$2"
 }
@@ -460,7 +460,7 @@ _foreach_k3s_version() {
 # Tests can call mark_k3s_version_skipped to skip the rest of the tests within
 # this iteration of foreach_k3s_version.
 mark_k3s_version_skipped() {
-    echo "$RD_KUBERNETES_VERSION" >"${BATS_FILE_TMPDIR}/skip-kubernetes-version"
+    echo "${RD_KUBERNETES_VERSION}" >"${BATS_FILE_TMPDIR}/skip-kubernetes-version"
 }
 
 ########################################################################
@@ -479,13 +479,13 @@ save_var() {
     local var
     for var in "$@"; do
         # Using [[ -v $var ]] requires bash 4.2 but macOS only ships with 3.2
-        if [ -n "${!var+exists}" ]; then
-            printf "%s=%q\n" "$var" "${!var}" >"$(_var_filename "$var")"
+        if [[ -n "${!var+exists}" ]]; then
+            printf "%s=%q\n" "${var}" "${!var}" >"$(_var_filename "${var}")"
         else
             res=1
         fi
     done
-    return $res
+    return "${res}"
 }
 
 # Load env variables saved by `save_var`. Returns an error if any of the variables
@@ -496,13 +496,13 @@ load_var() {
     local var
     for var in "$@"; do
         local file
-        file=$(_var_filename "$var")
-        if [[ -r $file ]]; then
+        file=$(_var_filename "${var}")
+        if [[ -r ${file} ]]; then
             # shellcheck disable=SC1090 # Can't follow non-constant source
-            source "$file"
+            source "${file}"
         else
             res=1
         fi
     done
-    return $res
+    return "${res}"
 }

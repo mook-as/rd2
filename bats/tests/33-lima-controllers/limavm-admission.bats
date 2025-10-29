@@ -20,24 +20,24 @@ local_setup_file() {
     try --max 20 --delay 3 -- rdd ctl get MutatingWebhookConfiguration "limavm-defaulter"
 
     run -0 rdd ctl get MutatingWebhookConfiguration limavm-defaulter -o jsonpath='{.webhooks[0]}'
-    local json=$output
+    local json=${output}
 
-    run -0 jq_raw '.failurePolicy' "$json"
+    run -0 jq_raw '.failurePolicy' "${json}"
     assert_output "Fail"
 
-    run -0 jq_raw '.name' "$json"
+    run -0 jq_raw '.name' "${json}"
     assert_output "limavm-defaulter.lima.rancherdesktop.io"
 
-    run -0 jq_raw '.rules[0].apiGroups[0]' "$json"
+    run -0 jq_raw '.rules[0].apiGroups[0]' "${json}"
     assert_output "lima.rancherdesktop.io"
 
-    run -0 jq_raw '.rules[0].apiVersions[0]' "$json"
+    run -0 jq_raw '.rules[0].apiVersions[0]' "${json}"
     assert_output "v1alpha1"
 
-    run -0 jq_raw '.rules[0].resources[0]' "$json"
+    run -0 jq_raw '.rules[0].resources[0]' "${json}"
     assert_output "limavms"
 
-    run -0 jq_raw '.rules[0].operations[0]' "$json"
+    run -0 jq_raw '.rules[0].operations[0]' "${json}"
     assert_output "CREATE"
 }
 

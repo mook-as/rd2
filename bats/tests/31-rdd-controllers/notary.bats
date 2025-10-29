@@ -54,62 +54,62 @@ wait_for_notary_status() {
 }
 
 @test 'wait for controller to create ConfigMap' {
-    wait_for_resource_count "configmaps" "$NOTARY_CONTROLLER_NAME" "basic" 1
+    wait_for_resource_count "configmaps" "${NOTARY_CONTROLLER_NAME}" "basic" 1
 }
 
 @test 'verify ConfigMap has correct name and content' {
     run -0 rdd ctl get configmap "basic-history" -o json
-    local json="$output"
+    local json="${output}"
 
-    run -0 jq -r '.data.change_000' <<<"$json"
+    run -0 jq -r '.data.change_000' <<<"${json}"
     assert_output --partial "value=initial-value"
 
-    run -0 jq -r '.data.latest_change' <<<"$json"
+    run -0 jq -r '.data.latest_change' <<<"${json}"
     assert_output --partial "value=initial-value"
 
-    run -0 jq -r '.data.change_count' <<<"$json"
+    run -0 jq -r '.data.change_count' <<<"${json}"
     assert_output 0
 }
 
 @test 'verify ConfigMap has correct labels and owner references' {
     run -0 rdd ctl get configmap "basic-history" -o json
-    local json="$output"
+    local json="${output}"
 
     # Check labels
-    run -0 jq -r '.metadata.labels."app.kubernetes.io/managed-by"' <<<"$json"
+    run -0 jq -r '.metadata.labels."app.kubernetes.io/managed-by"' <<<"${json}"
     assert_output "notary-controller"
 
-    run -0 jq -r '.metadata.labels."app.kubernetes.io/instance"' <<<"$json"
+    run -0 jq -r '.metadata.labels."app.kubernetes.io/instance"' <<<"${json}"
     assert_output "basic"
 
     # Check owner references
-    run -0 jq -r '.metadata.ownerReferences[0].kind' <<<"$json"
+    run -0 jq -r '.metadata.ownerReferences[0].kind' <<<"${json}"
     assert_output "Notary"
 
-    run -0 jq -r '.metadata.ownerReferences[0].name' <<<"$json"
+    run -0 jq -r '.metadata.ownerReferences[0].name' <<<"${json}"
     assert_output "basic"
 
-    run -0 jq -r '.metadata.ownerReferences[0].controller' <<<"$json"
+    run -0 jq -r '.metadata.ownerReferences[0].controller' <<<"${json}"
     assert_output "true"
 
-    run -0 jq -r '.metadata.ownerReferences[0].blockOwnerDeletion' <<<"$json"
+    run -0 jq -r '.metadata.ownerReferences[0].blockOwnerDeletion' <<<"${json}"
     assert_output "true"
 }
 
 @test 'verify Notary status is updated' {
     run -0 rdd ctl get notary basic -o json
-    local json="$output"
+    local json="${output}"
 
-    run -0 jq -r 'has("status")' <<<"$json"
+    run -0 jq -r 'has("status")' <<<"${json}"
     assert_output "true"
 
-    run -0 jq -r '.status.lastRecordedValue' <<<"$json"
+    run -0 jq -r '.status.lastRecordedValue' <<<"${json}"
     assert_output "initial-value"
 
-    run -0 jq -r '.status.configMapStatus' <<<"$json"
+    run -0 jq -r '.status.configMapStatus' <<<"${json}"
     assert_output "Updated"
 
-    run -0 jq -r '.status.changeCount' <<<"$json"
+    run -0 jq -r '.status.changeCount' <<<"${json}"
     assert_output 1
 }
 
@@ -123,32 +123,32 @@ wait_for_notary_status() {
 
 @test 'verify ConfigMap records the change' {
     run -0 rdd ctl get configmap "basic-history" -o json
-    local json="$output"
+    local json="${output}"
 
-    run -0 jq -r '.data.change_000' <<<"$json"
+    run -0 jq -r '.data.change_000' <<<"${json}"
     assert_output --partial "value=initial-value"
 
-    run -0 jq -r '.data.change_001' <<<"$json"
+    run -0 jq -r '.data.change_001' <<<"${json}"
     assert_output --partial "value=updated-value"
 
-    run -0 jq -r '.data.latest_change' <<<"$json"
+    run -0 jq -r '.data.latest_change' <<<"${json}"
     assert_output --partial "value=updated-value"
 
-    run -0 jq -r '.data.change_count' <<<"$json"
+    run -0 jq -r '.data.change_count' <<<"${json}"
     assert_output 1
 }
 
 @test 'verify Notary status shows updated change count' {
     run -0 rdd ctl get notary basic -o json
-    local json="$output"
+    local json="${output}"
 
-    run -0 jq -r '.status.lastRecordedValue' <<<"$json"
+    run -0 jq -r '.status.lastRecordedValue' <<<"${json}"
     assert_output "updated-value"
 
-    run -0 jq -r '.status.configMapStatus' <<<"$json"
+    run -0 jq -r '.status.configMapStatus' <<<"${json}"
     assert_output "Updated"
 
-    run -0 jq -r '.status.changeCount' <<<"$json"
+    run -0 jq -r '.status.changeCount' <<<"${json}"
     assert_output 2
 }
 
@@ -162,26 +162,26 @@ wait_for_notary_status() {
 
 @test 'verify ConfigMap records multiple changes' {
     run -0 rdd ctl get configmap "basic-history" -o json
-    local json="$output"
+    local json="${output}"
 
     # Verify all changes are recorded
-    run -0 jq -r '.data.change_000' <<<"$json"
+    run -0 jq -r '.data.change_000' <<<"${json}"
     assert_output --partial "value=initial-value"
 
-    run -0 jq -r '.data.change_001' <<<"$json"
+    run -0 jq -r '.data.change_001' <<<"${json}"
     assert_output --partial "value=updated-value"
 
-    run -0 jq -r '.data.change_002' <<<"$json"
+    run -0 jq -r '.data.change_002' <<<"${json}"
     assert_output --partial "value=third-value"
 
-    run -0 jq -r '.data.change_003' <<<"$json"
+    run -0 jq -r '.data.change_003' <<<"${json}"
     assert_output --partial "value=fourth-value"
 
     # Verify latest change and count
-    run -0 jq -r '.data.latest_change' <<<"$json"
+    run -0 jq -r '.data.latest_change' <<<"${json}"
     assert_output --partial "value=fourth-value"
 
-    run -0 jq -r '.data.change_count' <<<"$json"
+    run -0 jq -r '.data.change_count' <<<"${json}"
     assert_output 3
 }
 
@@ -194,16 +194,16 @@ wait_for_notary_status() {
 
     # Check that no new change was recorded
     run -0 rdd ctl get configmap "basic-history" -o json
-    local json="$output"
+    local json="${output}"
 
-    run -0 jq -r '.data.change_003' <<<"$json"
+    run -0 jq -r '.data.change_003' <<<"${json}"
     assert_output --partial "value=fourth-value"
 
-    run -0 jq -r '.data.change_count' <<<"$json"
+    run -0 jq -r '.data.change_count' <<<"${json}"
     assert_output 3
 
     # Should NOT have change_004
-    run -0 jq -r '.data | has("change_004")' <<<"$json"
+    run -0 jq -r '.data | has("change_004")' <<<"${json}"
     assert_output "false"
 }
 
@@ -221,5 +221,5 @@ wait_for_notary_status() {
 }
 
 @test 'wait for ConfigMaps to be cleaned up by finalizer' {
-    wait_for_resource_count "configmaps" "$NOTARY_CONTROLLER_NAME" "basic" 0
+    wait_for_resource_count "configmaps" "${NOTARY_CONTROLLER_NAME}" "basic" 0
 }

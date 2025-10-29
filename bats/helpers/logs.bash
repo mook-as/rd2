@@ -8,7 +8,7 @@
 quote_msg() {
     local quoted
     quoted=$(sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/^/"/' <<<"$1")
-    if [[ $quoted == *… ]]; then
+    if [[ ${quoted} == *… ]]; then
         echo "${quoted%…}"
     else
         echo "${quoted}\""

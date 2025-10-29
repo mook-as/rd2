@@ -4,7 +4,7 @@ load '../../helpers/load'
 
 @test 'Make sure instance does not exist' {
     rdd svc delete || :
-    assert_dir_not_exist "$PATH_APP_HOME"
+    assert_dir_not_exist "${PATH_APP_HOME}"
 }
 
 @test 'Delete instance succeeds even when the instance does not exist' {
@@ -23,7 +23,7 @@ load '../../helpers/load'
     run -0 rdd svc create
     run -0 extract_msg
     assert_output "successfully created \"rancher-desktop-${RDD_INSTANCE}\" control plane"
-    assert_dir_exist "$PATH_APP_HOME"
+    assert_dir_exist "${PATH_APP_HOME}"
 }
 
 @test 'verify instance does exist but has not been started' {
@@ -55,7 +55,7 @@ EOT
     run -0 rdd svc stop
     run -0 extract_msg
     assert_output "successfully stopped \"rancher-desktop-${RDD_INSTANCE}\" control plane"
-    assert_dir_exist "$PATH_APP_HOME"
+    assert_dir_exist "${PATH_APP_HOME}"
 }
 
 @test 'verify instance has been stopped' {
@@ -70,7 +70,7 @@ EOT
     run -0 rdd svc delete
     run -0 extract_msg
     assert_output "successfully deleted \"rancher-desktop-${RDD_INSTANCE}\" control plane"
-    assert_dir_not_exist "$PATH_APP_HOME"
+    assert_dir_not_exist "${PATH_APP_HOME}"
 }
 
 @test 'verify instance has been deleted' {

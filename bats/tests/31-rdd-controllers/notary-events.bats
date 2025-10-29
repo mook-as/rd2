@@ -49,7 +49,7 @@ assert_events_exist() {
     local reason=$2
 
     run -0 rdd ctl get events --field-selector involvedObject.name="${resource_name}" -o json
-    run -0 jq ".items | map(select(.reason == \"$reason\")) | length" <<<"$output"
+    run -0 jq ".items | map(select(.reason == \"${reason}\")) | length" <<<"${output}"
     refute_output 0
 }
 
@@ -67,12 +67,12 @@ get_events_after_timestamp() {
     local reason=$3
 
     run rdd ctl get events --field-selector involvedObject.name="${resource_name}" -o json
-    if [ "$status" -ne 0 ]; then
+    if [[ "${status}" -ne 0 ]]; then
         echo "[]"
         return 0
     fi
 
-    jq -r ".items | map(select(.lastTimestamp > \"$timestamp\" and .reason == \"$reason\"))" <<<"$output"
+    jq -r ".items | map(select(.lastTimestamp > \"${timestamp}\" and .reason == \"${reason}\"))" <<<"${output}"
 }
 
 assert_events_after_timestamp() {
@@ -80,8 +80,8 @@ assert_events_after_timestamp() {
     local timestamp=$2
     local reason=$3
 
-    run -0 get_events_after_timestamp "$resource_name" "$timestamp" "$reason"
-    run -0 jq 'length' <<<"$output"
+    run -0 get_events_after_timestamp "${resource_name}" "${timestamp}" "${reason}"
+    run -0 jq 'length' <<<"${output}"
     refute_output 0
 }
 
@@ -97,19 +97,19 @@ get_latest_event_timestamp() {
     local resource_name=$1
 
     run rdd ctl get events --field-selector involvedObject.name="${resource_name}" -o json
-    if [ "$status" -ne 0 ]; then
+    if [[ "${status}" -ne 0 ]]; then
         echo ""
         return 1
     fi
 
-    jq -r ".items | sort_by(.lastTimestamp) | .[-1].lastTimestamp // empty" <<<"$output"
+    jq -r ".items | sort_by(.lastTimestamp) | .[-1].lastTimestamp // empty" <<<"${output}"
 }
 
 @test 'verify event generation for spec updates' {
     create_notary "events" "initial-event-value" "events-history"
 
     # Wait for initial ConfigMap creation and events
-    wait_for_resource_count "configmaps" "$NOTARY_CONTROLLER_NAME" "events" 1
+    wait_for_resource_count "configmaps" "${NOTARY_CONTROLLER_NAME}" "events" 1
     wait_for_events "events" "SpecUpdate"
     wait_for_events "events" "ValueRecorded"
 
@@ -121,20 +121,20 @@ get_latest_event_timestamp() {
 
     # Get the timestamp of the most recent event before update
     run -0 get_latest_event_timestamp "events"
-    timestamp=$output
+    timestamp=${output}
 
     # Update with a different value
     update_notary_value "events" "new-event-value"
 
     # Wait for status update and new events
     wait_for_notary_status "events" "new-event-value"
-    wait_for_events_after_timestamp "events" "$timestamp" "SpecUpdate"
-    wait_for_events_after_timestamp "events" "$timestamp" "ValueRecorded"
+    wait_for_events_after_timestamp "events" "${timestamp}" "SpecUpdate"
+    wait_for_events_after_timestamp "events" "${timestamp}" "ValueRecorded"
 
     # Verify we have new SpecUpdate and ValueRecorded events containing the new value
-    run -0 get_events_after_timestamp "events" "$timestamp" "SpecUpdate"
+    run -0 get_events_after_timestamp "events" "${timestamp}" "SpecUpdate"
     assert_output --partial "new-event-value"
-    run -0 get_events_after_timestamp "events" "$timestamp" "ValueRecorded"
+    run -0 get_events_after_timestamp "events" "${timestamp}" "ValueRecorded"
     assert_output --partial "new-event-value"
 }
 
@@ -143,13 +143,13 @@ get_latest_event_timestamp() {
     create_notary "dupe" "constant-value" "dupe-history"
 
     # Wait for initial ConfigMap creation and events
-    wait_for_resource_count "configmaps" "$NOTARY_CONTROLLER_NAME" "dupe" 1
+    wait_for_resource_count "configmaps" "${NOTARY_CONTROLLER_NAME}" "dupe" 1
     wait_for_events "dupe" "SpecUpdate"
     wait_for_events "dupe" "ValueRecorded"
 
     # Get the timestamp before triggering multiple identical reconciles
     run -0 get_latest_event_timestamp "dupe"
-    timestamp=$output
+    timestamp=${output}
 
     # Trigger multiple reconciles with identical spec.value by changing annotations
     # Each will generate identical SpecUpdate and NoChange events that Kubernetes should deduplicate
@@ -164,19 +164,19 @@ get_latest_event_timestamp() {
 
     # Count events after the timestamp - should be deduplicated by Kubernetes
     # It is not clear if Kubernetes will always catch all duplicates, but it should get at least 1
-    run -0 get_events_after_timestamp "dupe" "$timestamp" "SpecUpdate"
+    run -0 get_events_after_timestamp "dupe" "${timestamp}" "SpecUpdate"
     assert_output --partial "constant-value"
 
-    run -0 jq 'length' <<<"$output"
+    run -0 jq 'length' <<<"${output}"
     assert_output_lt 4
 
-    run -0 get_events_after_timestamp "dupe" "$timestamp" "NoChange"
+    run -0 get_events_after_timestamp "dupe" "${timestamp}" "NoChange"
     assert_output --partial "value unchanged"
 
-    run -0 jq 'length' <<<"$output"
+    run -0 jq 'length' <<<"${output}"
     assert_output_lt 4
 
-    run -0 get_events_after_timestamp "dupe" "$timestamp" "ValueRecorded"
-    run -0 jq 'length' <<<"$output"
+    run -0 get_events_after_timestamp "dupe" "${timestamp}" "ValueRecorded"
+    run -0 jq 'length' <<<"${output}"
     assert_output 0
 }

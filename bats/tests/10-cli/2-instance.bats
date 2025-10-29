@@ -7,14 +7,14 @@ load '../../helpers/load'
 }
 
 @test 'RDD_INSTANCE overrides default instance' {
-    [[ $RDD_INSTANCE != "2" ]]
+    [[ ${RDD_INSTANCE} != "2" ]]
     run -0 rdd svc status
     assert_line --partial "rancher-desktop-${RDD_INSTANCE}"
     refute_line --partial "rancher-desktop-2"
 }
 
 @test '--instance overrides RDD_INSTANCE' {
-    [[ $RDD_INSTANCE != "vampire" ]]
+    [[ ${RDD_INSTANCE} != "vampire" ]]
     run -0 rdd --instance vampire svc status
     assert_line --partial "rancher-desktop-vampire"
     refute_line --partial "rancher-desktop-${RDD_INSTANCE}"
