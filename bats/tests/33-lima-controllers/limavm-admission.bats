@@ -10,9 +10,9 @@ local_setup_file() {
     rdd ctl create namespace "test-ns2"
     rdd ctl create namespace "test-ns3"
 
-    rdd ctl create configmap "test-template" --namespace "test-ns1" --from-literal=template='{"vmType":"vz"}'
-    rdd ctl create configmap "test-template" --namespace "test-ns2" --from-literal=template='{"vmType":"vz"}'
-    rdd ctl create configmap "test-template" --namespace "test-ns3" --from-literal=template='{"vmType":"vz"}'
+    rdd ctl create configmap "test-template" --namespace "test-ns1" --from-literal=template='{}'
+    rdd ctl create configmap "test-template" --namespace "test-ns2" --from-literal=template='{}'
+    rdd ctl create configmap "test-template" --namespace "test-ns3" --from-literal=template='{}'
 }
 
 @test "webhook configuration has correct structure" {

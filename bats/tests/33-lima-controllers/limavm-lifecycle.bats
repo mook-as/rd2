@@ -7,7 +7,7 @@ load '../../helpers/load'
 NAMESPACE="lifecycle-test-ns"
 VM_NAME="test-vm"
 TEMPLATE_NAME="${VM_NAME}-template"
-TEMPLATE='{"vmType":"vz","memory":"2GB"}'
+TEMPLATE='{"memory":"2GB"}'
 
 local_setup_file() {
     setup_rdd_control_plane "lima"
@@ -96,10 +96,10 @@ EOF
 
 @test "template ConfigMap modification is allowed if template key exists" {
     run -0 rdd ctl patch configmap "$TEMPLATE_NAME" --namespace $NAMESPACE --type='merge' \
-        --patch='{"data":{"template":"{\"vmType\":\"vz\",\"memory\":\"4GB\"}"}}'
+        --patch='{"data":{"template":"{\"memory\":\"4GB\"}"}}'
 
     run -0 rdd ctl get configmap "$TEMPLATE_NAME" --namespace "$NAMESPACE" -o jsonpath='{.data.template}'
-    assert_output '{"vmType":"vz","memory":"4GB"}'
+    assert_output '{"memory":"4GB"}'
 }
 
 @test "template ConfigMap modification without template key is rejected" {
@@ -110,7 +110,7 @@ EOF
 
     # Verify the template key still exists
     run -0 rdd ctl get configmap "$TEMPLATE_NAME" --namespace "$NAMESPACE" -o jsonpath='{.data.template}'
-    assert_output '{"vmType":"vz","memory":"4GB"}'
+    assert_output '{"memory":"4GB"}'
 }
 
 @test "template ConfigMap modification with empty template is rejected" {
@@ -121,7 +121,7 @@ EOF
 
     # Verify the template data is unchanged
     run -0 rdd ctl get configmap "$TEMPLATE_NAME" --namespace "$NAMESPACE" -o jsonpath='{.data.template}'
-    assert_output '{"vmType":"vz","memory":"4GB"}'
+    assert_output '{"memory":"4GB"}'
 }
 
 @test "template ConfigMap cannot be deleted independently" {
