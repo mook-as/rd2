@@ -63,7 +63,7 @@ export PATH="${PATH_BATS_ROOT}/../bin:${PATH}"
 call_local_function() {
     local func
     func="local_$(calling_function)"
-    if [[ "$(type -t "${func}")" = "function" ]]; then
+    if [[ "$(type -t "${func}" || true)" = "function" ]]; then
         "${func}"
     fi
 }
@@ -71,7 +71,9 @@ call_local_function() {
 setup_file() {
     # We require bash 4; bash 3.2 (as shipped by macOS) seems to have
     # compatibility issues.
-    if semver_gt 4.0.0 "$(semver "${BASH_VERSION}")"; then
+    local bash_version
+    bash_version=$(semver "${BASH_VERSION}")
+    if semver_gt 4.0.0 "${bash_version}"; then
         fail "Bash 4.0.0 is required; you have ${BASH_VERSION}"
     fi
 

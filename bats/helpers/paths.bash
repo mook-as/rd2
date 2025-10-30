@@ -20,17 +20,20 @@ if is_linux; then
     PATH_LOGS="${PATH_APP_HOME}/logs"
 fi
 
-wslpath_from_win32_env() {
-    # The cmd.exe _sometimes_ returns an empty string when invoked in a subshell
-    # wslpath "$(cmd.exe /c "echo %$1%" 2>/dev/null)" | tr -d "\r"
-    # Let's see if powershell.exe avoids this issue
-    wslpath "$(powershell.exe -Command "Write-Output \${Env:$1}")" | tr -d "\r"
+# Get the WSL (Unix) path for a Windows shell folder id; for a list of valid ids,
+# see https://learn.microsoft.com/en-us/dotnet/api/system.environment.specialfolder
+wslpath_from_win32_folder_id() {
+    local folder_id=$1
+    local windows_path
+    windows_path=$(powershell.exe -Command "[System.Environment]::GetFolderPath(${folder_id})")
+    local unix_path
+    unix_path=$(wslpath -u "${windows_path}")
+    tr -d "\r" <<<"${unix_path}"
 }
 
 if is_windows; then
-    LOCALAPPDATA="$(wslpath_from_win32_env LOCALAPPDATA)"
-    PROGRAMFILES="$(wslpath_from_win32_env ProgramFiles)"
-    SYSTEMROOT="$(wslpath_from_win32_env SystemRoot)"
+    LOCALAPPDATA="$(wslpath_from_win32_folder_id 28)"
+    PROGRAMFILES="$(wslpath_from_win32_folder_id 38)"
 
     PATH_APP_HOME="${LOCALAPPDATA}/rancher-desktop-${RDD_INSTANCE}"
     PATH_CONFIG="${LOCALAPPDATA}/rancher-desktop-${RDD_INSTANCE}"

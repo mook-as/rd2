@@ -221,7 +221,9 @@ get_json_test_data() {
 }
 
 @test 'jq must be version 1.7.1 or newer' {
-    run semver "$(jq --version)"
+    local version
+    version=$(jq --version)
+    run semver "${version}"
     assert_success
     semver_gte "${output}" 1.7.1
 }

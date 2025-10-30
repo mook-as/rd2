@@ -39,7 +39,7 @@ rdd() {
         mapfile -t envs < <({
             tr : '\n' <<<"${WSLENV}"
             env | awk -F= '/^RDD_/ { print $1 }'
-        } | sort -u)
+        } | sort -u || true)
         WSLENV=""
         for env in "${envs[@]}"; do
             WSLENV="${WSLENV}:${env}"

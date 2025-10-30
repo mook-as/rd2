@@ -8,6 +8,7 @@ assert_output_ge() {
     if [[ ${output} =~ ^-?[0-9]+$ ]]; then
         actual="${output}"
     else
+        # shellcheck disable=SC2312 # We're intentionally failing anyway.
         batslib_print_kv_single_or_multi 8 \
             'expected' ">= ${expected}" \
             'actual' "${output} (not a valid integer)" |
@@ -17,6 +18,7 @@ assert_output_ge() {
     fi
 
     if ((actual < expected)); then
+        # shellcheck disable=SC2312 # We're intentionally failing anyway.
         batslib_print_kv_single_or_multi 8 \
             'expected' ">= ${expected}" \
             'actual' "${actual}" |
@@ -33,6 +35,7 @@ assert_output_lt() {
     if [[ ${output} =~ ^-?[0-9]+$ ]]; then
         actual="${output}"
     else
+        # shellcheck disable=SC2312 # We're intentionally failing anyway.
         batslib_print_kv_single_or_multi 8 \
             'expected' "< ${expected}" \
             'actual' "${output} (not a valid integer)" |
@@ -42,6 +45,7 @@ assert_output_lt() {
     fi
 
     if ((actual >= expected)); then
+        # shellcheck disable=SC2312 # We're intentionally failing anyway.
         batslib_print_kv_single_or_multi 8 \
             'expected' "< ${expected}" \
             'actual' "${actual}" |

@@ -91,7 +91,7 @@ refute_file_contains() {
 ########################################################################
 
 extract_msg() {
-    echo "${output}" | sed -n 's/.*msg="\(.*\)"$/\1/p' | sed 's/\\"/"/g'
+    sed -n '/.*msg="\(.*\)"$/{ s//\1/; s/\\"/"/g; p; }' <<<"${output}"
 }
 
 # Convert raw string into properly quoted JSON string
@@ -139,6 +139,7 @@ jq_raw() {
     elif ((status == 0)); then
         # The command succeeded, so we should be able to run it again without error
         # If the jq command emitted a newline, then we want to emit a newline too.
+        # shellcheck disable=SC2312 # wc can't fail
         if [[ "$(jq --raw-output "${args[@]}" <<<"${json}" | wc -c)" -gt 0 ]]; then
             echo ""
         fi
@@ -188,6 +189,7 @@ semver_is_valid() {
 # (semver_eq and semver_neq don't really depend on the arguments being versions).
 # `A = B = C`
 semver_eq() {
+    # shellcheck disable=SC2312 # sort and wc can't fail.
     [[ $# -gt 0 ]] && [[ $(printf "%s\n" "$@" | sort --unique | wc -l) -eq 1 ]]
 }
 
@@ -195,6 +197,7 @@ semver_eq() {
 # `A ≠ B ≠ C` because semver_neq will also return a failure if `A = C`.
 # `(A ≠ B) & (A ≠ C) & (B ≠ C)`
 semver_neq() {
+    # shellcheck disable=SC2312 # sort can't fail.
     [[ $# -gt 0 ]] && printf "%s\n" "$@" | sort | sort --check=silent --unique
 }
 
@@ -256,7 +259,9 @@ comment() {
 # Set CALLER to print a calling function higher up in the call stack.
 trace() {
     if is_true "${RDD_TRACE}"; then
-        CALLER=${CALLER:-$(calling_function)} comment "$@"
+        local calling_function
+        calling_function=$(calling_function)
+        CALLER=${CALLER:-${calling_function}} comment "$@"
     fi
 }
 
@@ -344,7 +349,9 @@ update_allowed_patterns() {
     # If the enabled state changes, then the container engine will be restarted.
     # Record PID of the current daemon process so we can wait for it to be ready again.
     local pid
-    if [[ "${enabled}" != "$(get_setting .containerEngine.allowedImages.enabled)" ]]; then
+    local patterns_enabled
+    patterns_enabled=$(get_setting .containerEngine.allowedImages.enabled)
+    if [[ "${enabled}" != "${patterns_enabled}" ]]; then
         pid=$(get_service_pid "${CONTAINER_ENGINE_SERVICE}")
     fi
 
@@ -363,7 +370,8 @@ EOF
     if [[ -n ${pid:-} ]]; then
         try --max 15 --delay 5 refute_service_pid "${CONTAINER_ENGINE_SERVICE}" "${pid}"
         wait_for_container_engine
-        if [[ $(get_setting .kubernetes.enabled) == "true" ]]; then
+        enabled=$(get_setting .kubernetes.enabled)
+        if [[ "${enabled}" == "true" ]]; then
             wait_for_kubelet
         fi
     fi

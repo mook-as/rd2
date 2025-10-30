@@ -16,17 +16,27 @@ quote_msg() {
 }
 
 assert_fatal() {
-    assert_stderr_line --partial "level=fatal msg=$(quote_msg "$1")"
+    local quoted
+    quoted=$(quote_msg "$1")
+    assert_stderr_line --partial "level=fatal msg=${quoted}"
 }
 assert_error() {
-    assert_stderr_line --partial "level=error msg=$(quote_msg "$1")"
+    local quoted
+    quoted=$(quote_msg "$1")
+    assert_stderr_line --partial "level=error msg=${quoted}"
 }
 assert_warning() {
-    assert_stderr_line --partial "level=warning msg=$(quote_msg "$1")"
+    local quoted
+    quoted=$(quote_msg "$1")
+    assert_stderr_line --partial "level=warning msg=${quoted}"
 }
 assert_info() {
-    assert_stderr_line --partial "level=info msg=$(quote_msg "$1")"
+    local quoted
+    quoted=$(quote_msg "$1")
+    assert_stderr_line --partial "level=info msg=${quoted}"
 }
 assert_debug() {
-    assert_stderr_line --partial "level=debug msg=$(quote_msg "$1")"
+    local quoted
+    quoted=$(quote_msg "$1")
+    assert_stderr_line --partial "level=debug msg=${quoted}"
 }

@@ -35,7 +35,9 @@ get_port_status() {
 # Check if a port is available on localhost
 is_port_available() {
     local port=$1
-    [[ -z $(get_port_status "${port}") ]]
+    local port_status
+    port_status=$(get_port_status "${port}")
+    [[ -z "${port_status}" ]]
 }
 
 # Test basic functionality without port conflicts

@@ -16,5 +16,7 @@ get_instance_index() {
 # Calculate the expected port for the current RDD_INSTANCE
 get_expected_port() {
     local base_port="${1:-6443}"
-    echo $((base_port + $(get_instance_index)))
+    local instance_index
+    instance_index=$(get_instance_index)
+    echo $((base_port + instance_index))
 }
