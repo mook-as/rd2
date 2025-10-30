@@ -17,7 +17,8 @@ assert_running() {
 }
 
 # assert_created verifies the $name VM has been created in $namespace from $template
-# The `rdd limavm create` command must have been run with `run --separate-stderr`.
+# The `rdd limavm create` command must have been run with `run --separate-stderr`
+# because we are checking $stderr for the log message.
 assert_created() {
     local name=$1
     local namespace=$2
@@ -110,7 +111,7 @@ assert_created() {
 }
 
 @test "lima create fails with non-existent file" {
-    run -1 rdd limavm create "test-vm" "/nonexistent/template.yaml" --namespace "$LIMA_TEST_NS"
+    run -1 rdd limavm create "test-vm" "${BATS_TEST_TMPDIR}/nonexistent/template.yaml" --namespace "$LIMA_TEST_NS"
     assert_output --partial 'failed to read template file'
 }
 

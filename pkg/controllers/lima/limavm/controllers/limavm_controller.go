@@ -86,7 +86,7 @@ func (r *LimaVMReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 
 	// Set owner reference if not already set.
 	// Note: ConfigMap finalizer is already set during creation by the mutating webhook.
-	if len(templateConfigMap.OwnerReferences) == 0 {
+	if !base.IsOwnedByUID(templateConfigMap, limaVM.GetUID()) {
 		if err := ctrl.SetControllerReference(&limaVM, templateConfigMap, r.Scheme); err != nil {
 			logger.Error(err, "Failed to set owner reference on template ConfigMap")
 			return ctrl.Result{}, err

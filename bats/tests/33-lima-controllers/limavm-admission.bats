@@ -112,6 +112,46 @@ EOF
     assert_output --partial "not found"
 }
 
+@test "dry-run detects pre-existing ConfigMap name conflict" {
+    # Create an unrelated ConfigMap that happens to use the name we need
+    rdd ctl create configmap "test-vm-template" --namespace "test-ns3" --from-literal=template='{}'
+    rdd ctl get configmap "test-vm-template" --namespace "test-ns3"
+
+    # Try to create a LimaVM that would try to create the same ConfigMap with dry-run=server
+    # This should fail because a ConfigMap with that name already exists
+    run -1 rdd ctl create -f - --dry-run=server <<EOF
+apiVersion: lima.rancherdesktop.io/v1alpha1
+kind: LimaVM
+metadata:
+  name: test-vm
+  namespace: test-ns3
+spec:
+  templateRef:
+    name: test-template
+  running: false
+EOF
+    assert_output --partial "already exists"
+    assert_output --partial "test-vm-template"
+
+    # Make sure the unrelated Configmap still exists
+    rdd ctl get configmap "test-vm-template" --namespace "test-ns3"
+
+    # Verify the actual create also fails
+    run -1 rdd ctl create -f - <<EOF
+apiVersion: lima.rancherdesktop.io/v1alpha1
+kind: LimaVM
+metadata:
+  name: test-vm
+  namespace: test-ns3
+spec:
+  templateRef:
+    name: test-template
+  running: false
+EOF
+    assert_output --partial "already exists"
+    assert_output --partial "test-vm-template"
+}
+
 @test "deletion allows recreation in different namespace" {
     # Delete the LimaVM from test-ns1
     run -0 rdd lima delete "my-vm"

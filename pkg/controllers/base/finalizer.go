@@ -29,21 +29,21 @@ const FinalizerName = "rdd.rancherdesktop.io/cleanup"
 // When true is returned, controllers should return immediately to allow re-reconciliation
 // with the updated object (avoids stale resourceVersion conflicts).
 func EnsureFinalizer(ctx context.Context, c client.Client, obj client.Object) (bool, error) {
-	if !controllerutil.ContainsFinalizer(obj, FinalizerName) {
-		controllerutil.AddFinalizer(obj, FinalizerName)
-		if err := c.Update(ctx, obj); err != nil {
-			return false, fmt.Errorf("failed to add finalizer: %w", err)
-		}
-		return true, nil
+	if !controllerutil.AddFinalizer(obj, FinalizerName) {
+		return false, nil
 	}
-	return false, nil
+	if err := c.Update(ctx, obj); err != nil {
+		return false, fmt.Errorf("failed to add finalizer: %w", err)
+	}
+	return true, nil
 }
 
 // RemoveFinalizer removes the finalizer from the object and updates it.
 func RemoveFinalizer(ctx context.Context, c client.Client, obj client.Object) error {
-	controllerutil.RemoveFinalizer(obj, FinalizerName)
-	if err := c.Update(ctx, obj); err != nil {
-		return fmt.Errorf("failed to remove finalizer: %w", err)
+	if controllerutil.RemoveFinalizer(obj, FinalizerName) {
+		if err := c.Update(ctx, obj); err != nil {
+			return fmt.Errorf("failed to remove finalizer: %w", err)
+		}
 	}
 	return nil
 }
@@ -93,7 +93,8 @@ func DeleteOwnedResources(ctx context.Context, c client.Client, owner client.Obj
 	} else if rn, ok := owner.(ResourceNamespace); ok {
 		namespace = rn.GetResourceNamespace()
 	} else {
-		return fmt.Errorf("cannot determine namespace for cleanup: owner %q is cluster-scoped but does not implement ResourceNamespace interface", owner.GetName())
+		return fmt.Errorf("cannot determine namespace for cleanup: owner %q is cluster-scoped %s resource but does not implement ResourceNamespace interface",
+			owner.GetName(), owner.GetObjectKind().GroupVersionKind())
 	}
 
 	listOpts := []client.ListOption{client.InNamespace(namespace)}
@@ -115,7 +116,7 @@ func DeleteOwnedResources(ctx context.Context, c client.Client, owner client.Obj
 				errs = append(errs, fmt.Errorf("item is not a client.Object: %s", runtimeObj.GetObjectKind().GroupVersionKind()))
 				return nil // Continue to next item
 			}
-			if !isOwnedByUID(obj, owner.GetUID()) {
+			if !IsOwnedByUID(obj, owner.GetUID()) {
 				return nil // Skip this item, continue iteration
 			}
 			gvk := obj.GetObjectKind().GroupVersionKind()
@@ -155,8 +156,8 @@ func HasFinalizer(obj client.Object) bool {
 	return controllerutil.ContainsFinalizer(obj, FinalizerName)
 }
 
-// isOwnedByUID checks if a resource is owned by an owner with the given UID.
-func isOwnedByUID(obj client.Object, ownerUID types.UID) bool {
+// IsOwnedByUID checks if a resource is owned by an owner with the given UID.
+func IsOwnedByUID(obj client.Object, ownerUID types.UID) bool {
 	for _, ownerRef := range obj.GetOwnerReferences() {
 		if ownerRef.UID == ownerUID {
 			return true

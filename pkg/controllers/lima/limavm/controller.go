@@ -11,12 +11,14 @@ import (
 
 	admissionregistrationv1 "k8s.io/api/admissionregistration/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	ctrlwebhookadmission "sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	"github.com/rancher-sandbox/rancher-desktop-daemon/pkg/apis/lima/v1alpha1"
@@ -180,10 +182,7 @@ func (d *LimaVMDefaulter) Default(ctx context.Context, obj runtime.Object) error
 		return fmt.Errorf("expected a LimaVM object but got %T", obj)
 	}
 
-	// Add finalizer if not present
-	if !base.HasFinalizer(limavm) {
-		limavm.Finalizers = append(limavm.Finalizers, base.FinalizerName)
-	}
+	controllerutil.AddFinalizer(limavm, base.FinalizerName)
 
 	// Validate name uniqueness BEFORE creating ConfigMap
 	// This prevents orphaned ConfigMaps when validation fails
@@ -200,6 +199,20 @@ func (d *LimaVMDefaulter) Default(ctx context.Context, obj runtime.Object) error
 	// Check if this is a dry-run request
 	if base.IsDryRun(ctx) {
 		klog.V(1).Infof("[DryRun] Webhook validating LimaVM %s/%s (skipping ConfigMap creation)\n", limavm.Namespace, limavm.Name)
+
+		// Check if ConfigMap already exists (to match actual create behavior)
+		existingConfigMap := &corev1.ConfigMap{}
+		configMapKey := types.NamespacedName{
+			Name:      limavm.GetTemplateConfigMapName(),
+			Namespace: limavm.Namespace,
+		}
+		err := d.Client.Get(ctx, configMapKey, existingConfigMap)
+		if err == nil {
+			return fmt.Errorf("template ConfigMap %q already exists", configMapKey.Name)
+		}
+		if !apierrors.IsNotFound(err) {
+			return fmt.Errorf("failed to check for existing ConfigMap: %w", err)
+		}
 
 		// Validate the template data
 		if _, err := validateTemplateData(map[string]string{v1alpha1.TemplateConfigMapKey: templateData}); err != nil {
@@ -257,8 +270,8 @@ func (d *LimaVMDefaulter) fetchTemplateRefData(ctx context.Context, limavm *v1al
 	return configMap.Data[v1alpha1.TemplateConfigMapKey], nil
 }
 
-// ConfigMapValidator validates ConfigMap resources that are template ConfigMaps for LimaVM resources
-// (identified by label selector controllers.TemplateConfigMapLabel set to "true").
+// ConfigMapValidator validates ConfigMap resources that are template ConfigMaps for LimaVM resources.
+// It is only invoked for ConfigMaps that have the TemplateConfigMapLabel set to "true".
 type ConfigMapValidator struct {
 	Client client.Client
 }

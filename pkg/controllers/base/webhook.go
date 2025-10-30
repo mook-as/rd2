@@ -39,7 +39,6 @@ func IsDryRun(ctx context.Context) bool {
 // This follows controller-runtime's conventions:
 // - Validating: /validate-{group}-{version}-{kind}
 // - Mutating: /mutate-{group}-{version}-{kind}
-// For core resources (empty group), the path becomes: /validate--{version}-{kind} or /mutate--{version}-{kind}.
 // Dots in the API group are replaced with dashes, and Kind is lowercased.
 //
 // Example: GenerateWebhookPath(schema.GroupVersionKind{Group: "lima.rancherdesktop.io", Version: "v1alpha1", Kind: "LimaVM"}, MutatingWebhook)
