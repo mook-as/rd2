@@ -10,15 +10,15 @@ local_setup() {
 }
 
 reset_counter() {
-    echo 0 >"$COUNTER"
+    echo 0 >"${COUNTER}"
     SECONDS=0
 }
 
 # Increment counter file. Return success when counter >= max.
 inc_counter() {
     local max=${1-9999}
-    local counter=$(($(cat "$COUNTER") + 1))
-    echo $counter >"$COUNTER"
+    local counter=$(($(cat "${COUNTER}") + 1))
+    echo "${counter}" >"${COUNTER}"
     ((counter >= max))
 }
 
@@ -32,7 +32,7 @@ is() {
     # shellcheck disable=SC2086 # we want to split on whitespace
     run ${BATS_TEST_DESCRIPTION}
     assert_success
-    assert_output "$expect"
+    assert_output "${expect}"
 }
 
 is_quoted() {
@@ -89,13 +89,13 @@ check_truthiness() {
 
     # test true values
     for value in 1 true True TRUE yes Yes YES any; do
-        run "$predicate" "$value"
+        run "${predicate}" "${value}"
         "${assert}_success"
     done
 
     # test false values
     for value in 0 false False FALSE no No NO ''; do
-        run "$predicate" "$value"
+        run "${predicate}" "${value}"
         "${assert}_failure"
     done
 }
@@ -138,7 +138,7 @@ check_truthiness() {
     # Exactly one of the is_xxx functions should return true
     count=0
     for os in linux macos windows; do
-        if "is_$os"; then
+        if "is_${os}"; then
             ((++count))
         fi
     done
@@ -221,9 +221,11 @@ get_json_test_data() {
 }
 
 @test 'jq must be version 1.7.1 or newer' {
-    run semver "$(jq --version)"
+    local version
+    version=$(jq --version)
+    run semver "${version}"
     assert_success
-    semver_gte "$output" 1.7.1
+    semver_gte "${output}" 1.7.1
 }
 
 ########################################################################
@@ -499,7 +501,7 @@ get_json_test_data() {
 
 @test 'try returns stdout and stderr together' {
     run try --max 1 sh -c 'echo foo; echo bar >&2; echo baz'
-    trace "output=$output"
+    trace "output=${output}"
     trace "stderr=${stderr:-}"
     assert_success
     # output is currently re-ordered that all stderr follows all stdout
@@ -512,11 +514,11 @@ get_json_test_data() {
 
 @test 'try supports --separate-stderr' {
     run --separate-stderr try --max 1 sh -c 'echo foo; echo bar >&2; echo baz'
-    trace "output=$output"
+    trace "output=${output}"
     trace "stderr=${stderr:-}"
     assert_success
     assert_output foo$'\n'baz
-    output=$stderr assert_output bar
+    output=${stderr} assert_output bar
 }
 
 @test 'try will run command at least once' {
@@ -641,28 +643,28 @@ get_json_test_data() {
 ########################################################################
 
 @test 'unique_filename without extension' {
-    run unique_filename "$COUNTER"
+    run unique_filename "${COUNTER}"
     assert_success
     assert_output "${COUNTER}_2"
-    touch "$output"
+    touch "${output}"
 
-    run unique_filename "$COUNTER"
+    run unique_filename "${COUNTER}"
     assert_success
     assert_output "${COUNTER}_3"
 }
 
 @test 'unique_filename with extension' {
-    run unique_filename "$COUNTER" .png
+    run unique_filename "${COUNTER}" .png
     assert_success
     assert_output "${COUNTER}.png"
-    touch "$output"
+    touch "${output}"
 
-    run unique_filename "$COUNTER" .png
+    run unique_filename "${COUNTER}" .png
     assert_success
     assert_output "${COUNTER}_2.png"
-    touch "$output"
+    touch "${output}"
 
-    run unique_filename "$COUNTER" .png
+    run unique_filename "${COUNTER}" .png
     assert_success
     assert_output "${COUNTER}_3.png"
 }
@@ -678,8 +680,8 @@ get_json_test_data() {
     # shellcheck disable=SC2030
     FOO=bar BAR=bar
     load_var FOO BAR
-    [[ $FOO == baz ]]
-    [[ $BAR == foo ]]
+    [[ ${FOO} == baz ]]
+    [[ ${BAR} == foo ]]
 }
 
 @test 'save_var mix of existing and non-existing variables' {
@@ -687,18 +689,18 @@ get_json_test_data() {
     FAILED=false
     # Don't use run because it may mask errexit failures
     save_var ONE DOES_NOT_EXIST TWO || FAILED=true
-    [[ $FAILED == true ]]
-    [[ $ONE == one ]]
-    [[ $TWO == two ]]
+    [[ ${FAILED} == true ]]
+    [[ ${ONE} == one ]]
+    [[ ${TWO} == two ]]
 }
 
 @test 'load_var mix of existing and non-existing variables' {
     DOES_NOT_EXIST=false
     # Can't use `run` because variable would be loaded in a subshell
     load_var FOO DOES_NOT_EXIST BAR || DOES_NOT_EXIST=true
-    [[ $DOES_NOT_EXIST == true ]]
+    [[ ${DOES_NOT_EXIST} == true ]]
     # shellcheck disable=SC2031
-    [[ $FOO == baz ]]
+    [[ ${FOO} == baz ]]
     # shellcheck disable=SC2031
-    [[ $BAR == foo ]]
+    [[ ${BAR} == foo ]]
 }

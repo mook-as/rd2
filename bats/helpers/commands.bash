@@ -1,5 +1,5 @@
 EXE=""
-PLATFORM=$OS
+PLATFORM=${OS}
 if is_windows; then
     PLATFORM=linux
     if using_windows_exe; then
@@ -19,7 +19,7 @@ ctrctl() {
     fi
 }
 curl() {
-    command "curl$EXE" "$@"
+    command "curl${EXE}" "$@"
 }
 rdd() {
     local arg
@@ -30,16 +30,16 @@ rdd() {
         args=()
         for arg in "$@"; do
             if [[ "${arg}" != "${arg#/mnt/}" ]]; then
-                args+=("$(wslpath -w "$arg")")
+                args+=("$(wslpath -w "${arg}")")
             else
-                args+=("$arg")
+                args+=("${arg}")
             fi
         done
         # Adjust WSLENV to include everything starting with RDD_
         mapfile -t envs < <({
-            tr : '\n' <<<"$WSLENV"
+            tr : '\n' <<<"${WSLENV}"
             env | awk -F= '/^RDD_/ { print $1 }'
-        } | sort -u)
+        } | sort -u || true)
         WSLENV=""
         for env in "${envs[@]}"; do
             WSLENV="${WSLENV}:${env}"
@@ -48,5 +48,5 @@ rdd() {
 
         export WSLENV
     fi
-    "$PATH_REPO_ROOT/bin/rdd${EXE}" "${args[@]}"
+    "${PATH_REPO_ROOT}/bin/rdd${EXE}" "${args[@]}"
 }

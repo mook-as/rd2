@@ -31,7 +31,7 @@ apply_notary() {
     local value=$2
 
     run -0 create_notary_yaml "${name}" "${value}"
-    rdd ctl apply -f - <<<"$output"
+    rdd ctl apply -f - <<<"${output}"
 }
 
 @test "webhook configuration has correct structure" {
@@ -39,24 +39,24 @@ apply_notary() {
     try --max 20 --delay 3 -- rdd ctl get ValidatingWebhookConfiguration notary-validator
 
     run -0 rdd ctl get ValidatingWebhookConfiguration notary-validator -o jsonpath='{.webhooks[0]}'
-    local json=$output
+    local json=${output}
 
-    run -0 jq_raw '.failurePolicy' "$json"
+    run -0 jq_raw '.failurePolicy' "${json}"
     assert_output "Fail"
 
-    run -0 jq_raw '.name' "$json"
+    run -0 jq_raw '.name' "${json}"
     assert_output "notary.rdd.rancherdesktop.io"
 
-    run -0 jq_raw '.rules[0].apiGroups[0]' "$json"
+    run -0 jq_raw '.rules[0].apiGroups[0]' "${json}"
     assert_output "rdd.rancherdesktop.io"
 
-    run -0 jq_raw '.rules[0].apiVersions[0]' "$json"
+    run -0 jq_raw '.rules[0].apiVersions[0]' "${json}"
     assert_output "v1alpha1"
 
-    run -0 jq_raw '.rules[0].resources[0]' "$json"
+    run -0 jq_raw '.rules[0].resources[0]' "${json}"
     assert_output "notaries"
 
-    run -0 jq_raw '.rules[0].operations[]' "$json"
+    run -0 jq_raw '.rules[0].operations[]' "${json}"
     assert_line "CREATE"
     assert_line "UPDATE"
 }
@@ -89,7 +89,7 @@ apply_notary() {
 @test "dry-run=server rejects invalid values" {
     # Create an invalid notary resource for dry-run testing
     run -0 create_notary_yaml "test-dry-run-server-invalid" "invalid-dry-run-test"
-    run -1 rdd ctl apply --dry-run=server -f - <<<"$output"
+    run -1 rdd ctl apply --dry-run=server -f - <<<"${output}"
     assert_output --partial "Forbidden"
     assert_output --partial "spec.value cannot start with 'invalid' (case-insensitive)"
 
@@ -109,7 +109,7 @@ apply_notary() {
 
     # Apply invalid update with --dry-run=server - should be rejected by admission controllers
     run -0 create_notary_yaml "test-dry-run-update-invalid" "invalid-updated-value"
-    run -1 rdd ctl apply --dry-run=server -f - <<<"$output"
+    run -1 rdd ctl apply --dry-run=server -f - <<<"${output}"
     assert_output --partial "Forbidden"
     assert_output --partial "spec.value cannot start with 'invalid' (case-insensitive)"
 

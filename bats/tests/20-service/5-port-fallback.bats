@@ -16,7 +16,7 @@ local_teardown() {
 get_kubeconfig_port() {
     run -0 rdd ctl config view --output='jsonpath={.clusters[0].cluster.server}'
     # shellcheck disable=SC2001 # shell replace doesn't do captures.
-    sed 's/.*127\.0\.0\.1:\([0-9]*\).*/\1/' <<<"$output"
+    sed 's/.*127\.0\.0\.1:\([0-9]*\).*/\1/' <<<"${output}"
 }
 
 # Get the status of a port on localhost; e,g, "LISTEN", "TIME_WAIT"
@@ -25,17 +25,19 @@ get_port_status() {
     # some Linux distros no longer include netstat, but ss is not available on macOS
     if command -v ss &>/dev/null; then
         run -0 ss -an -f inet
-        awk "/^tcp.*127\.0\.0\.1:${port} / { print \$2; exit }" <<<"$output"
+        awk "/^tcp.*127\.0\.0\.1:${port} / { print \$2; exit }" <<<"${output}"
     else
         run -0 netstat -an -f inet
-        awk "/^tcp.*127\.0\.0\.1\.${port} / { print \$NF; exit }" <<<"$output"
+        awk "/^tcp.*127\.0\.0\.1\.${port} / { print \$NF; exit }" <<<"${output}"
     fi
 }
 
 # Check if a port is available on localhost
 is_port_available() {
     local port=$1
-    [[ -z $(get_port_status "$port") ]]
+    local port_status
+    port_status=$(get_port_status "${port}")
+    [[ -z "${port_status}" ]]
 }
 
 # Test basic functionality without port conflicts
@@ -46,20 +48,20 @@ is_port_available() {
     expected_port=$(get_expected_port 6443)
 
     # Skip test if the expected port is not available
-    if ! is_port_available "$expected_port"; then
-        skip "Port $expected_port is not available for testing"
+    if ! is_port_available "${expected_port}"; then
+        skip "Port ${expected_port} is not available for testing"
     fi
 
     ARGS_JSON="${PATH_APP_HOME}/args.json"
-    assert_file_exist "$ARGS_JSON"
-    assert_file_contains "$ARGS_JSON" '"--secure-port"'
-    assert_file_contains "$ARGS_JSON" "\"$expected_port\""
+    assert_file_exist "${ARGS_JSON}"
+    assert_file_contains "${ARGS_JSON}" '"--secure-port"'
+    assert_file_contains "${ARGS_JSON}" "\"${expected_port}\""
 
     rdd svc start
 
     # Verify kubeconfig uses the expected port
     run -0 get_kubeconfig_port
-    assert_output "$expected_port"
+    assert_output "${expected_port}"
 
     # Verify API works
     run -0 rdd ctl get namespaces
@@ -72,26 +74,26 @@ is_port_available() {
     # Calculate expected port dynamically and occupy it
     expected_port=$(get_expected_port)
 
-    try --max 30 --delay 1 is_port_available "$expected_port" || :
-    if ! is_port_available "$expected_port"; then
-        skip "Port $expected_port is not available for testing"
+    try --max 30 --delay 1 is_port_available "${expected_port}" || :
+    if ! is_port_available "${expected_port}"; then
+        skip "Port ${expected_port} is not available for testing"
     fi
 
-    nc -l 127.0.0.1 "$expected_port" &
+    nc -l 127.0.0.1 "${expected_port}" &
     NETCAT_PIDS+=($!)
 
     # Give netcat time to bind
     sleep 1
 
     # Verify the port is actually occupied
-    run is_port_available "$expected_port"
+    run is_port_available "${expected_port}"
     assert_failure
 
     # Start RDD - it should fall back to a different port
     rdd svc start
 
     run -0 get_kubeconfig_port
-    refute_output "$expected_port"
+    refute_output "${expected_port}"
 
     # Verify API works on the fallback port
     run -0 rdd ctl get namespaces
@@ -108,7 +110,7 @@ is_port_available() {
     # Occupy both the desired port and default fallback (6443) on localhost
     nc -l 127.0.0.1 6443 &
     NETCAT_PIDS+=($!)
-    nc -l 127.0.0.1 "$expected_port" &
+    nc -l 127.0.0.1 "${expected_port}" &
     NETCAT_PIDS+=($!)
 
     # Give netcat time to bind
@@ -117,7 +119,7 @@ is_port_available() {
     # Verify both ports are occupied
     run is_port_available 6443
     assert_failure
-    run is_port_available "$expected_port"
+    run is_port_available "${expected_port}"
     assert_failure
 
     # Start RDD - it should fall back to a random available port
@@ -126,10 +128,10 @@ is_port_available() {
     # Get the port from kubeconfig
     run -0 get_kubeconfig_port
     refute_output "6443"
-    refute_output "$expected_port"
+    refute_output "${expected_port}"
 
     # Should be a high random port (typically > 1024)
-    [[ $output -gt 1024 ]]
+    [[ ${output} -gt 1024 ]]
 
     # Verify API works on the random fallback port
     run -0 rdd ctl get namespaces
@@ -176,9 +178,9 @@ is_port_available() {
 
     # Verify the port is saved in args.json
     ARGS_JSON="${PATH_APP_HOME}/args.json"
-    assert_file_exist "$ARGS_JSON"
-    assert_file_contains "$ARGS_JSON" '"--secure-port"'
-    assert_file_contains "$ARGS_JSON" '"7777"'
+    assert_file_exist "${ARGS_JSON}"
+    assert_file_contains "${ARGS_JSON}" '"--secure-port"'
+    assert_file_contains "${ARGS_JSON}" '"7777"'
 
     # Start the service
     rdd svc start

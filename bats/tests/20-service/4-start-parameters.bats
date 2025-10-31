@@ -63,9 +63,9 @@ assert_no_controllers() {
 
     # Verify parameters were saved
     ARGS_JSON="${PATH_APP_HOME}/args.json"
-    assert_file_exist "$ARGS_JSON"
-    assert_file_contains "$ARGS_JSON" '"--controllers"'
-    assert_file_contains "$ARGS_JSON" '"rdd"'
+    assert_file_exist "${ARGS_JSON}"
+    assert_file_contains "${ARGS_JSON}" '"--controllers"'
+    assert_file_contains "${ARGS_JSON}" '"rdd"'
 }
 
 @test 'start instance uses saved parameters by default' {

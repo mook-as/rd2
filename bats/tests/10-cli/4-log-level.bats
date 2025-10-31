@@ -2,8 +2,8 @@ load '../../helpers/load'
 
 assert_klog_level() {
     local level=$1
-    run -0 jq --compact-output . "$PATH_APP_HOME/args.json"
-    assert_line --partial "\"-v\",\"$level\""
+    run -0 jq --compact-output . "${PATH_APP_HOME}/args.json"
+    assert_line --partial "\"-v\",\"${level}\""
 }
 
 # Test log level validation

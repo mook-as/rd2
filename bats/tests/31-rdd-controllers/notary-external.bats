@@ -15,7 +15,7 @@ local_setup_file() {
 assert_process_exited() {
     local pid=$1
     # Return 0 (success) if process has exited, 1 (failure) if still running
-    ! kill -0 "$pid" 2>/dev/null
+    ! kill -0 "${pid}" 2>/dev/null
 }
 
 @test "control plane starts without embedded controllers" {
@@ -51,7 +51,7 @@ assert_process_exited() {
     assert_output "notary.rdd.rancherdesktop.io"
 
     run -0 rdd ctl get ValidatingWebhookConfiguration notary-validator -o json
-    run -0 jq -r '.webhooks[0].clientConfig.url' <<<"$output"
+    run -0 jq -r '.webhooks[0].clientConfig.url' <<<"${output}"
     assert_output --partial "https://127.0.0.1:"
     assert_output --partial "/validate-rdd-rancherdesktop-io-v1alpha1-notary"
 
@@ -105,7 +105,7 @@ EOF
     try --max 30 --delay 1 -- rdd ctl get configmap test-config
     # Verify ConfigMap was created with correct content
     run -0 rdd ctl get configmap test-config -o json
-    run -0 jq -r '.data.change_000' <<<"$output"
+    run -0 jq -r '.data.change_000' <<<"${output}"
     assert_output --partial "value=valid-external-test"
 
     run -0 rdd ctl get configmap test-config -o jsonpath='{.metadata.labels.app\.kubernetes\.io/managed-by}'
@@ -124,12 +124,12 @@ EOF
     controller_pid=$(cat "${BATS_FILE_TMPDIR}/controller_pid")
 
     # Verify the external controller process is currently running
-    run -0 kill -0 "$controller_pid"
+    run -0 kill -0 "${controller_pid}"
 
     # Stop the control plane - this should trigger auto-cleanup of external controllers
     run -0 rdd svc stop
 
     # Wait for external controller to detect control plane shutdown and exit
     # External controllers check every 2 seconds, allow up to 3 failures (6 seconds), plus buffer
-    try --max 15 --delay 1 -- assert_process_exited "$controller_pid"
+    try --max 15 --delay 1 -- assert_process_exited "${controller_pid}"
 }

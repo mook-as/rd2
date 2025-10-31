@@ -42,7 +42,7 @@ delete_configmapreplicaset() {
 wait_for_configmaps() {
     local name=$1
     local expected=$2
-    wait_for_resource_count "configmaps" "$CONFIGMAP_CONTROLLER_NAME" "${name}" "${expected}"
+    wait_for_resource_count "configmaps" "${CONFIGMAP_CONTROLLER_NAME}" "${name}" "${expected}"
 }
 
 @test 'create ConfigMapReplicaSet resource' {
@@ -68,17 +68,17 @@ wait_for_configmaps() {
 @test 'verify ConfigMap content includes original data plus index' {
     # Check first ConfigMap contains original data plus index
     run -0 rdd ctl get configmap basic-0 -o json
-    local basic0_json="$output"
+    local basic0_json="${output}"
 
-    run -0 jq -r '.data | keys[]' <<<"$basic0_json"
+    run -0 jq -r '.data | keys[]' <<<"${basic0_json}"
     assert_line "config.yaml"
     assert_line "app.properties"
     assert_line "index"
 
-    run -0 jq -r '.data."config.yaml"' <<<"$basic0_json"
+    run -0 jq -r '.data."config.yaml"' <<<"${basic0_json}"
     assert_output --partial "test-app"
 
-    run -0 jq -r '.data."app.properties"' <<<"$basic0_json"
+    run -0 jq -r '.data."app.properties"' <<<"${basic0_json}"
     assert_output --partial "server.port=8080"
 
     run -0 rdd ctl get configmap basic-0 -o jsonpath='{.data.index}'
@@ -91,53 +91,53 @@ wait_for_configmaps() {
 
 @test 'verify ConfigMap owner references are set' {
     run -0 rdd ctl get configmap basic-0 -o json
-    local configmap_json="$output"
+    local configmap_json="${output}"
 
     # Verify owner reference exists and has correct kind
-    run -0 jq -r '.metadata.ownerReferences[0].kind' <<<"$configmap_json"
+    run -0 jq -r '.metadata.ownerReferences[0].kind' <<<"${configmap_json}"
     assert_output "ConfigMapReplicaSet"
 
-    run -0 jq -r '.metadata.ownerReferences[0].name' <<<"$configmap_json"
+    run -0 jq -r '.metadata.ownerReferences[0].name' <<<"${configmap_json}"
     assert_output "basic"
 
     # Verify the controller reference is set for garbage collection
-    run -0 jq -r '.metadata.ownerReferences[0].controller' <<<"$configmap_json"
+    run -0 jq -r '.metadata.ownerReferences[0].controller' <<<"${configmap_json}"
     assert_output "true"
 
-    run -0 jq -r '.metadata.ownerReferences[0].blockOwnerDeletion' <<<"$configmap_json"
+    run -0 jq -r '.metadata.ownerReferences[0].blockOwnerDeletion' <<<"${configmap_json}"
     assert_output "true"
 }
 
 @test 'debug owner references before deletion' {
     # Extract and validate complete owner reference structure
     run -0 rdd ctl get ConfigMapReplicaSet basic -o json
-    local parent_json="$output"
+    local parent_json="${output}"
 
-    run -0 jq -r '.metadata.uid' <<<"$parent_json"
-    local parent_uid=$output
+    run -0 jq -r '.metadata.uid' <<<"${parent_json}"
+    local parent_uid=${output}
 
-    run -0 jq -r '.apiVersion' <<<"$parent_json"
-    local parent_api_version=$output
+    run -0 jq -r '.apiVersion' <<<"${parent_json}"
+    local parent_api_version=${output}
 
     # Verify owner reference structure
     run -0 rdd ctl get configmap basic-0 -o json
-    local configmap="$output"
+    local configmap="${output}"
 
     # Verify critical owner reference fields
-    run -0 jq -r '.metadata.ownerReferences[0].uid // empty' <<<"$configmap"
-    local ref_uid=$output
-    run -0 jq -r '.metadata.ownerReferences[0].controller // false' <<<"$configmap"
-    local ref_controller=$output
-    run -0 jq -r '.metadata.ownerReferences[0].blockOwnerDeletion // false' <<<"$configmap"
-    local ref_block_deletion=$output
-    run -0 jq -r '.metadata.ownerReferences[0].apiVersion // empty' <<<"$configmap"
-    local ref_api_version=$output
+    run -0 jq -r '.metadata.ownerReferences[0].uid // empty' <<<"${configmap}"
+    local ref_uid=${output}
+    run -0 jq -r '.metadata.ownerReferences[0].controller // false' <<<"${configmap}"
+    local ref_controller=${output}
+    run -0 jq -r '.metadata.ownerReferences[0].blockOwnerDeletion // false' <<<"${configmap}"
+    local ref_block_deletion=${output}
+    run -0 jq -r '.metadata.ownerReferences[0].apiVersion // empty' <<<"${configmap}"
+    local ref_api_version=${output}
 
     # Validate all fields are correct
-    [ "$ref_uid" = "$parent_uid" ]
-    [ "$ref_controller" = "true" ]
-    [ "$ref_block_deletion" = "true" ]
-    [ "$ref_api_version" = "$parent_api_version" ]
+    [[ "${ref_uid}" = "${parent_uid}" ]]
+    [[ "${ref_controller}" = "true" ]]
+    [[ "${ref_block_deletion}" = "true" ]]
+    [[ "${ref_api_version}" = "${parent_api_version}" ]]
 }
 
 @test 'scale ConfigMapReplicaSet up to 5 replicas' {
@@ -150,14 +150,14 @@ wait_for_configmaps() {
 
 @test 'verify all 5 ConfigMaps exist after scaling up' {
     run -0 rdd ctl get configmaps -l app.kubernetes.io/managed-by=rdd-configmapreplicaset,app.kubernetes.io/instance=basic -o json
-    local configmaps="$output"
+    local configmaps="${output}"
 
     # Verify we have exactly 5 ConfigMaps
-    run -0 jq '.items | length' <<<"$configmaps"
+    run -0 jq '.items | length' <<<"${configmaps}"
     assert_output "5"
 
     # Verify correct names
-    run -0 jq -r '.items | map(.metadata.name) | sort | .[]' <<<"$configmaps"
+    run -0 jq -r '.items | map(.metadata.name) | sort | .[]' <<<"${configmaps}"
     assert_line "basic-0"
     assert_line "basic-1"
     assert_line "basic-2"
@@ -175,14 +175,14 @@ wait_for_configmaps() {
 
 @test 'verify only 2 ConfigMaps remain after scaling down' {
     run -0 rdd ctl get configmaps -l app.kubernetes.io/managed-by=rdd-configmapreplicaset,app.kubernetes.io/instance=basic -o json
-    local configmaps="$output"
+    local configmaps="${output}"
 
     # Verify we have exactly 2 ConfigMaps
-    run -0 jq '.items | length' <<<"$configmaps"
+    run -0 jq '.items | length' <<<"${configmaps}"
     assert_output "2"
 
     # Verify the remaining ConfigMaps are the first two
-    run -0 jq -r '.items | map(.metadata.name) | sort | .[]' <<<"$configmaps"
+    run -0 jq -r '.items | map(.metadata.name) | sort | .[]' <<<"${configmaps}"
     assert_line "basic-0"
     assert_line "basic-1"
 }
@@ -199,64 +199,64 @@ wait_for_configmaps() {
 
     # Verify old ConfigMaps (0,1) still have original data
     run -0 rdd ctl get configmap basic-0 -o json
-    local basic0_json="$output"
+    local basic0_json="${output}"
 
-    run -0 jq -r '.data."config.yaml"' <<<"$basic0_json"
+    run -0 jq -r '.data."config.yaml"' <<<"${basic0_json}"
     assert_output --partial "test-app"
     refute_output --partial "updated: true"
     refute_output --partial "version: 2.0.0"
 
-    run -0 jq -r '.data."app.properties"' <<<"$basic0_json"
+    run -0 jq -r '.data."app.properties"' <<<"${basic0_json}"
     assert_output --partial "server.port=8080"
 
-    run -0 jq -r '.data.index' <<<"$basic0_json"
+    run -0 jq -r '.data.index' <<<"${basic0_json}"
     assert_output "0"
 
-    run -0 jq -r '.data | has("new-file.txt")' <<<"$basic0_json"
+    run -0 jq -r '.data | has("new-file.txt")' <<<"${basic0_json}"
     assert_output "false"
 
     run -0 rdd ctl get configmap basic-1 -o json
-    local basic1_json="$output"
+    local basic1_json="${output}"
 
-    run -0 jq -r '.data."config.yaml"' <<<"$basic1_json"
+    run -0 jq -r '.data."config.yaml"' <<<"${basic1_json}"
     assert_output --partial "test-app"
     refute_output --partial "updated: true"
     refute_output --partial "version: 2.0.0"
 
-    run -0 jq -r '.data."app.properties"' <<<"$basic1_json"
+    run -0 jq -r '.data."app.properties"' <<<"${basic1_json}"
     assert_output --partial "server.port=8080"
 
-    run -0 jq -r '.data.index' <<<"$basic1_json"
+    run -0 jq -r '.data.index' <<<"${basic1_json}"
     assert_output "1"
 
-    run -0 jq -r '.data | has("new-file.txt")' <<<"$basic1_json"
+    run -0 jq -r '.data | has("new-file.txt")' <<<"${basic1_json}"
     assert_output "false"
 
     # Verify new ConfigMaps (2,3) have updated data
     run -0 rdd ctl get configmap basic-2 -o json
-    local basic2_json="$output"
+    local basic2_json="${output}"
 
-    run -0 jq -r '.data."config.yaml"' <<<"$basic2_json"
+    run -0 jq -r '.data."config.yaml"' <<<"${basic2_json}"
     assert_output --partial "updated: true"
     assert_output --partial "version: 2.0.0"
 
-    run -0 jq -r '.data."new-file.txt"' <<<"$basic2_json"
+    run -0 jq -r '.data."new-file.txt"' <<<"${basic2_json}"
     assert_output "This is a new file"
 
-    run -0 jq -r '.data.index' <<<"$basic2_json"
+    run -0 jq -r '.data.index' <<<"${basic2_json}"
     assert_output "2"
 
     run -0 rdd ctl get configmap basic-3 -o json
-    local basic3_json="$output"
+    local basic3_json="${output}"
 
-    run -0 jq -r '.data."config.yaml"' <<<"$basic3_json"
+    run -0 jq -r '.data."config.yaml"' <<<"${basic3_json}"
     assert_output --partial "updated: true"
     assert_output --partial "version: 2.0.0"
 
-    run -0 jq -r '.data."new-file.txt"' <<<"$basic3_json"
+    run -0 jq -r '.data."new-file.txt"' <<<"${basic3_json}"
     assert_output "This is a new file"
 
-    run -0 jq -r '.data.index' <<<"$basic3_json"
+    run -0 jq -r '.data.index' <<<"${basic3_json}"
     assert_output "3"
 }
 
@@ -294,7 +294,7 @@ wait_for_configmaps() {
 }
 
 @test 'verify no ConfigMaps are created for zero replicas' {
-    assert_resource_count "configmaps" "$CONFIGMAP_CONTROLLER_NAME" "zero" 0
+    assert_resource_count "configmaps" "${CONFIGMAP_CONTROLLER_NAME}" "zero" 0
 }
 
 @test 'create ConfigMapReplicaSet with single replica' {
@@ -307,14 +307,14 @@ wait_for_configmaps() {
 
 @test 'verify single ConfigMap has correct name' {
     run -0 rdd ctl get configmaps -l app.kubernetes.io/managed-by=rdd-configmapreplicaset,app.kubernetes.io/instance=single -o json
-    local configmaps="$output"
+    local configmaps="${output}"
 
     # Verify we have exactly 1 ConfigMap
-    run -0 jq '.items | length' <<<"$configmaps"
+    run -0 jq '.items | length' <<<"${configmaps}"
     assert_output "1"
 
     # Verify correct name
-    run -0 jq -r '.items[0].metadata.name' <<<"$configmaps"
+    run -0 jq -r '.items[0].metadata.name' <<<"${configmaps}"
     assert_output "single-0"
 }
 
@@ -331,6 +331,6 @@ wait_for_configmaps() {
 
     # Check the status of the ConfigMapReplicaSet
     run -0 rdd ctl get ConfigMapReplicaSet status -o json
-    run -0 jq -r 'has("status")' <<<"$output"
+    run -0 jq -r 'has("status")' <<<"${output}"
     assert_output "true"
 }
