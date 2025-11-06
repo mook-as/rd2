@@ -156,7 +156,7 @@ EOF
 }
 
 @test "wait for template ConfigMap to be automatically deleted" {
-    try --max 30 --delay 1 --until-fail -- rdd ctl get configmap "${TEMPLATE_NAME}" --namespace "${NAMESPACE}"
+    rdd ctl wait --for=delete configmap "${TEMPLATE_NAME}" --namespace "${NAMESPACE}" --timeout="30s"
 }
 
 @test "create LimaVM with nonexistent template ConfigMap fails" {
