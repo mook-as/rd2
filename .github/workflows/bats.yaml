@@ -98,6 +98,10 @@ jobs:
         # Disable first-boot script
         wsl --distribution openSUSE --exec sed -i '/^command =/d' /etc/wsl-distribution.conf
 
+        # Make sure WSL interop is enabled
+        wsl --distribution openSUSE --exec sh -c 'echo -e "[interop]\nenabled=true\nappendWindowsPath=true" > /etc/wsl.conf' # spellchecker:ignore
+        wsl --shutdown
+
         # Set up wrapper script PATH
         New-Item -ItemType Directory -Name bin -Force
         Get-ItemPropertyValue -Path bin -Name FullName | Out-File -Encoding UTF8 -Append "$env:GITHUB_PATH"
