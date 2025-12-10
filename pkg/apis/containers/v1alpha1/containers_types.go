@@ -28,7 +28,7 @@ const (
 type ContainerPortBinding struct {
 	// hostIp is the host IP address that the container's port is mapped to.
 	// +required
-	HostIP string `json:"hostIp"`
+	HostIP string `json:"hostIP"`
 	// hostPort is the host port number that the container's port is mapped to.
 	// +required
 	HostPort string `json:"hostPort"`
@@ -45,7 +45,7 @@ type ContainerPort struct {
 	Bindings []ContainerPortBinding `json:"bindings"`
 }
 
-// ContainerSpec defines the configuration the container was originally created with.
+// ContainerSpec defines the configuration the container was created with.
 type ContainerSpec struct {
 	// path is the path to the executable (within the image) for the process.
 	// +required

@@ -89,7 +89,7 @@ spec:
                         description: ContainerPortBinding describes one host port
                           for the container to bind to.
                         properties:
-                          hostIp:
+                          hostIP:
                             description: hostIp is the host IP address that the container's
                               port is mapped to.
                             type: string
@@ -98,7 +98,7 @@ spec:
                               container's port is mapped to.
                             type: string
                         required:
-                        - hostIp
+                        - hostIP
                         - hostPort
                         type: object
                       type: array

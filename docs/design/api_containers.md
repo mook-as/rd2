@@ -10,23 +10,26 @@ be rejected by the controllers.
 
 All objects are in the `containers.rancherdesktop.io` API group.
 
+When running `containerd`, the containerd namespace is listed as the `namespace`
+label rather than re-using the Kubernetes namespace.  When running `dockerd`,
+namespaces are not supported and we always use `moby` as the value for that label.
+
 This is mainly for use by the Rancher Desktop front end; all other users are
 strongly urged to use the relevant CLI or other API instead.
 
 ## Containers
 
-`Container` objects reflect the running containers.  If the container engine
-supports namespaces, then they are in the namespace with the same name;
-otherwise, all containers are in the `default` namespace.
+`Container` objects reflect the running containers.
 
 ```yaml
 apiVersion: containers.rancherdesktop.io/v1alpha1
 kind: Container
 metadata:
   name: 8eb6f2cf72b6616aa743cf9187f350af84c9749dab65474db2530f26745d2ef3 # container ID
-  namespace: default # matches containerd namespace, or `default` if not supported
+  namespace: default
   labels:
     name: magical_gates
+    namespace: k8s.io # containerd namespace, or `moby` if using dockerd
 spec:
   path: /bin/sh
   args: [-c, 'sleep inf']
@@ -63,16 +66,16 @@ status:
 
 ## Images
 
-`Image` objects reflect images in the container engine.  If the container engine
-supports namespaces, then they are in the namespace with the same name;
-otherwise, all images are in the `default` namespace.
+`Image` objects reflect images in the container engine.
 
 ```yaml
 apiVersion: containers.rancherdesktop.io/v1alpha1
 kind: Image
 metadata:
   name: 'sha256:999adf320e40662dc96119a14f07459af9959a081d10ccab7c405257030ab96b' # Image ID
-  namespace: default # matches containerd namespace, or `default` if not supported
+  namespace: default # Not related to containerd namespace
+  labels:
+    namespace: k8s.io # containerd namespace, or `moby` if using dockerd
 spec:
   repoTags:
   - registry.opensuse.org/opensuse/leap:latest
@@ -93,7 +96,9 @@ apiVersion: containers.rancherdesktop.io/v1alpha1
 kind: Volume
 metadata:
   name: volume-name
-  namespace: default # matches containerd namespace, or `default` if not supported
+  namespace: default # Not related to containerd namespace
+  labels:
+    namespace: k8s.io # containerd namespace, or `moby` if using dockerd
 spec:
   createdAt: "2025-11-17T03:14:16Z"
   driver: local

@@ -8,7 +8,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// ImageSpec defines the configuration the image was originally created with.
+// ImageSpec defines the configuration the image was created with.
 type ImageSpec struct {
 	// repoTags are the known tags for the image.
 	// +optional

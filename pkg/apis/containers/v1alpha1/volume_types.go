@@ -8,7 +8,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// VolumeSpec defines the configuration the volume was originally created with.
+// VolumeSpec defines the configuration the volume was created with.
 type VolumeSpec struct {
 	// createdAt is the time the volume was created.
 	// +required
