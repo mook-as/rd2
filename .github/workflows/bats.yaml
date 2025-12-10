@@ -99,16 +99,7 @@ jobs:
         wsl --distribution openSUSE --exec sed -i '/^command =/d' /etc/wsl-distribution.conf
 
         # Make sure WSL interop is enabled
-        $wslConf = @"
-        [boot]
-        systemd=true
-        
-        [interop]
-        enabled=true
-        appendWindowsPath=true
-        "@
-
-        $wslConf | wsl --distribution openSUSE --exec sh -c 'tr -d "\r" > /etc/wsl.conf'
+        wsl --distribution openSUSE --exec sh -c 'echo ":WSLInterop-custom:M::MZ::/init:PF" | tee /etc/binfmt.d/zzz-WSLInterop-custom.conf' # spellchecker:ignore
         wsl --shutdown
 
         # Set up wrapper script PATH
@@ -147,5 +138,19 @@ jobs:
     - uses: actions/setup-go@4dc6199c7b1a012772edbd06daecab0f50c9053c # v6.1.0
       with:
         go-version-file: go.mod
+
+    - name: "Windows: WSL interop debugging"
+      if: runner.os == 'Windows'
+      shell: run-in-wsl {0}
+      run: |
+        set +e
+        ls -l /proc/sys/fs/binfmt_misc
+        for i in /proc/sys/fs/binfmt_misc/*; do
+          echo "$i"
+          cat "$i" || true
+        done
+        systemctl status systemd-binfmt.service || true
+      continue-on-error: true
+
     - run: make -C bats
       shell: run-in-wsl {0}
