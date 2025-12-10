@@ -99,14 +99,16 @@ jobs:
         wsl --distribution openSUSE --exec sed -i '/^command =/d' /etc/wsl-distribution.conf
 
         # Make sure WSL interop is enabled
-        wsl --distribution openSUSE --exec sh -c 'cat <<EOF > /etc/wsl.conf
+        $wslConf = @"
         [boot]
         systemd=true
-
+        
         [interop]
         enabled=true
         appendWindowsPath=true
-        EOF'
+        "@
+
+        $wslConf | wsl --distribution openSUSE --exec sh -c 'tr -d "\r" > /etc/wsl.conf'
         wsl --shutdown
 
         # Set up wrapper script PATH
