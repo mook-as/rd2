@@ -24,6 +24,7 @@ import (
 const (
 	// DefaultWebhookCACertFileName is the default filename for webhook CA certificates.
 	DefaultWebhookCACertFileName = "webhook-ca.crt"
+	defaultWebhookCAKeyFileName  = "webhook-ca.key"
 )
 
 // SharedWebhookCertificateManager handles webhook certificate generation and management
@@ -52,43 +53,71 @@ func NewSharedWebhookCertificateManager(certDir, certName, keyName, serverIP str
 func (cm *SharedWebhookCertificateManager) GenerateWebhookCertificates() error {
 	klog.V(2).Info("Generating shared webhook certificates")
 
-	// Generate CA private key for webhook
-	caKey, err := rsa.GenerateKey(rand.Reader, 2048)
-	if err != nil {
-		return fmt.Errorf("failed to generate CA private key: %w", err)
+	var caKey *rsa.PrivateKey
+	var caCert *x509.Certificate
+	var err error
+
+	// If possible, load the CA private key and certificate from existing files.
+	if caKeyBytes, err := os.ReadFile(filepath.Join(cm.certDir, defaultWebhookCAKeyFileName)); err == nil {
+		block, _ := pem.Decode(caKeyBytes)
+		if block != nil && block.Type == "RSA PRIVATE KEY" {
+			caKey, err = x509.ParsePKCS1PrivateKey(block.Bytes)
+			if err != nil {
+				klog.V(2).Info("Failed to parse existing CA private key, will regenerate", "error", err)
+				caKey = nil
+			}
+		}
+	}
+	if caCertBytes, err := os.ReadFile(filepath.Join(cm.certDir, DefaultWebhookCACertFileName)); err == nil {
+		block, _ := pem.Decode(caCertBytes)
+		if block != nil && block.Type == "CERTIFICATE" {
+			caCert, err = x509.ParseCertificate(block.Bytes)
+			if err != nil {
+				klog.V(2).Info("Failed to parse existing CA certificate, will regenerate", "error", err)
+				caCert = nil
+			}
+		}
 	}
 
-	// Create CA certificate template
-	caCertTemplate := &x509.Certificate{
-		SerialNumber: big.NewInt(time.Now().Unix()),
-		Subject: pkix.Name{
-			CommonName:   "webhook-ca",
-			Organization: []string{"Rancher Desktop Daemon Webhook"},
-		},
-		NotBefore:             time.Now(),
-		NotAfter:              time.Now().AddDate(10, 0, 0), // Valid for 10 years
-		IsCA:                  true,
-		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth, x509.ExtKeyUsageServerAuth},
-		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
-		BasicConstraintsValid: true,
-	}
+	if caKey == nil || caCert == nil {
+		// Generate CA private key for webhook
+		caKey, err = rsa.GenerateKey(rand.Reader, 2048)
+		if err != nil {
+			return fmt.Errorf("failed to generate CA private key: %w", err)
+		}
 
-	// Generate self-signed CA certificate
-	caCertDER, err := x509.CreateCertificate(
-		rand.Reader,
-		caCertTemplate,
-		caCertTemplate, // Self-signed
-		&caKey.PublicKey,
-		caKey,
-	)
-	if err != nil {
-		return fmt.Errorf("failed to create CA certificate: %w", err)
-	}
+		// Create CA certificate template
+		caCertTemplate := &x509.Certificate{
+			SerialNumber: big.NewInt(time.Now().Unix()),
+			Subject: pkix.Name{
+				CommonName:   "webhook-ca",
+				Organization: []string{"Rancher Desktop Daemon Webhook"},
+			},
+			NotBefore:             time.Now(),
+			NotAfter:              time.Now().AddDate(10, 0, 0), // Valid for 10 years
+			IsCA:                  true,
+			ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth, x509.ExtKeyUsageServerAuth},
+			KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
+			BasicConstraintsValid: true,
+		}
 
-	// Parse CA certificate for signing
-	caCert, err := x509.ParseCertificate(caCertDER)
-	if err != nil {
-		return fmt.Errorf("failed to parse CA certificate: %w", err)
+		// Generate self-signed CA certificate
+		caCertDER, err := x509.CreateCertificate(
+			rand.Reader,
+			caCertTemplate,
+			caCertTemplate, // Self-signed
+			&caKey.PublicKey,
+			caKey,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to create CA certificate: %w", err)
+		}
+
+		// Parse CA certificate for signing
+		caCert, err = x509.ParseCertificate(caCertDER)
+		if err != nil {
+			return fmt.Errorf("failed to parse CA certificate: %w", err)
+		}
 	}
 
 	// Generate webhook server private key
@@ -149,8 +178,14 @@ func (cm *SharedWebhookCertificateManager) GenerateWebhookCertificates() error {
 
 	// Save CA certificate for webhook configuration
 	webhookCACertPath := filepath.Join(cm.certDir, DefaultWebhookCACertFileName)
-	if err := cm.saveCertificate(webhookCACertPath, caCertDER); err != nil {
+	if err := cm.saveCertificate(webhookCACertPath, caCert.Raw); err != nil {
 		return fmt.Errorf("failed to save webhook CA certificate: %w", err)
+	}
+
+	// Save CA certificate private key for use by external controllers
+	webhookCAKeyPath := filepath.Join(cm.certDir, defaultWebhookCAKeyFileName)
+	if err := cm.savePrivateKey(webhookCAKeyPath, caKey); err != nil {
+		return fmt.Errorf("failed to save webhook CA private key: %w", err)
 	}
 
 	klog.V(2).Infof("Shared webhook certificates generated successfully: cert=%s, key=%s, ca=%s",
