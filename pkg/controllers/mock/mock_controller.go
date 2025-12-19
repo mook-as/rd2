@@ -61,8 +61,15 @@ func (c *controller) GetName() string {
 	return controllerName + "-webhook"
 }
 
-func (c *controller) setupReconciler(_ ctrl.Manager) error {
-	// TODO: set up reconcilers to create mock data.
+func (c *controller) setupReconciler(mgr ctrl.Manager) error {
+	mgr.GetLogger().Info("Setting up Mock ContainerReconciler")
+	err := (&containerReconciler{
+		Client:   mgr.GetClient(),
+		Recorder: mgr.GetEventRecorderFor(controllerName + "-controller"),
+	}).SetupWithManager(mgr)
+	if err != nil {
+		return err
+	}
 	return nil
 }
 

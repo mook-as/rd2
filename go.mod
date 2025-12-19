@@ -8,6 +8,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/k3s-io/kine v1.14.2
 	github.com/lima-vm/lima/v2 v2.0.3
+	github.com/moby/moby/api v1.52.0
 	github.com/muesli/reflow v0.3.0
 	github.com/pulumi/pulumi/sdk/v3 v3.216.0
 	github.com/sirupsen/logrus v1.9.4
@@ -241,6 +242,7 @@ require (
 	github.com/mitchellh/go-homedir v1.1.0 // indirect
 	github.com/mitchellh/go-wordwrap v1.0.1 // indirect
 	github.com/mitchellh/mapstructure v1.5.0 // indirect
+	github.com/moby/docker-image-spec v1.3.1 // indirect
 	github.com/moby/spdystream v0.5.0 // indirect
 	github.com/moby/sys/mountinfo v0.7.2 // indirect
 	github.com/moby/term v0.5.0 // indirect
@@ -263,6 +265,7 @@ require (
 	github.com/nunnatsa/ginkgolinter v0.21.2 // indirect
 	github.com/nxadm/tail v1.4.11 // indirect
 	github.com/opencontainers/go-digest v1.0.0 // indirect
+	github.com/opencontainers/image-spec v1.1.1 // indirect
 	github.com/opencontainers/selinux v1.13.0 // indirect
 	github.com/pbnjay/memory v0.0.0-20210728143218-7b4eea64cf58 // indirect
 	github.com/pelletier/go-toml v1.9.5 // indirect
