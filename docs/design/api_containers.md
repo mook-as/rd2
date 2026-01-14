@@ -16,11 +16,14 @@ When running `containerd`, the containerd namespace is listed as the `namespace`
 label rather than re-using the Kubernetes namespace.  When running `dockerd`,
 namespaces are not supported and we always use `moby` as the value for that label.
 
-For the `*Request` resources, once they have successfully completed, they will
-be removed after some timeout; this will be at least one minute (so the caller
-can read any data).
+For the `*Request` resources, they use the `Complete` and `Failed` conditions to
+express state; those are mutually exclusive (only one of the two can be set to
+`True` at once).  Once either is set to `True`, the request object is considered
+to be in a terminal state and will be removed after some timeout.  This will be
+at least one minute (so the caller can read any data), but the precise timing is
+unspecified.
 
-This is mainly for use by the Rancher Desktop front end; all other users are
+This API is mainly for use by the Rancher Desktop front end; all other users are
 strongly urged to use the relevant CLI or other API instead.
 
 ## Containers
@@ -110,8 +113,10 @@ status:
   # same Kubernetes namespace as the ContainerCreateRequest.
   name: 8eb6f2cf72b6616aa743cf9187f350af84c9749dab65474db2530f26745d2ef3
   conditions:
-  - type: Finished
+  - type: Complete
     status: True
+  - type: Failed
+    status: False
 ```
 
 If `.metadata.labels.namespace` / `.metadata.labels.name` duplicates an existing
@@ -140,7 +145,9 @@ at which point the `Container` object will actually be deleted.
 
 `Image` objects reflect images in the container engine.  Each tag is represented
 as a new `Image` object; therefore, there may be multiple `Image` objects for
-the same image ID (one per tag).
+the same image ID (one per tag).  If an image without any tags exists, that will
+be represented by an `Image` object without `.status.repoTag` and
+`.metadata.labels.namespace`.
 
 ```yaml
 apiVersion: containers.rancherdesktop.io/v1alpha1
@@ -164,14 +171,12 @@ status:
   size: 45150437
   labels:
     org.opensuse.base.vendor: openSUSE Project
-  conditions:
-  - type: Pushed # Used to record last push time.
-    status: False
+  conditions: []
 ```
 
 ### Image Actions
 
-#### Fetch image
+#### Pull image
 Create an `ImagePullRequest` object:
 ```yaml
 apiVersion: containers.rancherdesktop.io/v1alpha1
@@ -182,7 +187,9 @@ spec:
   repoTag: 'registry.opensuse.org/opensuse/leap:latest'
 status:
   conditions:
-  - type: Pulled
+  - type: Complete
+    status: True
+  - type: Failed
     status: False
 ```
 
@@ -205,7 +212,9 @@ spec:
   imageRef: 'sha256.999adf320e40662dc96119a14f07459af9959a081d10ccab7c405257030ab96b-12345'
 status:
   conditions:
-  - type: Finished
+  - type: Complete
+    status: True
+  - type: Failed
     status: False
 ```
 
@@ -222,8 +231,10 @@ spec:
   imageRef: 'sha256.999adf320e40662dc96119a14f07459af9959a081d10ccab7c405257030ab96b-12345'
 status:
   conditions:
-  - type: Finished
+  - type: Complete
     status: True
+  - type: Failed
+    status: False
   result:
     # Just dump the raw Trivy result JSON here (without converting to YAML).
     '{ ... }'
@@ -279,7 +290,9 @@ spec:
   driver: local
 status:
   conditions:
-  - type: Processed
+  - type: Complete
+    status: True
+  - type: Failed
     status: False
 ```
 Only local volumes are supported initially.
