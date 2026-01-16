@@ -30,6 +30,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	containersv1alpha1 "github.com/rancher-sandbox/rancher-desktop-daemon/pkg/apis/containers/v1alpha1"
+	"github.com/rancher-sandbox/rancher-desktop-daemon/pkg/controllers/base"
 )
 
 //go:embed testdata/images.json
@@ -175,32 +176,8 @@ func (r *imageReconciler) upsertImage(ctx context.Context, image *containersv1al
 
 func (r *imageReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager) error {
 	var errs []error
-	indexers := map[string]func(obj *containersv1alpha1.Image) string{
-		".status.id": func(image *containersv1alpha1.Image) string {
-			return image.Status.ID
-		},
-		".status.repoTag": func(image *containersv1alpha1.Image) string {
-			return image.Status.RepoTag
-		},
-	}
-
-	for field, indexer := range indexers {
-		err := mgr.GetFieldIndexer().IndexField(
-			ctx,
-			&containersv1alpha1.Image{},
-			field,
-			func(rawObj client.Object) []string {
-				if image, ok := rawObj.(*containersv1alpha1.Image); ok {
-					if value := indexer(image); value != "" {
-						return []string{value}
-					}
-				}
-				return nil
-			},
-		)
-		if err != nil {
-			errs = append(errs, fmt.Errorf("failed to setup index for %s: %w", field, err))
-		}
+	if err := base.IndexFields(ctx, &containersv1alpha1.Image{}, mgr); err != nil {
+		errs = append(errs, err)
 	}
 
 	err := ctrl.NewControllerManagedBy(mgr).
