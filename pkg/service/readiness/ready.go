@@ -10,6 +10,7 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -20,11 +21,11 @@ import (
 	apiextensionsclientset "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/apimachinery/pkg/util/yaml"
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/klog/v2"
-	"sigs.k8s.io/yaml"
 
 	"github.com/rancher-sandbox/rancher-desktop-daemon/pkg/controllers/base"
 )
@@ -139,11 +140,19 @@ func waitForCRDsEstablished(ctx context.Context, config *rest.Config, controller
 			continue // Skip controllers without CRDs
 		}
 
-		var crd apiextensionsv1.CustomResourceDefinition
-		if err := yaml.Unmarshal([]byte(crdData), &crd); err != nil {
-			return fmt.Errorf("failed to unmarshal CRD for controller %s: %w", controller.GetName(), err)
+		decoder := yaml.NewYAMLToJSONDecoder(strings.NewReader(crdData))
+		for {
+			var crd apiextensionsv1.CustomResourceDefinition
+			if err := decoder.Decode(&crd); err != nil {
+				if errors.Is(err, io.EOF) {
+					break
+				}
+				return fmt.Errorf("failed to unmarshal CRD for controller %s: %w", controller.GetName(), err)
+			}
+			if crd.Name != "" {
+				expectedCRDNames = append(expectedCRDNames, crd.Name)
+			}
 		}
-		expectedCRDNames = append(expectedCRDNames, crd.Name)
 	}
 
 	if len(expectedCRDNames) == 0 {

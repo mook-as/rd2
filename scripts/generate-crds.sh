@@ -25,19 +25,23 @@ EOF
 
 for apigroup in $API_GROUPS; do
 	# Generate all CRDs for this API group to temp directory
-	go tool controller-gen "crd:headerFile=$TMPDIR/header.txt" "paths=./pkg/apis/${apigroup}/..." "output:crd:dir=${TMPDIR}"
+	rm -f "$TMPDIR"/*.yaml
+	go tool controller-gen "crd" "paths=./pkg/apis/${apigroup}/..." "output:crd:dir=${TMPDIR}"
 
-	# Distribute CRDs to their respective controller directories
-	for controller_dir in "pkg/controllers/${apigroup}"/*/; do
-		if [ -f "$controller_dir/crd.yaml" ]; then
-			controller=$(basename "$controller_dir")
-			crd_file=$(grep --ignore-case --files-with-matches "^ *kind: ${controller}$" "$TMPDIR"/*.yaml || :)
-			if [[ -n $crd_file ]] && [[ -f $crd_file ]]; then
-				mv "$crd_file" "${controller_dir}/crd.yaml"
-			else
-			  echo "Could not locate CRD for ${controller}"
-			  exit 1
-			fi
+	# Concatenate CRDs into their respective controller directories
+	for crd_path in "$TMPDIR"/*.yaml; do
+		kind=$(yq '.metadata.annotations."rdd.rancherdesktop.io/controller" // .spec.names.singular' < "$crd_path")
+		out_path="pkg/controllers/${apigroup}/${kind}/crd.yaml"
+
+		# Clear the output crd.yaml file if this is the first time we're seeing
+		# this kind in this apigroup.
+		flag_var="SEEN_${apigroup}_${kind}"
+		if [ -z "${!flag_var:-}" ]; then
+			cp "$TMPDIR/header.txt" "$out_path"
+			eval "${flag_var}=true"
 		fi
+
+		mkdir -p "$(dirname "$out_path")"
+		cat "$crd_path" >> "$out_path"
 	done
 done

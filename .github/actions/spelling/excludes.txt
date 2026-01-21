@@ -7,3 +7,7 @@
 ^\.github/actions/spelling/
 # dependabot configuration has lots of URLs and other non-spell-checkable things.
 ^\.github/dependabot\.yml$
+# Exclude test data
+/testdata/
+# Exclude generated CRD files
+^pkg/controllers/.*/crd\.yaml$

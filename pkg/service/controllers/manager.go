@@ -5,9 +5,11 @@
 package controllers
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"strconv"
 	"sync"
 	"time"
@@ -343,33 +345,42 @@ func (scm *SharedControllerManager) installControllerCRDs(ctx context.Context) e
 			continue
 		}
 
-		var crd apiextensionsv1.CustomResourceDefinition
-		if err := yaml.Unmarshal([]byte(crdData), &crd); err != nil {
-			return fmt.Errorf("failed to unmarshal CRD for controller %s: %w", controllerName, err)
-		}
+		decoder := yaml.NewYAMLToJSONDecoder(bytes.NewBufferString(crdData))
+		for {
+			var crd apiextensionsv1.CustomResourceDefinition
+			if err := decoder.Decode(&crd); err != nil {
+				if errors.Is(err, io.EOF) {
+					break
+				}
+				return fmt.Errorf("failed to decode CRD for controller %s: %w", controllerName, err)
+			}
+			if crd.Name == "" {
+				continue // Comment block before the first document has no data.
+			}
 
-		// Check if CRD already exists
-		_, err = crdClient.Get(ctx, crd.Name, metav1.GetOptions{})
-		if err == nil {
-			klog.Infof("%s CRD already exists", controllerName)
-			crdInfos = append(crdInfos, crdInfo{controller: controller, crd: crd, needsWait: false})
-			continue
-		}
-		if !apierrors.IsNotFound(err) {
-			return fmt.Errorf("failed to check if CRD exists for controller %s: %w", controllerName, err)
-		}
+			// Check if CRD already exists
+			_, err = crdClient.Get(ctx, crd.Name, metav1.GetOptions{})
+			if err == nil {
+				klog.Infof("%s CRD already exists", controllerName)
+				crdInfos = append(crdInfos, crdInfo{controller: controller, crd: crd, needsWait: false})
+				continue
+			}
+			if !apierrors.IsNotFound(err) {
+				return fmt.Errorf("failed to check if CRD exists for controller %s: %w", controllerName, err)
+			}
 
-		// Create the CRD
-		klog.Infof("Installing %s CRD", controllerName)
-		if crd.Labels == nil {
-			crd.Labels = make(map[string]string)
-		}
-		crd.Labels[crdOwnerLabel] = scm.name
-		if _, err := crdClient.Create(ctx, &crd, metav1.CreateOptions{}); err != nil {
-			return fmt.Errorf("failed to create CRD for controller %s: %w", controllerName, err)
-		}
+			// Create the CRD
+			klog.Infof("Installing %s CRD %s", controllerName, crd.Name)
+			if crd.Labels == nil {
+				crd.Labels = make(map[string]string)
+			}
+			crd.Labels[crdOwnerLabel] = scm.name
+			if _, err := crdClient.Create(ctx, &crd, metav1.CreateOptions{}); err != nil {
+				return fmt.Errorf("failed to create CRD for controller %s: %w", controllerName, err)
+			}
 
-		crdInfos = append(crdInfos, crdInfo{controller: controller, crd: crd, needsWait: true})
+			crdInfos = append(crdInfos, crdInfo{controller: controller, crd: crd, needsWait: true})
+		}
 	}
 
 	// Step 2: Wait for all CRDs to be established
@@ -468,25 +479,34 @@ func (scm *SharedControllerManager) cleanupUnusedCRDs(ctx context.Context, contr
 		}
 
 		// Parse the CRD to get its name
-		var crd apiextensionsv1.CustomResourceDefinition
-		if err := yaml.Unmarshal([]byte(crdData), &crd); err != nil {
-			klog.ErrorS(err, "Failed to unmarshal CRD for controller", "controller", controller.GetName())
-			continue
-		}
-
-		existingCRD, err := crdClient.Get(ctx, crd.Name, metav1.GetOptions{})
-		if err == nil && existingCRD.Labels != nil {
-			existingOwner := existingCRD.Labels[crdOwnerLabel]
-			if existingOwner != scm.name {
-				klog.V(2).InfoS("Skipping CRD owned by different controller manager", "crd", crd.Name, "manager", existingOwner)
+		decoder := yaml.NewYAMLToJSONDecoder(bytes.NewBufferString(crdData))
+		for {
+			var crd apiextensionsv1.CustomResourceDefinition
+			if err := decoder.Decode(&crd); err != nil {
+				if errors.Is(err, io.EOF) {
+					break
+				}
+				klog.ErrorS(err, "Failed to unmarshal CRD for controller", "controller", controller.GetName())
 				continue
 			}
-		}
+			if crd.Name == "" {
+				continue // Comment block before the first document has no data.
+			}
 
-		klog.InfoS("Deleting unused CRD", "crd", crd.Name, "controller", controller.GetName())
-		err = crdClient.Delete(ctx, crd.Name, metav1.DeleteOptions{})
-		if err != nil && !apierrors.IsNotFound(err) {
-			klog.ErrorS(err, "Failed to delete unused CRD", "crd", crd.Name, "controller", controller.GetName())
+			existingCRD, err := crdClient.Get(ctx, crd.Name, metav1.GetOptions{})
+			if err == nil && existingCRD.Labels != nil {
+				existingOwner := existingCRD.Labels[crdOwnerLabel]
+				if existingOwner != scm.name {
+					klog.V(2).InfoS("Skipping CRD owned by different controller manager", "crd", crd.Name, "manager", existingOwner)
+					continue
+				}
+			}
+
+			klog.InfoS("Deleting unused CRD", "crd", crd.Name, "controller", controller.GetName())
+			err = crdClient.Delete(ctx, crd.Name, metav1.DeleteOptions{})
+			if err != nil && !apierrors.IsNotFound(err) {
+				klog.ErrorS(err, "Failed to delete unused CRD", "crd", crd.Name, "controller", controller.GetName())
+			}
 		}
 	}
 

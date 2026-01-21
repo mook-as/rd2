@@ -19,3 +19,6 @@
 
 # \n and \t printf markers
 (?<!\\)\\[tn](?=[a-z]{2,})
+
+# Function names
+yaml\.NewYAMLToJSONDecoder\(
