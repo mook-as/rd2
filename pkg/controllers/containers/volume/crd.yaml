@@ -45,22 +45,23 @@ spec:
           metadata:
             type: object
           spec:
-            description: spec defines the desired state of VolumeCreateRequest
+            description: Spec defines the desired state of VolumeCreateRequest
             properties:
               driver:
-                description: driver the volume should use.
+                description: Driver the volume should use.
                 type: string
             required:
             - driver
             type: object
           status:
-            description: status represents the current state of the VolumeCreateRequest
+            description: Status represents the current state of the VolumeCreateRequest
             properties:
               conditions:
                 description: |-
-                  conditions represent the state of the volume creation request.
+                  Conditions represent the state of the volume creation request.
                   Current known condition types include:
-                  - "Processed": the volume creation request has been completed.
+                   - "Complete": the volume creation request has successfully completed.
+                   - "Failed": the volume creation request has failed.
                   The status of each condition is one of True, False, or Unknown.
                 items:
                   description: Condition contains details for one aspect of the current
@@ -171,49 +172,31 @@ spec:
           metadata:
             type: object
           status:
-            description: status describes the observed state of the volume.
+            description: Status describes the observed state of the volume.
             properties:
               createdAt:
-                description: createdAt is the time the volume was created.
+                description: CreatedAt is the time the volume was created.
                 format: date-time
                 type: string
-                x-kubernetes-validations:
-                - message: createdAt is immutable
-                  rule: self == oldSelf
               driver:
-                description: driver the volume uses.
+                description: Driver the volume uses.
                 type: string
-                x-kubernetes-validations:
-                - message: driver is immutable
-                  rule: self == oldSelf
               labels:
                 additionalProperties:
                   type: string
-                description: labels for the volume.
+                description: Labels for the volume.
                 type: object
-                x-kubernetes-validations:
-                - message: labels is immutable
-                  rule: self == oldSelf
               mountpoint:
-                description: mountpoint is where on the host the volume is mounted.
+                description: MountPoint is where on the host the volume is mounted.
                 type: string
-                x-kubernetes-validations:
-                - message: mountpoint is immutable
-                  rule: self == oldSelf
               options:
                 additionalProperties:
                   type: string
-                description: options for the volume driver.
+                description: Options for the volume driver.
                 type: object
-                x-kubernetes-validations:
-                - message: options is immutable
-                  rule: self == oldSelf
               scope:
-                description: scope of the volume.
+                description: Scope of the volume.
                 type: string
-                x-kubernetes-validations:
-                - message: scope is immutable
-                  rule: self == oldSelf
             required:
             - createdAt
             - driver

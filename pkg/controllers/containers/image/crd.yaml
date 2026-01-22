@@ -45,7 +45,7 @@ spec:
           metadata:
             type: object
           spec:
-            description: spec defines the desired state of ImagePullRequest
+            description: Spec defines the desired state of ImagePullRequest
             properties:
               repoTag:
                 description: RepoTag is the image to pull.
@@ -54,13 +54,14 @@ spec:
             - repoTag
             type: object
           status:
-            description: status represents the current state of the ImagePullRequest
+            description: Status represents the current state of the ImagePullRequest
             properties:
               conditions:
                 description: |-
-                  conditions represent the state of the image pull request.
+                  Conditions represent the state of the image pull request.
                   Current known condition types include:
-                   - "Pulled": the image pull request has been completed.
+                   - "Complete": the image pull request has successfully completed.
+                   - "Failed": the image pull request has failed.
                   The status of each condition is one of True, False, or Unknown.
                 items:
                   description: Condition contains details for one aspect of the current
@@ -168,24 +169,25 @@ spec:
           metadata:
             type: object
           spec:
-            description: spec defines the desired state of ImagePushRequest
+            description: Spec defines the desired state of ImagePushRequest
             properties:
               imageRef:
                 description: |-
-                  imageRef is the image to push.
+                  ImageRef is the image to push.
                   This must be the name of an Image object in the same namespace.
                 type: string
             required:
             - imageRef
             type: object
           status:
-            description: status represents the current state of the ImagePushRequest
+            description: Status represents the current state of the ImagePushRequest
             properties:
               conditions:
                 description: |-
-                  conditions represent the state of the image push request.
+                  Conditions represent the state of the image push request.
                   Current known condition types include:
-                   - "Finished": the image push request has been completed.
+                   - "Complete": the image push request has successfully completed.
+                   - "Failed": the image push request has failed.
                   The status of each condition is one of True, False, or Unknown.
                 items:
                   description: Condition contains details for one aspect of the current
@@ -303,14 +305,14 @@ spec:
           metadata:
             type: object
           status:
-            description: status defines the immutable properties of an Image.
+            description: Status defines the immutable properties of an Image.
             properties:
               architecture:
-                description: architecture associated with the image.
+                description: Architecture associated with the image.
                 type: string
               conditions:
                 description: |-
-                  conditions represent the state of the image.
+                  Conditions represent the state of the image.
                   There are currently no defined condition types.
                 items:
                   description: Condition contains details for one aspect of the current
@@ -371,11 +373,11 @@ spec:
                 - type
                 x-kubernetes-list-type: map
               createdAt:
-                description: createdAt is the time the volume was created.
+                description: CreatedAt is the time the image was created.
                 format: date-time
                 type: string
               id:
-                description: id is the image ID, as reported by the container runtime.
+                description: ID is the image ID, as reported by the container runtime.
                 type: string
               labels:
                 additionalProperties:
@@ -383,21 +385,21 @@ spec:
                 description: Labels of the image.
                 type: object
               os:
-                description: os associated with the image.
+                description: OS associated with the image.
                 type: string
               repoDigests:
-                description: repoDigests are the signed digests of the image.
+                description: RepoDigests are the signed digests of the image.
                 items:
                   type: string
                 type: array
               repoTag:
                 description: |-
-                  repoTag is the tag of the image.  Images with multiple tags will have
+                  RepoTag is the tag of the image.  Images with multiple tags will have
                   multiple Image objects.  Images without tags will have this unset, but
                   only one Image object should exist in that case.
                 type: string
               size:
-                description: size of the image.
+                description: Size of the image.
                 format: int64
                 type: integer
             required:
@@ -453,24 +455,25 @@ spec:
           metadata:
             type: object
           spec:
-            description: spec defines the desired state of ImageScanRequest
+            description: Spec defines the desired state of ImageScanRequest
             properties:
               imageRef:
                 description: |-
-                  imageRef is the image to scan.
+                  ImageRef is the image to scan.
                   This must be the name of an Image object in the same namespace.
                 type: string
             required:
             - imageRef
             type: object
           status:
-            description: status represents the current state of the ImageScanRequest
+            description: Status represents the current state of the ImageScanRequest
             properties:
               conditions:
                 description: |-
-                  conditions represent the state of the image scan request.
+                  Conditions represent the state of the image scan request.
                   Current known condition types include:
-                   - "Finished": the image scan request has been completed.
+                   - "Complete": the image scan request has successfully completed.
+                   - "Failed": the image scan request has failed.
                   The status of each condition is one of True, False, or Unknown.
                 items:
                   description: Condition contains details for one aspect of the current
@@ -532,7 +535,7 @@ spec:
                 x-kubernetes-list-type: map
               result:
                 description: |-
-                  result is the result of the image scan.  This is the serialized JSON
+                  Result is the result of the image scan.  This is the serialized JSON
                   output from the scanner.
                 type: string
             type: object

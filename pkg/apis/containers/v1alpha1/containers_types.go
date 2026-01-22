@@ -8,8 +8,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// ContainerStatusValue describes the status of a container.
 // +kubebuilder:validation:Enum=created;running;pausing;paused;restarting;removing;exited;dead;unknown
+
+// ContainerStatusValue describes the status of a container.
 type ContainerStatusValue string
 
 const (
@@ -26,28 +27,33 @@ const (
 
 // ContainerPortBinding describes one host port for the container to bind to.
 type ContainerPortBinding struct {
-	// hostIP is the host IP address that the container's port is mapped to.
+	// HostIP is the host IP address that the container's port is mapped to.
+	//
 	// +required
 	HostIP string `json:"hostIP"`
-	// hostPort is the host port number that the container's port is mapped to.
+	// HostPort is the host port number that the container's port is mapped to.
+	//
 	// +required
 	HostPort string `json:"hostPort"`
 }
 
 // ContainerPort defines a single exposed port in a container.
 type ContainerPort struct {
-	// name of the port; in the form [port]/[protocol], e.g. "80/tcp".
+	// Name of the port; in the form [port]/[protocol], e.g. "80/tcp".
+	//
 	// +required
 	Name string `json:"name"`
-	// bindings to the host port; can contain multiple entries to e.g. express
+	// Bindings to the host port; can contain multiple entries to e.g. express
 	// IPv4 and IPv6 bindings.
+	//
 	// +required
 	Bindings []ContainerPortBinding `json:"bindings"`
 }
 
 // ContainerSpec defines the configuration the container was created with.
 type ContainerSpec struct {
-	// state is the desired state of the container.
+	// State is the desired state of the container.
+	//
 	// +required
 	// +kubebuilder:default:=running
 	// +kubebuilder:validation:Enum=created;running
@@ -56,44 +62,56 @@ type ContainerSpec struct {
 
 // ContainerStatus defines the observed state of the container.
 type ContainerStatus struct {
-	// path is the path to the executable (within the image) for the process.
+	// Path to the executable (within the image) for the process.
+	//
 	// +required
 	Path string `json:"path"`
-	// args is the arguments to the executable.
+	// Args is the arguments to the executable.
+	//
 	// +optional
 	Args []string `json:"args"`
-	// image is the image the container was created with.
+	// Image is the image the container was created with.
+	//
 	// +required
 	Image string `json:"image"`
-	// ports describes the exposed ports of the container.
+	// Ports describes the exposed ports of the container.
+	//
 	// +optional
 	Ports []ContainerPort `json:"ports,omitempty"`
-	// labels are the container labels.
+	// Labels are the container labels.
+	//
 	// +optional
 	Labels map[string]string `json:"labels"`
-	// status of the container.
+	// Status of the container.
+	//
 	// +required
 	// +kubebuilder:default:=unknown
 	Status ContainerStatusValue `json:"status"`
-	// pid is the process identifier for the main process in the container.
+	// Pid is the process identifier for the main process in the container.
+	//
 	// +required
 	Pid int32 `json:"pid"`
-	// exitCode is the exit status of the main process in the container.
+	// ExitCode is the exit status of the main process in the container.
+	//
 	// +optional
 	ExitCode int32 `json:"exitCode"`
-	// error message if the container has failed to start.
+	// Error message if the container has failed to start.
+	//
 	// +optional
 	Error string `json:"error"`
-	// createdAt is the time this container was initially created.
+	// CreatedAt is the time this container was initially created.
+	//
 	// +optional
 	CreatedAt metav1.Time `json:"createdAt"`
-	// startedAt is the time this container was started; unset if the container is stopped.
+	// StartedAt is the time this container was started; unset if the container is stopped.
+	//
 	// +optional
 	StartedAt metav1.Time `json:"startedAt"`
-	// finishedAt is the time this container was last stopped; unset if the container never ran.
+	// FinishedAt is the time this container was last stopped; unset if the container never ran.
+	//
 	// +optional
 	FinishedAt metav1.Time `json:"finishedAt"`
-	// conditions represent the calculated state of the container.
+	// Conditions represent the calculated state of the container.
 	// Each condition has a unique type and reflects the status of a specific aspect of the resource.
 	//
 	// Known condition types include:
@@ -105,6 +123,7 @@ type ContainerStatus struct {
 	// - "Dead": the container is dead.
 	//
 	// The status of each condition is one of True, False, or Unknown.
+	//
 	// +listType=map
 	// +listMapKey=type
 	// +optional
@@ -119,15 +138,18 @@ type ContainerStatus struct {
 type Container struct {
 	metav1.TypeMeta `json:",inline"`
 
-	// metadata is a standard object metadata
+	// Metadata is a standard object metadata
+	//
 	// +optional
 	metav1.ObjectMeta `json:"metadata,omitempty,omitzero"`
 
-	// spec defines the desired state of Container
+	// Spec defines the desired state of Container
+	//
 	// +required
 	Spec ContainerSpec `json:"spec"`
 
-	// status defines the observed state of Container
+	// Status defines the observed state of Container
+	//
 	// +optional
 	Status ContainerStatus `json:"status,omitempty,omitzero"`
 }
@@ -141,41 +163,52 @@ type ContainerList struct {
 	Items           []Container `json:"items"`
 }
 
-type ContainerCreateSpec struct {
-	// path is the path to the executable (within the image) for the process.
+// ContainerCreateRequestSpec defines the desired state for creating a container.
+type ContainerCreateRequestSpec struct {
+	// Path is the path to the executable (within the image) for the process.
 	// Defaults to the image's default command if not specified.
+	//
 	// +optional
 	Path string `json:"path"`
-	// args is the arguments to the executable.
+	// Args is the arguments to the executable.
+	//
 	// +optional
 	Args []string `json:"args"`
-	// image is the image the container was created with.
-	// May be either a tag or a digest.
+	// Image is the image the container was created with.
+	// May be either a tag or a digest such as `sha256:dead00beef...`.
+	//
 	// +required
 	Image string `json:"image"`
-	// ports describes the exposed ports of the container.
+	// Ports describes the exposed ports of the container.
+	//
 	// +optional
 	Ports []ContainerPort `json:"ports,omitempty"`
-	// labels are the container labels.  They are merged with the image labels.
+	// Labels are the container labels.  They are merged with the image labels.
+	//
 	// +optional
 	Labels map[string]string `json:"labels"`
 
-	// state is the desired state of the container.
+	// State is the desired state of the container.
+	//
 	// +required
 	// +kubebuilder:default:=running
 	// +kubebuilder:validation:Enum=created;running
 	State ContainerStatusValue `json:"state"`
 }
 
-type ContainerCreateStatus struct {
-	// name is the name of the created container; this is the container ID.
+// ContainerCreateRequestStatus defines the status for a container creation request.
+type ContainerCreateRequestStatus struct {
+	// Name is the name of the created container; this is the container ID.
+	//
 	// +required
 	Name string `json:"name"`
 
-	// conditions represent the state of the container creation request.
+	// Conditions represent the state of the container creation request.
 	// Current known condition types include:
-	// - "Finished": the container creation request has been completed.
+	// - "Complete": the container creation request has successfully completed.
+	// - "Failed": the container creation request has failed.
 	// The status of each condition is one of True, False, or Unknown.
+	//
 	// +listType=map
 	// +listMapKey=type
 	// +optional
@@ -192,13 +225,20 @@ type ContainerCreateStatus struct {
 type ContainerCreateRequest struct {
 	metav1.TypeMeta `json:",inline"`
 
-	// metadata is a standard object metadata
+	// Metadata is a standard object metadata
+	//
 	// +optional
 	metav1.ObjectMeta `json:"metadata,omitempty,omitzero"`
 
-	// spec defines the desired state of Container
+	// Spec defines the desired state of Container
+	//
 	// +required
-	Spec ContainerCreateSpec `json:"spec"`
+	Spec ContainerCreateRequestSpec `json:"spec"`
+
+	// Status represents the current state of the ContainerCreateRequest
+	//
+	// +optional
+	Status ContainerCreateRequestStatus `json:"status,omitempty,omitzero"`
 }
 
 // +kubebuilder:object:root=true

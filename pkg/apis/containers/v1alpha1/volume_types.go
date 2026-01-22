@@ -10,29 +10,29 @@ import (
 
 // VolumeStatus describes the configuration the volume was created with.
 type VolumeStatus struct {
-	// createdAt is the time the volume was created.
+	// CreatedAt is the time the volume was created.
+	//
 	// +required
-	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="createdAt is immutable"
 	CreatedAt metav1.Time `json:"createdAt"`
-	// driver the volume uses.
+	// Driver the volume uses.
+	//
 	// +required
-	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="driver is immutable"
 	Driver string `json:"driver"`
-	// mountpoint is where on the host the volume is mounted.
+	// MountPoint is where on the host the volume is mounted.
+	//
 	// +required
-	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="mountpoint is immutable"
 	MountPoint string `json:"mountpoint"`
-	// labels for the volume.
+	// Labels for the volume.
+	//
 	// +optional
-	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="labels is immutable"
 	Labels map[string]string `json:"labels,omitempty"`
-	// scope of the volume.
+	// Scope of the volume.
+	//
 	// +required
-	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="scope is immutable"
 	Scope string `json:"scope"`
-	// options for the volume driver.
+	// Options for the volume driver.
+	//
 	// +optional
-	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="options is immutable"
 	Options map[string]string `json:"options,omitempty"`
 }
 
@@ -44,11 +44,13 @@ type VolumeStatus struct {
 type Volume struct {
 	metav1.TypeMeta `json:",inline"`
 
-	// metadata is a standard object metadata
+	// Metadata is a standard object metadata
+	//
 	// +optional
 	metav1.ObjectMeta `json:"metadata,omitempty,omitzero"`
 
-	// status describes the observed state of the volume.
+	// Status describes the observed state of the volume.
+	//
 	// +optional
 	Status VolumeStatus `json:"status"`
 }
@@ -63,16 +65,19 @@ type VolumeList struct {
 }
 
 type VolumeCreateSpec struct {
-	// driver the volume should use.
+	// Driver the volume should use.
+	//
 	// +required
 	Driver string `json:"driver"`
 }
 
 type VolumeCreateStatus struct {
-	// conditions represent the state of the volume creation request.
+	// Conditions represent the state of the volume creation request.
 	// Current known condition types include:
-	// - "Processed": the volume creation request has been completed.
+	//  - "Complete": the volume creation request has successfully completed.
+	//  - "Failed": the volume creation request has failed.
 	// The status of each condition is one of True, False, or Unknown.
+	//
 	// +listType=map
 	// +listMapKey=type
 	// +optional
@@ -89,15 +94,18 @@ type VolumeCreateStatus struct {
 type VolumeCreateRequest struct {
 	metav1.TypeMeta `json:",inline"`
 
-	// metadata is a standard object metadata
+	// Metadata is a standard object metadata
+	//
 	// +optional
 	metav1.ObjectMeta `json:"metadata,omitempty,omitzero"`
 
-	// spec defines the desired state of VolumeCreateRequest
+	// Spec defines the desired state of VolumeCreateRequest
+	//
 	// +required
 	Spec VolumeCreateSpec `json:"spec"`
 
-	// status represents the current state of the VolumeCreateRequest
+	// Status represents the current state of the VolumeCreateRequest
+	//
 	// +optional
 	Status VolumeCreateStatus `json:"status,omitempty"`
 }

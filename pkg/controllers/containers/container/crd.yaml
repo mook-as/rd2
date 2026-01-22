@@ -45,48 +45,48 @@ spec:
           metadata:
             type: object
           spec:
-            description: spec defines the desired state of Container
+            description: Spec defines the desired state of Container
             properties:
               args:
-                description: args is the arguments to the executable.
+                description: Args is the arguments to the executable.
                 items:
                   type: string
                 type: array
               image:
                 description: |-
-                  image is the image the container was created with.
-                  May be either a tag or a digest.
+                  Image is the image the container was created with.
+                  May be either a tag or a digest such as `sha256:dead00beef...`.
                 type: string
               labels:
                 additionalProperties:
                   type: string
-                description: labels are the container labels.  They are merged with
+                description: Labels are the container labels.  They are merged with
                   the image labels.
                 type: object
               path:
                 description: |-
-                  path is the path to the executable (within the image) for the process.
+                  Path is the path to the executable (within the image) for the process.
                   Defaults to the image's default command if not specified.
                 type: string
               ports:
-                description: ports describes the exposed ports of the container.
+                description: Ports describes the exposed ports of the container.
                 items:
                   description: ContainerPort defines a single exposed port in a container.
                   properties:
                     bindings:
                       description: |-
-                        bindings to the host port; can contain multiple entries to e.g. express
+                        Bindings to the host port; can contain multiple entries to e.g. express
                         IPv4 and IPv6 bindings.
                       items:
                         description: ContainerPortBinding describes one host port
                           for the container to bind to.
                         properties:
                           hostIP:
-                            description: hostIP is the host IP address that the container's
+                            description: HostIP is the host IP address that the container's
                               port is mapped to.
                             type: string
                           hostPort:
-                            description: hostPort is the host port number that the
+                            description: HostPort is the host port number that the
                               container's port is mapped to.
                             type: string
                         required:
@@ -95,7 +95,7 @@ spec:
                         type: object
                       type: array
                     name:
-                      description: name of the port; in the form [port]/[protocol],
+                      description: Name of the port; in the form [port]/[protocol],
                         e.g. "80/tcp".
                       type: string
                   required:
@@ -119,11 +119,86 @@ spec:
                   - created
                   - running
                 default: running
-                description: state is the desired state of the container.
+                description: State is the desired state of the container.
                 type: string
             required:
             - image
             - state
+            type: object
+          status:
+            description: Status represents the current state of the ContainerCreateRequest
+            properties:
+              conditions:
+                description: |-
+                  Conditions represent the state of the container creation request.
+                  Current known condition types include:
+                  - "Complete": the container creation request has successfully completed.
+                  - "Failed": the container creation request has failed.
+                  The status of each condition is one of True, False, or Unknown.
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              name:
+                description: Name is the name of the created container; this is the
+                  container ID.
+                type: string
+            required:
+            - name
             type: object
         required:
         - spec
@@ -175,7 +250,7 @@ spec:
           metadata:
             type: object
           spec:
-            description: spec defines the desired state of Container
+            description: Spec defines the desired state of Container
             properties:
               state:
                 allOf:
@@ -193,22 +268,22 @@ spec:
                   - created
                   - running
                 default: running
-                description: state is the desired state of the container.
+                description: State is the desired state of the container.
                 type: string
             required:
             - state
             type: object
           status:
-            description: status defines the observed state of Container
+            description: Status defines the observed state of Container
             properties:
               args:
-                description: args is the arguments to the executable.
+                description: Args is the arguments to the executable.
                 items:
                   type: string
                 type: array
               conditions:
                 description: |-
-                  conditions represent the calculated state of the container.
+                  Conditions represent the calculated state of the container.
                   Each condition has a unique type and reflects the status of a specific aspect of the resource.
 
                   Known condition types include:
@@ -279,58 +354,57 @@ spec:
                 - type
                 x-kubernetes-list-type: map
               createdAt:
-                description: createdAt is the time this container was initially created.
+                description: CreatedAt is the time this container was initially created.
                 format: date-time
                 type: string
               error:
-                description: error message if the container has failed to start.
+                description: Error message if the container has failed to start.
                 type: string
               exitCode:
-                description: exitCode is the exit status of the main process in the
+                description: ExitCode is the exit status of the main process in the
                   container.
                 format: int32
                 type: integer
               finishedAt:
-                description: finishedAt is the time this container was last stopped;
+                description: FinishedAt is the time this container was last stopped;
                   unset if the container never ran.
                 format: date-time
                 type: string
               image:
-                description: image is the image the container was created with.
+                description: Image is the image the container was created with.
                 type: string
               labels:
                 additionalProperties:
                   type: string
-                description: labels are the container labels.
+                description: Labels are the container labels.
                 type: object
               path:
-                description: path is the path to the executable (within the image)
-                  for the process.
+                description: Path to the executable (within the image) for the process.
                 type: string
               pid:
-                description: pid is the process identifier for the main process in
+                description: Pid is the process identifier for the main process in
                   the container.
                 format: int32
                 type: integer
               ports:
-                description: ports describes the exposed ports of the container.
+                description: Ports describes the exposed ports of the container.
                 items:
                   description: ContainerPort defines a single exposed port in a container.
                   properties:
                     bindings:
                       description: |-
-                        bindings to the host port; can contain multiple entries to e.g. express
+                        Bindings to the host port; can contain multiple entries to e.g. express
                         IPv4 and IPv6 bindings.
                       items:
                         description: ContainerPortBinding describes one host port
                           for the container to bind to.
                         properties:
                           hostIP:
-                            description: hostIP is the host IP address that the container's
+                            description: HostIP is the host IP address that the container's
                               port is mapped to.
                             type: string
                           hostPort:
-                            description: hostPort is the host port number that the
+                            description: HostPort is the host port number that the
                               container's port is mapped to.
                             type: string
                         required:
@@ -339,7 +413,7 @@ spec:
                         type: object
                       type: array
                     name:
-                      description: name of the port; in the form [port]/[protocol],
+                      description: Name of the port; in the form [port]/[protocol],
                         e.g. "80/tcp".
                       type: string
                   required:
@@ -348,13 +422,13 @@ spec:
                   type: object
                 type: array
               startedAt:
-                description: startedAt is the time this container was started; unset
+                description: StartedAt is the time this container was started; unset
                   if the container is stopped.
                 format: date-time
                 type: string
               status:
                 default: unknown
-                description: status of the container.
+                description: Status of the container.
                 enum:
                 - created
                 - running
