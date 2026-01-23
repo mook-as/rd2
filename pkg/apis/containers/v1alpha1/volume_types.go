@@ -8,48 +8,51 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// VolumeSpec defines the configuration the volume was created with.
-type VolumeSpec struct {
-	// createdAt is the time the volume was created.
+// VolumeStatus describes the configuration the volume was created with.
+type VolumeStatus struct {
+	// CreatedAt is the time the volume was created.
+	//
 	// +required
-	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="createdAt is immutable"
 	CreatedAt metav1.Time `json:"createdAt"`
-	// driver the volume uses.
+	// Driver the volume uses.
+	//
 	// +required
-	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="driver is immutable"
 	Driver string `json:"driver"`
-	// mountpoint is where on the host the volume is mounted.
+	// MountPoint is where on the host the volume is mounted.
+	//
 	// +required
-	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="mountpoint is immutable"
 	MountPoint string `json:"mountpoint"`
-	// labels for the volume.
+	// Labels for the volume.
+	//
 	// +optional
-	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="labels is immutable"
 	Labels map[string]string `json:"labels,omitempty"`
-	// scope of the volume.
+	// Scope of the volume.
+	//
 	// +required
-	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="scope is immutable"
 	Scope string `json:"scope"`
-	// options for the volume driver.
+	// Options for the volume driver.
+	//
 	// +optional
-	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="options is immutable"
 	Options map[string]string `json:"options,omitempty"`
 }
 
 // +kubebuilder:object:root=true
-// +kubebuilder:printcolumn:name="Driver",type=string,JSONPath=`.spec.driver`
+// +kubebuilder:subresource:status
+// +kubebuilder:printcolumn:name="Driver",type=string,JSONPath=`.status.driver`
 
 // Volume is the Schema for the volumes API.
 type Volume struct {
 	metav1.TypeMeta `json:",inline"`
 
-	// metadata is a standard object metadata
+	// Metadata is a standard object metadata
+	//
 	// +optional
 	metav1.ObjectMeta `json:"metadata,omitempty,omitzero"`
 
-	// spec defines the desired state of Volume
-	// +required
-	Spec VolumeSpec `json:"spec"`
+	// Status describes the observed state of the volume.
+	//
+	// +optional
+	Status VolumeStatus `json:"status"`
 }
 
 // +kubebuilder:object:root=true
@@ -61,6 +64,64 @@ type VolumeList struct {
 	Items           []Volume `json:"items"`
 }
 
+type VolumeCreateSpec struct {
+	// Driver the volume should use.
+	//
+	// +required
+	Driver string `json:"driver"`
+}
+
+type VolumeCreateStatus struct {
+	// Conditions represent the state of the volume creation request.
+	// Current known condition types include:
+	//  - "Complete": the volume creation request has successfully completed.
+	//  - "Failed": the volume creation request has failed.
+	// The status of each condition is one of True, False, or Unknown.
+	//
+	// +listType=map
+	// +listMapKey=type
+	// +optional
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
+}
+
+// +kubebuilder:object:root=true
+// +kubebuilder:subresource:status
+// +kubebuilder:metadata:annotations=rdd.rancherdesktop.io/controller=volume
+
+// VolumeCreateRequest defines a request to create a new volume.
+// After a volume has been created, the VolumeCreateRequest object will
+// be deleted after a short delay.
+type VolumeCreateRequest struct {
+	metav1.TypeMeta `json:",inline"`
+
+	// Metadata is a standard object metadata
+	//
+	// +optional
+	metav1.ObjectMeta `json:"metadata,omitempty,omitzero"`
+
+	// Spec defines the desired state of VolumeCreateRequest
+	//
+	// +required
+	Spec VolumeCreateSpec `json:"spec"`
+
+	// Status represents the current state of the VolumeCreateRequest
+	//
+	// +optional
+	Status VolumeCreateStatus `json:"status,omitempty"`
+}
+
+// +kubebuilder:object:root=true
+
+// VolumeCreateRequestList contains a list of VolumeCreateRequest.
+type VolumeCreateRequestList struct {
+	metav1.TypeMeta `json:",inline"`
+	metav1.ListMeta `json:"metadata,omitempty"`
+	Items           []VolumeCreateRequest `json:"items"`
+}
+
 func init() {
-	SchemeBuilder.Register(&Volume{}, &VolumeList{})
+	SchemeBuilder.Register(
+		&Volume{}, &VolumeList{},
+		&VolumeCreateRequest{}, &VolumeCreateRequestList{},
+	)
 }

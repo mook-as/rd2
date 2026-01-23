@@ -31,4 +31,6 @@ Warningf
 
 # kubebuilder
 kubebuilder
+# kubebuilder marker
+selectablefield
 XValidation
