@@ -145,7 +145,7 @@ func SetupWebhookForResource(mgr ctrl.Manager, obj client.Object, config Webhook
 	gvk := gvks[0]
 
 	// Build webhook registration with controller-runtime
-	builder := ctrl.NewWebhookManagedBy(mgr).For(obj).WithValidator(config.Validator).WithDefaulter(config.Defaulter)
+	builder := ctrl.NewWebhookManagedBy(mgr, obj).WithCustomValidator(config.Validator).WithCustomDefaulter(config.Defaulter)
 	if err := builder.Complete(); err != nil {
 		return nil, err
 	}
