@@ -154,6 +154,8 @@ jobs:
 
     - run: make -C bats
       shell: run-in-wsl {0}
+      env:
+        RDD_TRACE: true
 
     - name: Collect RDD service logs
       if: always()
@@ -161,7 +163,7 @@ jobs:
       run: |
         mkdir -p rdd-logs
         for instance in $(make --no-print-directory -C bats bats-instances); do
-          RDD_INSTANCE="$instance" bin/rdd svc log > "rdd-logs/${instance}.log" 2>&1 || true
+          RDD_INSTANCE="$instance" bin/rdd svc log > "rdd-logs/${instance}.log" || true
         done
 
     - name: Upload RDD service logs

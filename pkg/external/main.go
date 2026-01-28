@@ -75,13 +75,13 @@ func RunControllers(apiGroupName string) int {
 	defer cancelMonitor()
 
 	// Start control plane monitoring in background
-	// Track when shutdown is initiated for timing logs
 	var shutdownStartTime atomic.Int64
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		monitorControlPlane(monitorCtx, apiGroupName, config, setupLog, func() {
+			// Track when shutdown is initiated for timing logs
 			shutdownStartTime.Store(time.Now().UnixNano())
 			cancelMonitor()
 		})
@@ -142,7 +142,7 @@ func monitorControlPlane(ctx context.Context, apiGroupName string, config *rest.
 	// Use a short timeout for monitoring so we detect shutdown quickly.
 	// 1 second is sufficient for local API server connections.
 	monitorConfig := rest.CopyConfig(config)
-	monitorConfig.Timeout = 1 * time.Second
+	monitorConfig.Timeout = time.Second
 
 	discovery, err := controllers.NewControllerManagerDiscoveryGroup(monitorConfig, apiGroupName)
 	if err != nil {
