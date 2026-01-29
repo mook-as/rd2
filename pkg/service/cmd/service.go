@@ -57,6 +57,7 @@ import (
 	// Import built-in system controllers.
 	_ "github.com/rancher-sandbox/rancher-desktop-daemon/pkg/controllers/builtin/namespace"
 	// Import controller packages to trigger init() functions for embedded mode.
+	_ "github.com/rancher-sandbox/rancher-desktop-daemon/pkg/controllers/containers"
 	_ "github.com/rancher-sandbox/rancher-desktop-daemon/pkg/controllers/lima/limavm"
 	_ "github.com/rancher-sandbox/rancher-desktop-daemon/pkg/controllers/rdd/configmapreplicaset"
 	_ "github.com/rancher-sandbox/rancher-desktop-daemon/pkg/controllers/rdd/notary"

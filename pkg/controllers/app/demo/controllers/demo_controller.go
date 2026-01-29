@@ -8,6 +8,7 @@ import (
 	"context"
 	"time"
 
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/record"
@@ -107,16 +108,25 @@ func (r *DemoReconciler) setCondition(demo *appv1alpha1.Demo, conditionType stri
 
 	// Find existing condition of this type
 	for i, condition := range demo.Status.Conditions {
-		if condition.Type == conditionType {
-			// Update existing condition if status changed
-			if condition.Status != status || condition.Reason != reason || condition.Message != message {
-				demo.Status.Conditions[i].Status = status
-				demo.Status.Conditions[i].Reason = reason
-				demo.Status.Conditions[i].Message = message
-				demo.Status.Conditions[i].LastTransitionTime = now
-			}
-			return
+		if condition.Type != conditionType {
+			continue
 		}
+		// Update existing condition if parameters changed.
+		changed := false
+		if condition.Status != status {
+			demo.Status.Conditions[i].Status = status
+			demo.Status.Conditions[i].LastTransitionTime = now
+			changed = true
+		}
+		if condition.Reason != reason || condition.Message != message {
+			demo.Status.Conditions[i].Reason = reason
+			demo.Status.Conditions[i].Message = message
+			changed = true
+		}
+		if changed {
+			r.Recorder.Eventf(demo, corev1.EventTypeNormal, "ConditionChanged", conditionType, message)
+		}
+		return
 	}
 
 	// Add new condition
@@ -127,6 +137,7 @@ func (r *DemoReconciler) setCondition(demo *appv1alpha1.Demo, conditionType stri
 		Reason:             reason,
 		Message:            message,
 	})
+	r.Recorder.Eventf(demo, corev1.EventTypeNormal, "ConditionChanged", conditionType, message)
 }
 
 // SetupWithManager sets up the controller with the Manager.
