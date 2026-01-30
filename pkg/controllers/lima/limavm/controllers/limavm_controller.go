@@ -7,6 +7,8 @@ package controllers
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"time"
 
 	limainstance "github.com/lima-vm/lima/v2/pkg/instance"
@@ -17,13 +19,14 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/rancher-sandbox/rancher-desktop-daemon/pkg/apis/lima/v1alpha1"
 	"github.com/rancher-sandbox/rancher-desktop-daemon/pkg/controllers/base"
+	"github.com/rancher-sandbox/rancher-desktop-daemon/pkg/instance"
 )
 
 const (
@@ -38,14 +41,43 @@ const (
 
 	// ReasonCreateFailed is used when the Lima instance creation failed.
 	ReasonCreateFailed = "CreateFailed"
+
+	// preparingSentinel is a marker file created during instance preparation.
+	// Its presence indicates that preparation is in progress or failed.
+	preparingSentinel = ".preparing"
 )
+
+// sentinelPath returns the path to the preparing sentinel file for an instance.
+func sentinelPath(instanceName string) string {
+	return filepath.Join(instance.LimaHome(), instanceName, preparingSentinel)
+}
+
+// hasSentinel reports whether the preparing sentinel file exists.
+func hasSentinel(instanceName string) bool {
+	_, err := os.Stat(sentinelPath(instanceName))
+	return err == nil
+}
+
+// createSentinel creates the preparing sentinel file.
+func createSentinel(instanceName string) error {
+	return os.WriteFile(sentinelPath(instanceName), nil, 0o644)
+}
+
+// removeSentinel removes the preparing sentinel file.
+func removeSentinel(instanceName string) error {
+	err := os.Remove(sentinelPath(instanceName))
+	if os.IsNotExist(err) {
+		return nil
+	}
+	return err
+}
 
 // LimaVMReconciler reconciles a LimaVM object.
 type LimaVMReconciler struct {
 	client.Client
 	Scheme   *runtime.Scheme
 	Manager  ctrl.Manager
-	Recorder record.EventRecorder
+	Recorder events.EventRecorder
 }
 
 // +kubebuilder:rbac:groups=lima.rancherdesktop.io,resources=limavms,verbs=get;list;watch;create;update;patch;delete
@@ -54,6 +86,7 @@ type LimaVMReconciler struct {
 // +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch;create;update;patch;delete
 
 // Reconcile moves the cluster state toward the desired state.
+// See docs/design/api_lima.md for a flow diagram.
 //
 // Webhook and reconciler responsibilities:
 // - Mutating webhook: adds finalizer, validates templateRef, creates ConfigMap
@@ -82,6 +115,31 @@ func (r *LimaVMReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		return r.handleDeletion(ctx, &limaVM)
 	}
 
+	// Handle instances with a preparing sentinel file. The sentinel indicates that
+	// a previous reconcile started preparation but didn't complete successfully.
+	if hasSentinel(limaVM.Name) {
+		if r.hasCondition(&limaVM, ConditionInstanceCreated, metav1.ConditionTrue) {
+			// Preparation completed but sentinel wasn't cleaned up; remove it now.
+			if err := removeSentinel(limaVM.Name); err != nil {
+				logger.Error(err, "Failed to remove sentinel file")
+				return ctrl.Result{}, err
+			}
+			logger.Info("Removed stale sentinel file", "instance", limaVM.Name)
+			// Continue to check for further work.
+		} else {
+			// Preparation didn't complete; delete the instance directory.
+			// Use os.RemoveAll because store.Inspect may fail if lima.yaml is missing.
+			instanceDir := filepath.Join(instance.LimaHome(), limaVM.Name)
+			logger.Info("Deleting incomplete instance directory", "path", instanceDir)
+			if err := os.RemoveAll(instanceDir); err != nil {
+				logger.Error(err, "Failed to delete incomplete instance directory")
+				return ctrl.Result{}, err
+			}
+		}
+		// Requeue to continue with fresh state after cleanup.
+		return ctrl.Result{Requeue: true}, nil
+	}
+
 	// Delete any leftover instance from a failed deletion before setting up owner references.
 	if limaVM.Status.TemplateConfigMap == "" {
 		existingInst, err := store.Inspect(ctx, limaVM.Name)
@@ -97,7 +155,8 @@ func (r *LimaVMReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	// Get the template ConfigMap (created by the mutating webhook)
 	configMapName := limaVM.GetTemplateConfigMapName()
 	templateConfigMap := &corev1.ConfigMap{}
-	if err := r.Get(ctx, types.NamespacedName{Name: configMapName, Namespace: limaVM.Namespace}, templateConfigMap); err != nil {
+	configMapKey := types.NamespacedName{Name: configMapName, Namespace: limaVM.Namespace}
+	if err := r.Get(ctx, configMapKey, templateConfigMap); err != nil {
 		logger.Error(err, "Failed to get template ConfigMap")
 		return ctrl.Result{}, err
 	}
@@ -148,7 +207,6 @@ func (r *LimaVMReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	templateData, ok := templateConfigMap.Data[v1alpha1.TemplateConfigMapKey]
 	if !ok || templateData == "" {
 		err := errors.New("template ConfigMap missing template data")
-		logger.Error(err, "Template ConfigMap has no template key")
 		r.setCondition(&limaVM, ConditionInstanceCreated, metav1.ConditionFalse, ReasonCreateFailed, err.Error())
 		if statusErr := r.Status().Update(ctx, &limaVM); statusErr != nil {
 			logger.Error(statusErr, "Failed to update status")
@@ -167,10 +225,19 @@ func (r *LimaVMReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		return ctrl.Result{}, err
 	}
 
+	// Create sentinel file to mark preparation in progress.
+	if err := createSentinel(limaVM.Name); err != nil {
+		logger.Error(err, "Failed to create sentinel file")
+		if delErr := limainstance.Delete(ctx, inst, true); delErr != nil {
+			logger.Error(delErr, "Failed to clean up instance after sentinel creation failure")
+		}
+		return ctrl.Result{}, err
+	}
+
 	// Prepare the instance: download images and create disks.
-	// The guestAgent path is unused during Prepare (only stored for later);
+	// The guestAgent path is a placeholder during Prepare (only stored for later);
 	// limactl start will look up the real path when called.
-	if _, err := limainstance.Prepare(ctx, inst, "unused"); err != nil {
+	if _, err := limainstance.Prepare(ctx, inst, "placeholder"); err != nil {
 		logger.Error(err, "Failed to prepare Lima instance")
 		// Clean up the partially created instance so the next reconcile doesn't
 		// see it as existing and skip creation.
@@ -188,6 +255,12 @@ func (r *LimaVMReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	r.setCondition(&limaVM, ConditionInstanceCreated, metav1.ConditionTrue, ReasonCreated, "Lima instance created successfully")
 	if err := r.Status().Update(ctx, &limaVM); err != nil {
 		logger.Error(err, "Failed to update status after instance creation")
+		return ctrl.Result{}, err
+	}
+
+	// Remove sentinel file now that preparation is complete and status is updated.
+	if err := removeSentinel(limaVM.Name); err != nil {
+		logger.Error(err, "Failed to remove sentinel file after successful creation")
 		return ctrl.Result{}, err
 	}
 
@@ -225,7 +298,7 @@ func (r *LimaVMReconciler) setCondition(limaVM *v1alpha1.LimaVM, conditionType s
 			changed = true
 		}
 		if changed {
-			r.Recorder.Eventf(limaVM, corev1.EventTypeNormal, "ConditionChanged", conditionType, message)
+			r.Recorder.Eventf(limaVM, nil, corev1.EventTypeNormal, "ConditionChanged", conditionType, message)
 		}
 		return
 	}
@@ -245,7 +318,10 @@ func (r *LimaVMReconciler) handleDeletion(ctx context.Context, limaVM *v1alpha1.
 
 	// Delete the Lima instance
 	existingInst, err := store.Inspect(ctx, limaVM.Name)
-	if err == nil && existingInst != nil {
+	if err != nil {
+		logger.Error(err, "Failed to inspect Lima instance for deletion")
+	}
+	if existingInst != nil {
 		logger.Info("Deleting Lima instance", "instance", limaVM.Name)
 		if err := limainstance.Delete(ctx, existingInst, true); err != nil {
 			logger.Error(err, "Failed to delete Lima instance")

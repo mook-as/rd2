@@ -101,8 +101,7 @@ func (c *controller) setupReconciler(mgr ctrl.Manager) error {
 		Client:   mgr.GetClient(),
 		Scheme:   mgr.GetScheme(),
 		Manager:  mgr,
-		Recorder: mgr.GetEventRecorderFor(ControllerName + "-controller"), //nolint:staticcheck // new API requires events.k8s.io
-
+		Recorder: mgr.GetEventRecorder(ControllerName + "-controller"),
 	}).SetupWithManager(mgr)
 }
 
