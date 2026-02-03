@@ -10,7 +10,7 @@ require (
 	github.com/lima-vm/lima/v2 v2.0.3
 	github.com/moby/moby/api v1.53.0
 	github.com/muesli/reflow v0.3.0
-	github.com/pulumi/pulumi/sdk/v3 v3.217.0
+	github.com/pulumi/pulumi/sdk/v3 v3.217.1
 	github.com/sirupsen/logrus v1.9.4
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.0.10
