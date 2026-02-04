@@ -156,6 +156,16 @@ assert_limavm_not_exists() {
     lima_instance_running "${VM_NAME}"
 }
 
+@test "logs shows hostagent stderr" {
+    run -0 rdd limavm logs "${VM_NAME}"
+    assert_output --partial "hostagent socket created"
+}
+
+@test "logs --stdout shows hostagent stdout" {
+    run -0 rdd limavm logs --stdout "${VM_NAME}"
+    assert_output --partial "sshLocalPort"
+}
+
 @test "stop the VM by setting running=false" {
     rdd ctl patch limavm "${VM_NAME}" --namespace "${NAMESPACE}" \
         --type=merge --patch '{"spec":{"running":false}}'
