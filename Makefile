@@ -138,9 +138,9 @@ spelling: scripts/check-spelling.sh .github/actions/spelling/expect/golang-gener
 
 ltag:
 	# exclude bats/lib, but --excludes only takes a dir name, not a path name
-	go$(EXE) tool ltag -v -t .ltag -path . --excludes='lib check-spelling'
+	go$(EXE) tool ltag -v -t .ltag -path . --excludes='lib check-spelling nxadmtail'
 check-ltag:
-	go$(EXE) tool ltag -v -t .ltag -path . --excludes='lib check-spelling' --check
+	go$(EXE) tool ltag -v -t .ltag -path . --excludes='lib check-spelling nxadmtail' --check
 .PHONY: ltag check-ltag
 
 BATS_TARGETS := $(shell $(MAKE) -C bats --print-data-base --question --no-builtin-variables | awk -F: '$$1 ~ /^bats-/ { print $$1 }')

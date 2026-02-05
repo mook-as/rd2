@@ -1,0 +1,10 @@
+Rancher Desktop Daemon
+Copyright SUSE LLC
+Copyright The Rancher Desktop Authors
+
+This project is licensed under the Apache License, Version 2.0.
+See LICENSE for the full text. Some included files use the MIT License,
+which is compatible with the Apache-2.0 License:
+
+- pkg/util/nxadmtail/: a vendored copy of github.com/nxadm/tail.
+  See pkg/util/nxadmtail/LICENSE for details.
