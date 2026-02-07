@@ -146,7 +146,7 @@ assert_limavm_not_exists() {
 
 @test "wait for InstanceRunning condition to become True" {
     # VM boot can take several minutes
-    try --max 600 --delay 5 -- assert_instance_running_condition "${VM_NAME}" "True"
+    try --max 60 --delay 5 -- assert_instance_running_condition "${VM_NAME}" "True"
 }
 
 @test "verify InstanceRunning reason is Started" {
@@ -168,7 +168,7 @@ assert_limavm_not_exists() {
 
 @test "wait for InstanceRunning condition to become False" {
     # Graceful shutdown can take up to 3 minutes
-    try --max 240 --delay 5 -- assert_instance_running_condition "${VM_NAME}" "False"
+    try --max 60 --delay 5 -- assert_instance_running_condition "${VM_NAME}" "False"
 }
 
 @test "verify InstanceRunning reason is Stopped after stop" {
@@ -186,7 +186,7 @@ assert_limavm_not_exists() {
 @test "start VM again for broken state test" {
     rdd ctl patch limavm "${VM_NAME}" --namespace "${NAMESPACE}" \
         --type=merge --patch '{"spec":{"running":true}}'
-    try --max 600 --delay 5 -- assert_instance_running_condition "${VM_NAME}" "True"
+    try --max 60 --delay 5 -- assert_instance_running_condition "${VM_NAME}" "True"
 }
 
 @test "simulate broken state by killing hostagent" {
@@ -214,7 +214,7 @@ assert_limavm_not_exists() {
 
     # The reconciler should detect broken state, force stop, then restart.
     # Verify the condition was actually updated by checking lastTransitionTime changed.
-    try --max 600 --delay 5 -- assert_recovery_completed "${before_time}"
+    try --max 60 --delay 5 -- assert_recovery_completed "${before_time}"
 }
 
 @test "verify hostagent is alive after recovery" {
