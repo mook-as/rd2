@@ -18,13 +18,16 @@ import (
 
 	"github.com/go-logr/logr"
 
+	"k8s.io/apiextensions-apiserver/pkg/apihelpers"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apiextensionsclientset "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/apimachinery/pkg/util/yaml"
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	"k8s.io/klog/v2"
@@ -552,6 +555,10 @@ func (scm *SharedControllerManager) cleanupUnusedCRDs(ctx context.Context, contr
 	if err != nil {
 		return fmt.Errorf("failed to create apiextensions client: %w", err)
 	}
+	dynamicClient, err := dynamic.NewForConfig(scm.kubeConfig)
+	if err != nil {
+		return fmt.Errorf("failed to create dynamic client: %w", err)
+	}
 
 	crdClient := apiextensionsClient.ApiextensionsV1().CustomResourceDefinitions()
 
@@ -589,6 +596,8 @@ func (scm *SharedControllerManager) cleanupUnusedCRDs(ctx context.Context, contr
 				continue
 			}
 
+			warmCRDCache(ctx, dynamicClient, existingCRD)
+
 			klog.InfoS("Deleting unused CRD", "crd", crd.Name, "controller", controller.GetName())
 			if err := crdClient.Delete(ctx, crd.Name, metav1.DeleteOptions{}); err != nil {
 				if apierrors.IsNotFound(err) {
@@ -621,6 +630,40 @@ func (scm *SharedControllerManager) cleanupUnusedCRDs(ctx context.Context, contr
 		}
 		return true, nil
 	})
+}
+
+// warmCRDCache issues a List request for a custom resource type to initialize
+// the API server's watch cache before we delete the CRD.
+//
+// On a fresh restart, the API server creates watch caches on demand. Deleting
+// a CRD without a warm cache causes a race: the built-in CRD finalizer tries
+// to list instances, triggers lazy cache creation, and receives HTTP 429
+// ("storage is (re)initializing") because ResilientWatchCacheInitialization
+// (locked on since K8s v1.34) rejects requests immediately instead of blocking.
+// The finalizer then enters exponential backoff, which can exceed our cleanup
+// timeout. A single successful List here eliminates the race.
+func warmCRDCache(ctx context.Context, dynamicClient dynamic.Interface, crd *apiextensionsv1.CustomResourceDefinition) {
+	version, err := apihelpers.GetCRDStorageVersion(crd)
+	if err != nil {
+		return
+	}
+
+	gvr := schema.GroupVersionResource{
+		Group:    crd.Spec.Group,
+		Version:  version,
+		Resource: crd.Spec.Names.Plural,
+	}
+
+	// The cache typically initializes in under 25ms, so a few short retries suffice.
+	// Only retry on 429 (storage initializing); any other result means the cache is ready
+	// or the error is unrelated and not worth blocking on.
+	err = wait.PollUntilContextTimeout(ctx, 10*time.Millisecond, 5*time.Second, true, func(ctx context.Context) (bool, error) {
+		_, listErr := dynamicClient.Resource(gvr).List(ctx, metav1.ListOptions{Limit: 1})
+		return !apierrors.IsTooManyRequests(listErr), nil
+	})
+	if err != nil {
+		klog.V(2).InfoS("Cache warm-up timed out; proceeding with CRD deletion", "crd", crd.Name, "gvr", gvr)
+	}
 }
 
 // setupSharedWebhookCertificates generates webhook certificates for all controllers that need them.
