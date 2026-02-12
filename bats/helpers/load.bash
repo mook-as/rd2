@@ -83,12 +83,19 @@ setup_file() {
 teardown_file() {
     # Stop the control plane but don't delete it, to preserve logs for debugging.
     # The next test run's setup will clean up and create a fresh instance.
-    rdd svc stop 2>/dev/null || true
+    rdd svc stop || true
 
     call_local_function
 }
 
 setup() {
+    # Write test markers to RDD log files for easier debugging.
+    # The append may fail if the service is not running; that's fine.
+    local log
+    for log in "${PATH_LOGS}"/rdd.stderr.log "${PATH_LOGS}"/rdd.stdout.log; do
+        echo "=== BATS: ${BATS_TEST_DESCRIPTION} ===" >>"${log}" 2>/dev/null || true
+    done
+
     call_local_function
 }
 

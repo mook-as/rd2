@@ -29,7 +29,7 @@ export TMPDIR := $(shell wslpath -u $$(cmd.exe /c "echo %TEMP%"))
 endif
 
 # Run BATS tests for BATS helpers
-bats-helpers: check-bats
+bats-helpers: check-bats build-rdd
 	$(BATS_CORE) helpers/
 .PHONY: bats-helpers
 

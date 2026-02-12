@@ -48,6 +48,7 @@ func newServiceCommand(ctx context.Context) *cobra.Command {
 		newServiceDeleteCommand(),
 		newServiceStatusCommand(),
 		newServiceLogCommand(),
+		newServicePathsCommand(),
 	)
 	return command
 }
@@ -274,7 +275,7 @@ func newServiceLogCommand() *cobra.Command {
 			if ok, _ := cmd.Flags().GetBool("stdout"); ok {
 				name = "rdd.stdout.log"
 			}
-			logPath := filepath.Join(instance.Dir(), name)
+			logPath := filepath.Join(instance.LogDir(), name)
 			follow, _ := cmd.Flags().GetBool("follow")
 
 			return tail.TailFile(cmd.Context(), cmd.OutOrStdout(), logPath, follow)

@@ -58,6 +58,26 @@ var Dir = sync.OnceValue(func() string {
 	}
 })
 
+// LogDir returns the OS-specific log directory for this instance.
+// Logs are stored separately from instance data so they can be preserved
+// independently (e.g., when deleting an instance but keeping logs for debugging).
+var LogDir = sync.OnceValue(func() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		panic(fmt.Errorf("could not get home directory: %w", err))
+	}
+	switch runtime.GOOS {
+	case "windows":
+		return filepath.Join(home, "AppData", "Local", Name()+"-logs")
+	case "linux":
+		return filepath.Join(home, ".local", "state", Name())
+	case "darwin":
+		return filepath.Join(home, "Library", "Logs", Name())
+	default:
+		panic(fmt.Sprintf("platform %s not supported", runtime.GOOS))
+	}
+})
+
 var ArgsFile = sync.OnceValue(func() string {
 	return filepath.Join(Dir(), "args.json")
 })

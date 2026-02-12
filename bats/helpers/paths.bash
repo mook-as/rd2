@@ -6,44 +6,25 @@ inside_repo_clone() {
     [[ -d "${PATH_REPO_ROOT}/pkg/rancher-desktop-daemon" ]]
 }
 
-if is_macos; then
-    PATH_APP_HOME="${HOME}/Library/Application Support/rancher-desktop-${RDD_INSTANCE}"
-    PATH_CONFIG="${HOME}/Library/Preferences/rancher-desktop-${RDD_INSTANCE}"
-    PATH_CACHE="${HOME}/Library/Caches/rancher-desktop-${RDD_INSTANCE}"
-    PATH_LOGS="${PATH_APP_HOME}"
-fi
-
-if is_linux; then
-    PATH_APP_HOME="${HOME}/.local/share/rancher-desktop-${RDD_INSTANCE}"
-    PATH_CONFIG="${HOME}/.config/rancher-desktop-${RDD_INSTANCE}"
-    PATH_CACHE="${HOME}/.cache/rancher-desktop-${RDD_INSTANCE}"
-    PATH_LOGS="${PATH_APP_HOME}"
-fi
-
-# Get the WSL (Unix) path for a Windows shell folder id; for a list of valid ids,
-# see https://learn.microsoft.com/en-us/dotnet/api/system.environment.specialfolder
-wslpath_from_win32_folder_id() {
-    local folder_id=$1
-    local windows_path
-    windows_path=$(powershell.exe -Command "[System.Environment]::GetFolderPath(${folder_id})")
-    local unix_path
-    unix_path=$(wslpath -u "${windows_path}")
-    tr -d "\r" <<<"${unix_path}"
+# Convert 'export KEY="C:\win\path"' to 'export KEY="/mnt/c/wsl/path"'.
+win_to_wsl_exports() {
+    tr -d "\r" | while IFS= read -r line; do
+        if [[ "${line}" =~ ^(export\ [A-Z_]+=)\"(.+)\"$ ]]; then
+            printf '%s"%s"\n' "${BASH_REMATCH[1]}" "$(wslpath -u "${BASH_REMATCH[2]}")"
+        fi
+    done
 }
 
+# Get instance paths from rdd (single source of truth).
+# shellcheck disable=SC1090
 if is_windows; then
-    LOCALAPPDATA="$(wslpath_from_win32_folder_id 28)"
-    PROGRAMFILES="$(wslpath_from_win32_folder_id 38)"
-
-    PATH_APP_HOME="${LOCALAPPDATA}/rancher-desktop-${RDD_INSTANCE}"
-    PATH_CONFIG="${LOCALAPPDATA}/rancher-desktop-${RDD_INSTANCE}"
-    PATH_CACHE="${PATH_APP_HOME}/cache"
-    PATH_LOGS="${PATH_APP_HOME}"
-    PATH_DISTRO="${PATH_APP_HOME}/distro"
-    PATH_DISTRO_DATA="${PATH_APP_HOME}/distro-data"
+    source <("${PATH_REPO_ROOT}/bin/rdd.exe" svc paths --shell | win_to_wsl_exports)
+else
+    source <("${PATH_REPO_ROOT}/bin/rdd" svc paths --shell)
 fi
 
-# PATH_RD is the "short directory" (e.g., ~/.rd2) as documented in docs/design/cmd_service.md.
-# LIMA_HOME uses PATH_RD instead of PATH_APP_HOME because of socket name length constraints.
-PATH_RD="${HOME}/.rd${RDD_INSTANCE}"
-LIMA_HOME="${PATH_RD}/lima"
+PATH_APP_HOME="${RDD_DIR}"
+PATH_ARGS_FILE="${RDD_ARGS_FILE}"
+PATH_LOGS="${RDD_LOG_DIR}"
+PATH_RD="${RDD_SHORT_DIR}"
+LIMA_HOME="${RDD_LIMA_HOME}"
