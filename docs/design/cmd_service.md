@@ -113,7 +113,9 @@ Prints a kube config with context and service account[^sa] setup to give access 
 
 [^sa]: A locked deployment profile will result in a service account with limited functionality to prevent bypassing the profile restrictions.
 
-Runs `rdd service start` to ensure the `apiserver` is ready to accept requests.
+This command will implicitly start the service, and will block until startup is complete.
+
+The returned config will be static for the lifetime of the service, but may change the next time the service starts.
 
 ## `rdd ctl`
 
