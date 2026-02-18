@@ -8,6 +8,7 @@ package containers
 import (
 	// Import controllers to register them.
 	_ "github.com/rancher-sandbox/rancher-desktop-daemon/pkg/controllers/containers/container"
+	_ "github.com/rancher-sandbox/rancher-desktop-daemon/pkg/controllers/containers/containernamespace"
 	_ "github.com/rancher-sandbox/rancher-desktop-daemon/pkg/controllers/containers/image"
 	_ "github.com/rancher-sandbox/rancher-desktop-daemon/pkg/controllers/containers/volume"
 )

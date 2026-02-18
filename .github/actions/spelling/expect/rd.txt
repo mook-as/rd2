@@ -13,6 +13,8 @@ rancherdesktop
 rdctl
 rdd
 
+# container namespace (resource short name)
+cns
 # shared controller manager
 scm
 # sample controllers

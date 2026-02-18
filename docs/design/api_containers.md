@@ -26,6 +26,23 @@ unspecified.
 This API is mainly for use by the Rancher Desktop front end; all other users are
 strongly urged to use the relevant CLI or other API instead.
 
+## Namespaces
+
+`ContainerNamespace` objects reflect the container engine namespaces.  This is
+only useful when using the `containerd` backend; when using `dockerd`, the only
+valid instance will have a name of `moby`, and it cannot be modified in any way.
+
+`ContainerNamespace` objects only have the default metadata, since they
+currently do not need anything else.
+
+```yaml
+apiVersion: containers.rancherdesktop.io/v1alpha1
+kind: ContainerNamespace
+metadata:
+  name: k8s.io # `moby` when using the dockerd engine.
+  namespace: rancher-desktop
+```
+
 ## Containers
 
 `Container` objects reflect the running containers.
@@ -38,7 +55,7 @@ metadata:
   namespace: default
   labels:
     name: magical_gates
-    namespace: k8s.io # containerd namespace, or `moby` if using dockerd
+    namespace: k8s.io # Refers to a `ContainerNamespace` object
 spec:
   state: running # Desired state
 status:
@@ -93,7 +110,7 @@ metadata:
   namespace: rancher-desktop
   labels:
     name: magical_gates # If unset, generate one randomly
-    namespace: k8s.io # containerd namespace; defaults to `default` / `moby`.
+    namespace: k8s.io # Refers to a `ContainerNamespace` object
 spec:
   state: running # Default to `running`
   path: /bin/sh # defaults to image entry point / command
@@ -157,7 +174,7 @@ metadata:
   name: 'sha256.999adf320e40662dc96119a14f07459af9959a081d10ccab7c405257030ab96b-12345'
   namespace: rancher-desktop # not the containerd namespace
   labels:
-    namespace: moby # containerd namespace; not set for untagged images.
+    namespace: moby # Refers to a `ContainerNamespace` object
 status:
   # Image ID, in the raw form.
   id: 'sha256:999adf320e40662dc96119a14f07459af9959a081d10ccab7c405257030ab96b'
@@ -183,6 +200,9 @@ apiVersion: containers.rancherdesktop.io/v1alpha1
 kind: ImagePullRequest
 metadata:
   name: image-fetch-12345
+  namespace: rancher-desktop
+  labels:
+    namespace: moby # Refers to a `ContainerNamespace` object
 spec:
   repoTag: 'registry.opensuse.org/opensuse/leap:latest'
 status:
@@ -263,7 +283,7 @@ metadata:
   namespace: default # Not related to containerd namespace
   labels:
     name: volume-name
-    namespace: k8s.io # containerd namespace, or `moby` if using dockerd
+    namespace: k8s.io # Refers to a `ContainerNamespace` object
 status:
   createdAt: "2025-11-17T03:14:16Z"
   driver: local
@@ -285,7 +305,7 @@ metadata:
   namespace: default
   labels:
     name: volume-name
-    namespace: k8s.io # containerd namespace, or `moby` if using dockerd
+    namespace: k8s.io # Refers to a `ContainerNamespace` object
 spec:
   driver: local
 status:
