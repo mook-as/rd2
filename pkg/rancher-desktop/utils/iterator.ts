@@ -119,3 +119,14 @@ export default class AsyncCallbackIterator<T> implements AsyncIterableIterator<T
     return { value: result };
   }
 }
+
+/**
+ * Return a type predicate for use with Array.filter to return only the items
+ * that have the given field.
+ * @param field
+ */
+export function hasField<K extends string>(field: K) {
+  return <T extends Partial<Record<K, unknown>>>(item: T):
+    item is T & Required<Pick<T, K>> =>
+    !!item[field];
+}
