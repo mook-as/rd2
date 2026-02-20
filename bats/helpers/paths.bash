@@ -18,7 +18,7 @@ win_to_wsl_exports() {
 # Get instance paths from rdd (single source of truth).
 # shellcheck disable=SC1090
 if is_windows; then
-    source <("${PATH_REPO_ROOT}/bin/rdd.exe" svc paths --shell | win_to_wsl_exports)
+    source <("${PATH_REPO_ROOT}/bin/rdd.exe" svc paths --output=shell | win_to_wsl_exports)
 else
-    source <("${PATH_REPO_ROOT}/bin/rdd" svc paths --shell)
+    source <("${PATH_REPO_ROOT}/bin/rdd" svc paths --output=shell)
 fi

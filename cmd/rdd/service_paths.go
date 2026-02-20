@@ -6,11 +6,11 @@ package main
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"maps"
 	"slices"
 	"strings"
+	"text/tabwriter"
 
 	"github.com/spf13/cobra"
 
@@ -37,16 +37,16 @@ func newServicePathsCommand() *cobra.Command {
 		Args:  cobra.MaximumNArgs(1),
 		RunE:  servicePathsAction,
 	}
-	command.Flags().Bool("json", false, "Output as JSON")
-	command.Flags().Bool("shell", false, "Output as shell export statements")
+	command.Flags().StringP("output", "o", "table", "Output format: table, json, or shell")
 	return command
 }
 
 func servicePathsAction(cmd *cobra.Command, args []string) error {
-	asJSON, _ := cmd.Flags().GetBool("json")
-	asShell, _ := cmd.Flags().GetBool("shell")
-	if asJSON && asShell {
-		return errors.New("--json and --shell are mutually exclusive")
+	format, _ := cmd.Flags().GetString("output")
+	switch format {
+	case "table", "json", "shell":
+	default:
+		return fmt.Errorf("unknown output format %q; valid formats: table, json, shell", format)
 	}
 
 	paths := instancePaths()
@@ -58,7 +58,7 @@ func servicePathsAction(cmd *cobra.Command, args []string) error {
 		if _, ok := paths[key]; !ok {
 			return fmt.Errorf("unknown key %q; valid keys: %s", key, strings.Join(keys, ", "))
 		}
-		if !asJSON && !asShell {
+		if format == "table" {
 			_, err := fmt.Fprintln(cmd.OutOrStdout(), paths[key])
 			return err
 		}
@@ -66,14 +66,14 @@ func servicePathsAction(cmd *cobra.Command, args []string) error {
 	}
 
 	w := cmd.OutOrStdout()
-	switch {
-	case asJSON:
+	switch format {
+	case "json":
 		m := make(map[string]string, len(keys))
 		for _, key := range keys {
 			m[key] = paths[key]
 		}
 		return json.NewEncoder(w).Encode(m)
-	case asShell:
+	case "shell":
 		for _, key := range keys {
 			if _, err := fmt.Fprintf(w, "export RDD_%s=%q\n", strings.ToUpper(key), paths[key]); err != nil {
 				return err
@@ -81,17 +81,10 @@ func servicePathsAction(cmd *cobra.Command, args []string) error {
 		}
 		return nil
 	default:
-		maxKey := 0
+		tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
 		for _, key := range keys {
-			if len(key) > maxKey {
-				maxKey = len(key)
-			}
+			fmt.Fprintf(tw, "%s\t%s\n", key, paths[key])
 		}
-		for _, key := range keys {
-			if _, err := fmt.Fprintf(w, "%-*s  %s\n", maxKey, key, paths[key]); err != nil {
-				return err
-			}
-		}
-		return nil
+		return tw.Flush()
 	}
 }

@@ -164,7 +164,7 @@ jobs:
     - name: Collect RDD logs
       if: always()
       shell: run-in-wsl {0}
-      run: scripts/collect-logs.sh
+      run: scripts/collect-bats-logs.sh rdd-logs
 
     - name: Upload RDD service logs
       if: always()

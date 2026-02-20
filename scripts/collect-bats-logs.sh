@@ -4,8 +4,8 @@
 # SPDX-FileCopyrightText: SUSE LLC
 # SPDX-FileCopyrightText: The Rancher Desktop Authors
 
-# Collect RDD service and Lima hostagent logs into a single directory.
-# Usage: scripts/collect-logs.sh [output-dir]
+# Collect RDD service and Lima hostagent BATS logs into a single directory.
+# Usage: scripts/collect-bats-logs.sh [output-dir]
 #
 # Iterates over all BATS instances, resolves their log and Lima home
 # directories via "rdd svc paths", and copies log files into output-dir.
@@ -14,7 +14,8 @@
 #   output-dir/{instance}/           — service logs (rdd.stdout, rdd.stderr)
 #   output-dir/{instance}/lima-{vm}/ — hostagent logs (ha.stdout, ha.stderr)
 
-set -euo pipefail
+set -o errexit -o nounset -o pipefail
+shopt -s nullglob
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 REPO_ROOT=$(cd "${SCRIPT_DIR}/.." && pwd)
@@ -60,7 +61,6 @@ for instance in $(make --no-print-directory -C "${REPO_ROOT}/bats" bats-instance
     # Lima hostagent logs (ha.stdout, ha.stderr per VM)
     if lima_home=$(resolve_path lima_home); then
         for vm_dir in "$lima_home"/*/; do
-            [ -d "$vm_dir" ] || continue
             vm_name=$(basename "$vm_dir")
             collect_logs "$vm_dir" "$dest/lima-${vm_name}"
         done

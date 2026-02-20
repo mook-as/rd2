@@ -9,16 +9,16 @@ ALL_KEYS="dir log_dir short_dir lima_home tls_dir kubeconfig pid_file args_file"
     done
 }
 
-@test 'rdd svc paths --json produces valid JSON with all keys' {
-    run -0 rdd svc paths --json
+@test 'rdd svc paths --output=json produces valid JSON with all keys' {
+    run -0 rdd svc paths --output=json
     local json="${output}"
     for key in ${ALL_KEYS}; do
         jq --exit-status --arg k "${key}" 'has($k)' <<<"${json}"
     done
 }
 
-@test 'rdd svc paths --shell produces shell export statements' {
-    run -0 rdd svc paths --shell
+@test 'rdd svc paths --output=shell produces shell export statements' {
+    run -0 rdd svc paths --output=shell
     for key in ${ALL_KEYS}; do
         upper_key=$(echo "${key}" | tr '[:lower:]' '[:upper:]')
         assert_line --regexp "^export RDD_${upper_key}="
@@ -30,7 +30,7 @@ ALL_KEYS="dir log_dir short_dir lima_home tls_dir kubeconfig pid_file args_file"
     # Output should be a single line with no key prefix
     assert_output --regexp '^(/|[A-Z]:)'
     refute_output --regexp '^log_dir'
-    [[ "${#lines[@]}" -eq 1 ]]
+    assert_equal "${#lines[@]}" 1
 }
 
 @test 'rdd svc paths with invalid key fails and lists valid keys' {

@@ -2,11 +2,10 @@
 // SPDX-FileCopyrightText: SUSE LLC
 // SPDX-FileCopyrightText: The Rancher Desktop Authors
 
-// Package logfile creates sequentially numbered log files with symlinks.
+// Package logfile creates log files with automatic rotation.
 //
-// Each call to Create opens the next numbered file ({name}.{N}.log) and
-// updates a symlink ({name}.log) pointing to it. Callers that open the
-// symlink (e.g., tail -f, Lima's StopGracefully) follow it transparently.
+// Each call to Create renames any existing {name}.log to {name}.{N}.log
+// and opens a fresh {name}.log. The active log always has a stable name.
 package logfile
 
 import (
@@ -24,11 +23,11 @@ type numberedFile struct {
 	name string
 }
 
-// Create opens the next numbered log file in dir and updates the symlink.
+// Create opens a new log file named {name}.log in dir, renaming any
+// existing {name}.log to {name}.{N}.log first.
 //
-// File naming: {name}.{N}.log, with symlink {name}.log -> {name}.{N}.log.
-// When keepAll is false, numbered files beyond the retention count are removed.
-// If header is non-empty, it is written as the first line of the new file.
+// When keepAll is false, old numbered files beyond the retention count
+// are removed. If header is non-empty, it is written as the first line.
 func Create(dir, name string, keepAll bool, header string) (*os.File, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, fmt.Errorf("create log directory %s: %w", dir, err)
@@ -60,8 +59,16 @@ func Create(dir, name string, keepAll bool, header string) (*os.File, error) {
 	}
 
 	nextN := maxN + 1
-	fileName := fmt.Sprintf("%s.%d.log", name, nextN)
-	filePath := filepath.Join(dir, fileName)
+	filePath := filepath.Join(dir, name+".log")
+
+	// Rename the current log to a numbered backup.
+	if _, err := os.Lstat(filePath); err == nil {
+		numberedName := fmt.Sprintf("%s.%d.log", name, nextN)
+		if err := os.Rename(filePath, filepath.Join(dir, numberedName)); err != nil {
+			return nil, fmt.Errorf("rename %s to %s: %w", filePath, numberedName, err)
+		}
+		numberedFiles = append(numberedFiles, numberedFile{n: nextN, name: numberedName})
+	}
 
 	f, err := os.Create(filePath)
 	if err != nil {
@@ -71,16 +78,9 @@ func Create(dir, name string, keepAll bool, header string) (*os.File, error) {
 	if header != "" {
 		if _, err := f.WriteString(header); err != nil {
 			f.Close()
+			os.Remove(filePath)
 			return nil, fmt.Errorf("write header to %s: %w", filePath, err)
 		}
-	}
-
-	// Update symlink: remove old one first (Symlink fails if target exists).
-	symlinkPath := filepath.Join(dir, name+".log")
-	_ = os.Remove(symlinkPath)
-	if err := os.Symlink(fileName, symlinkPath); err != nil {
-		// Non-fatal: the file is still usable, just without the symlink.
-		fmt.Fprintf(os.Stderr, "logfile: failed to create symlink %s -> %s: %v\n", symlinkPath, fileName, err)
 	}
 
 	if !keepAll {

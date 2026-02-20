@@ -5,10 +5,9 @@
 package logfile
 
 import (
-	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"testing"
 
 	"gotest.tools/v3/assert"
@@ -21,14 +20,11 @@ func TestCreateFirstFile(t *testing.T) {
 	assert.NilError(t, err)
 	f.Close()
 
-	// Should create test.1.log
+	// Should create test.log directly (no numbered file on first call)
+	_, err = os.Stat(filepath.Join(dir, "test.log"))
+	assert.NilError(t, err, "expected test.log to exist")
 	_, err = os.Stat(filepath.Join(dir, "test.1.log"))
-	assert.NilError(t, err, "expected test.1.log to exist")
-
-	// Should create symlink test.log -> test.1.log
-	target, err := os.Readlink(filepath.Join(dir, "test.log"))
-	assert.NilError(t, err)
-	assert.Equal(t, target, "test.1.log")
+	assert.Assert(t, os.IsNotExist(err), "expected no test.1.log on first call")
 }
 
 func TestSequentialNumbering(t *testing.T) {
@@ -40,60 +36,71 @@ func TestSequentialNumbering(t *testing.T) {
 		f.Close()
 	}
 
-	// All three files should exist
-	for i := 1; i <= 3; i++ {
-		name := filepath.Join(dir, "app."+itoa(i)+".log")
+	// Active file should exist
+	_, err := os.Stat(filepath.Join(dir, "app.log"))
+	assert.NilError(t, err, "expected app.log to exist")
+
+	// Two numbered backups should exist (from calls 2 and 3)
+	for i := 1; i <= 2; i++ {
+		name := filepath.Join(dir, fmt.Sprintf("app.%d.log", i))
 		_, err := os.Stat(name)
 		assert.NilError(t, err, "expected %s to exist", name)
 	}
 
-	// Symlink should point to the latest
-	target, err := os.Readlink(filepath.Join(dir, "app.log"))
-	assert.NilError(t, err)
-	assert.Equal(t, target, "app.3.log")
+	// No app.3.log (the third call created app.log, not a numbered file)
+	_, err = os.Stat(filepath.Join(dir, "app.3.log"))
+	assert.Assert(t, os.IsNotExist(err), "expected no app.3.log")
 }
 
 func TestPruning(t *testing.T) {
 	dir := t.TempDir()
 
-	// Create 7 files with pruning enabled
-	for i := range 7 {
+	// Create enough files to trigger pruning.
+	// Call 1 creates prune.log (no rename). Subsequent calls rename to numbered files.
+	count := retentionCount + 2
+	for i := 1; i <= count; i++ {
 		f, err := Create(dir, "prune", false, "")
-		assert.NilError(t, err, "Create #%d", i+1)
+		assert.NilError(t, err, "Create #%d", i)
 		f.Close()
 	}
 
-	// Files 1 and 2 should be pruned (7 - 5 = 2)
-	for _, n := range []int{1, 2} {
-		name := filepath.Join(dir, "prune."+itoa(n)+".log")
-		_, err := os.Stat(name)
-		assert.Assert(t, os.IsNotExist(err), "expected %s to be pruned", name)
-	}
+	// File 1 should be pruned
+	name := filepath.Join(dir, "prune.1.log")
+	_, err := os.Stat(name)
+	assert.Assert(t, os.IsNotExist(err), "expected %s to be pruned", name)
 
-	// Files 3-7 should still exist
-	for _, n := range []int{3, 4, 5, 6, 7} {
-		name := filepath.Join(dir, "prune."+itoa(n)+".log")
+	// Remaining numbered files should still exist
+	for n := 2; n <= count-1; n++ {
+		name := filepath.Join(dir, fmt.Sprintf("prune.%d.log", n))
 		_, err := os.Stat(name)
 		assert.NilError(t, err, "expected %s to exist", name)
 	}
+
+	// Active file should exist
+	_, err = os.Stat(filepath.Join(dir, "prune.log"))
+	assert.NilError(t, err, "expected prune.log to exist")
 }
 
 func TestKeepAll(t *testing.T) {
 	dir := t.TempDir()
 
 	// Create 7 files with keepAll=true
-	for i := range 7 {
+	for i := 1; i <= 7; i++ {
 		f, err := Create(dir, "keep", true, "")
-		assert.NilError(t, err, "Create #%d", i+1)
+		assert.NilError(t, err, "Create #%d", i)
 		f.Close()
 	}
 
-	// All files should exist
-	for n := 1; n <= 7; n++ {
-		name := filepath.Join(dir, "keep."+itoa(n)+".log")
+	// All numbered backups (1-6) should exist
+	for n := 1; n <= 6; n++ {
+		name := filepath.Join(dir, fmt.Sprintf("keep.%d.log", n))
 		_, err := os.Stat(name)
 		assert.NilError(t, err, "expected %s to exist", name)
 	}
+
+	// Active file should exist
+	_, err := os.Stat(filepath.Join(dir, "keep.log"))
+	assert.NilError(t, err, "expected keep.log to exist")
 }
 
 func TestHeader(t *testing.T) {
@@ -104,7 +111,7 @@ func TestHeader(t *testing.T) {
 	assert.NilError(t, err)
 	f.Close()
 
-	data, err := os.ReadFile(filepath.Join(dir, "header.1.log"))
+	data, err := os.ReadFile(filepath.Join(dir, "header.log"))
 	assert.NilError(t, err)
 	assert.Equal(t, string(data), header)
 }
@@ -114,22 +121,30 @@ func TestGapsInNumbering(t *testing.T) {
 
 	// Manually create files with gaps: 1, 3, 5
 	for _, n := range []int{1, 3, 5} {
-		f, err := os.Create(filepath.Join(dir, "gap."+itoa(n)+".log"))
+		f, err := os.Create(filepath.Join(dir, fmt.Sprintf("gap.%d.log", n)))
 		assert.NilError(t, err, "create gap file")
 		f.Close()
 	}
 
-	// Next file should be 6 (max=5, next=6)
+	// No gap.log exists, so nothing to rename. Active file is gap.log.
 	f, err := Create(dir, "gap", false, "")
 	assert.NilError(t, err)
 	f.Close()
 
-	_, err = os.Stat(filepath.Join(dir, "gap.6.log"))
-	assert.NilError(t, err, "expected gap.6.log to exist")
+	_, err = os.Stat(filepath.Join(dir, "gap.log"))
+	assert.NilError(t, err, "expected gap.log to exist")
 
-	target, err := os.Readlink(filepath.Join(dir, "gap.log"))
-	assert.NilError(t, err)
-	assert.Equal(t, target, "gap.6.log")
+	// No gap.6.log since there was nothing to rename
+	_, err = os.Stat(filepath.Join(dir, "gap.6.log"))
+	assert.Assert(t, os.IsNotExist(err), "expected no gap.6.log")
+
+	// Pre-existing files 1, 3, 5 should be pruned based on nextN=6
+	_, err = os.Stat(filepath.Join(dir, "gap.1.log"))
+	assert.Assert(t, os.IsNotExist(err), "expected gap.1.log to be pruned")
+	for _, n := range []int{3, 5} {
+		_, err = os.Stat(filepath.Join(dir, fmt.Sprintf("gap.%d.log", n)))
+		assert.NilError(t, err, "expected gap.%d.log to exist", n)
+	}
 }
 
 func TestCreatesDirectory(t *testing.T) {
@@ -139,25 +154,31 @@ func TestCreatesDirectory(t *testing.T) {
 	assert.NilError(t, err)
 	f.Close()
 
-	_, err = os.Stat(filepath.Join(dir, "test.1.log"))
-	assert.NilError(t, err, "expected test.1.log in nested dir")
+	_, err = os.Stat(filepath.Join(dir, "test.log"))
+	assert.NilError(t, err, "expected test.log in nested dir")
 }
 
-func TestSymlinkFollowsTransparently(t *testing.T) {
+func TestRenamePreservesContent(t *testing.T) {
 	dir := t.TempDir()
 
-	f, err := Create(dir, "follow", false, "")
+	f, err := Create(dir, "app", false, "")
 	assert.NilError(t, err)
-	_, _ = f.WriteString("content1\n")
+	_, _ = f.WriteString("first log\n")
 	f.Close()
 
-	// Reading via symlink should give the same content as the numbered file
-	symlinkData, err := os.ReadFile(filepath.Join(dir, "follow.log"))
+	// Second call renames the first to app.1.log
+	f, err = Create(dir, "app", false, "")
 	assert.NilError(t, err)
-	fileData, err := os.ReadFile(filepath.Join(dir, "follow.1.log"))
+	_, _ = f.WriteString("second log\n")
+	f.Close()
+
+	data, err := os.ReadFile(filepath.Join(dir, "app.1.log"))
 	assert.NilError(t, err)
-	assert.Assert(t, bytes.Equal(symlinkData, fileData),
-		"symlink content = %q, numbered file content = %q", symlinkData, fileData)
+	assert.Equal(t, string(data), "first log\n")
+
+	data, err = os.ReadFile(filepath.Join(dir, "app.log"))
+	assert.NilError(t, err)
+	assert.Equal(t, string(data), "second log\n")
 }
 
 func TestMultipleNamesInSameDir(t *testing.T) {
@@ -172,13 +193,9 @@ func TestMultipleNamesInSameDir(t *testing.T) {
 	assert.NilError(t, err)
 	f2.Close()
 
-	// Both should have their own .1.log files
-	_, err = os.Stat(filepath.Join(dir, "stdout.1.log"))
-	assert.NilError(t, err, "expected stdout.1.log")
-	_, err = os.Stat(filepath.Join(dir, "stderr.1.log"))
-	assert.NilError(t, err, "expected stderr.1.log")
-}
-
-func itoa(n int) string {
-	return strconv.Itoa(n)
+	// Both should have their own .log files
+	_, err = os.Stat(filepath.Join(dir, "stdout.log"))
+	assert.NilError(t, err, "expected stdout.log")
+	_, err = os.Stat(filepath.Join(dir, "stderr.log"))
+	assert.NilError(t, err, "expected stderr.log")
 }

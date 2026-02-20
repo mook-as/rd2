@@ -24,19 +24,19 @@ These variables configure the BATS test framework. They have no effect on `rdd` 
 
 ## Path Variables
 
-`rdd svc paths --shell` exports these variables. They reflect the paths RDD uses for the current instance; setting them has no effect on RDD's behavior.
+`rdd svc paths --output=shell` exports these variables. They reflect the paths RDD uses for the current instance; setting them has no effect on RDD's behavior.
 
 ```shell
-source <(rdd svc paths --shell)
+source <(rdd svc paths --output=shell)
 ```
 
 | Variable | Description | Example (macOS, instance `2`) |
 | --- | --- | --- |
 | `RDD_ARGS_FILE` | Saved startup arguments | `~/Library/Application Support/rancher-desktop-2/args.json` |
 | `RDD_DIR` | Service instance directory | `~/Library/Application Support/rancher-desktop-2` |
-| `RDD_KUBECONFIG` | Kubeconfig file | `~/.rd2/kube.config` |
+| `RDD_KUBECONFIG` | Kubeconfig file | `~/Library/Application Support/rancher-desktop-2/kubeconfig.yaml` |
 | `RDD_LIMA_HOME` | Lima home directory | `~/.rd2/lima` |
-| `RDD_LOG_DIR` | Log directory (survives instance deletion) | `~/Library/Logs/rancher-desktop-2` |
+| `RDD_LOG_DIR` | Log directory | `~/Library/Logs/rancher-desktop-2` |
 | `RDD_PID_FILE` | Service PID file | `~/Library/Application Support/rancher-desktop-2/rdd.pid` |
 | `RDD_SHORT_DIR` | Short directory path | `~/.rd2` |
 | `RDD_TLS_DIR` | TLS certificate directory | `~/Library/Application Support/rancher-desktop-2/tls` |

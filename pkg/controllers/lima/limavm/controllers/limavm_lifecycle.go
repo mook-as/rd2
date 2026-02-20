@@ -222,8 +222,8 @@ func (r *LimaVMReconciler) startInstance(ctx context.Context, limaVM *v1alpha1.L
 	}
 	args = append(args, inst.Name)
 
-	// Create numbered log files with symlinks. The symlink names (ha.stdout.log,
-	// ha.stderr.log) match what Lima expects, so StopGracefully follows them.
+	// Create rotated log files. The active names (ha.stdout.log, ha.stderr.log)
+	// match what Lima expects for StopGracefully.
 	keepLogs := os.Getenv("RDD_KEEP_LOGS") != ""
 	title := os.Getenv("RDD_LOG_TITLE")
 	var header string

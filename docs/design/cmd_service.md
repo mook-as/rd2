@@ -132,13 +132,13 @@ Prints instance directory and file paths. Accepts an optional key argument to pr
 | `pid_file` | PID file path |
 | `args_file` | Saved arguments file path |
 
-Output formats:
+Output formats (`--output`, `-o`):
 
-*   Default: aligned key-value table for human readability.
+*   `table` (default): aligned key-value table for human readability.
 
-*   `--json`: JSON object with all keys.
+*   `json`: JSON object with all keys.
 
-*   `--shell`: `export` statements with `RDD_` prefix suitable for `source`, e.g. `export RDD_LOG_DIR="/path/to/logs"`.
+*   `shell`: `export` statements with `RDD_` prefix suitable for `source`, e.g. `export RDD_LOG_DIR="/path/to/logs"`.
 
 Examples:
 
@@ -150,7 +150,7 @@ rdd svc paths
 rdd svc paths log_dir
 
 # Source paths into the current shell
-source <(rdd svc paths --shell)
+source <(rdd svc paths --output=shell)
 ```
 
 ## `rdd service config`
