@@ -128,7 +128,7 @@ Prints instance directory and file paths. Accepts an optional key argument to pr
 | `short_dir` | Short directory (e.g. `~/.rd2`) |
 | `lima_home` | Lima home directory (`$short_dir/lima`) |
 | `tls_dir` | TLS certificate directory |
-| `kubeconfig` | Kubeconfig file path |
+| `config` | RDD control plane config file path |
 | `pid_file` | PID file path |
 | `args_file` | Saved arguments file path |
 

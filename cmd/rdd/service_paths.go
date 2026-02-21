@@ -19,14 +19,14 @@ import (
 
 func instancePaths() map[string]string {
 	return map[string]string{
-		"dir":        instance.Dir(),
-		"log_dir":    instance.LogDir(),
-		"short_dir":  instance.ShortDir(),
-		"lima_home":  instance.LimaHome(),
-		"tls_dir":    instance.TLSDir(),
-		"kubeconfig": instance.KubeConfig(),
-		"pid_file":   instance.PIDFile(),
-		"args_file":  instance.ArgsFile(),
+		"dir":       instance.Dir(),
+		"log_dir":   instance.LogDir(),
+		"short_dir": instance.ShortDir(),
+		"lima_home": instance.LimaHome(),
+		"tls_dir":   instance.TLSDir(),
+		"config":    instance.Config(),
+		"pid_file":  instance.PIDFile(),
+		"args_file": instance.ArgsFile(),
 	}
 }
 

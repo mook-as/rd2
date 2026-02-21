@@ -45,7 +45,7 @@ func ctlAction(cmd *cobra.Command, args []string) error {
 	if err := service.WaitWithTimeout(cmd.Context()); err != nil {
 		return err
 	}
-	if err := os.Setenv("KUBECONFIG", instance.KubeConfig()); err != nil {
+	if err := os.Setenv("KUBECONFIG", instance.Config()); err != nil {
 		return fmt.Errorf("failed to set KUBECONFIG: %w", err)
 	}
 	return kubectlAction(cmd, args)

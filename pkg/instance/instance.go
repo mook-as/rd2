@@ -82,8 +82,8 @@ var ArgsFile = sync.OnceValue(func() string {
 	return filepath.Join(Dir(), "args.json")
 })
 
-var KubeConfig = sync.OnceValue(func() string {
-	return filepath.Join(Dir(), "kubeconfig.yaml")
+var Config = sync.OnceValue(func() string {
+	return filepath.Join(Dir(), "config.yaml")
 })
 
 var PIDFile = sync.OnceValue(func() string {

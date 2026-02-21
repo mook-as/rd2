@@ -34,7 +34,7 @@ source <(rdd svc paths --output=shell)
 | --- | --- | --- |
 | `RDD_ARGS_FILE` | Saved startup arguments | `~/Library/Application Support/rancher-desktop-2/args.json` |
 | `RDD_DIR` | Service instance directory | `~/Library/Application Support/rancher-desktop-2` |
-| `RDD_KUBECONFIG` | Kubeconfig file | `~/Library/Application Support/rancher-desktop-2/kubeconfig.yaml` |
+| `RDD_CONFIG` | RDD control plane config file | `~/Library/Application Support/rancher-desktop-2/config.yaml` |
 | `RDD_LIMA_HOME` | Lima home directory | `~/.rd2/lima` |
 | `RDD_LOG_DIR` | Log directory | `~/Library/Logs/rancher-desktop-2` |
 | `RDD_PID_FILE` | Service PID file | `~/Library/Application Support/rancher-desktop-2/rdd.pid` |

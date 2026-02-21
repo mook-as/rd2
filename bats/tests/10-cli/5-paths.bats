@@ -1,6 +1,6 @@
 load '../../helpers/load'
 
-ALL_KEYS="dir log_dir short_dir lima_home tls_dir kubeconfig pid_file args_file"
+ALL_KEYS="args_file config dir lima_home log_dir pid_file short_dir tls_dir"
 
 @test 'rdd svc paths prints all keys in table format' {
     run -0 rdd svc paths

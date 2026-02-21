@@ -173,7 +173,7 @@ check-ltag:
 	go$(EXE) tool ltag -v -t .ltag -path . --excludes='lib check-spelling nxadmtail' --check
 .PHONY: ltag check-ltag
 
-BATS_TARGETS := $(shell $(MAKE) -C bats --print-data-base --question --no-builtin-variables | awk -F: '$$1 ~ /^bats-/ { print $$1 }')
+BATS_TARGETS := $(shell MAKEFLAGS= $(MAKE) -C bats --print-data-base --question --no-builtin-variables | awk -F: '$$1 ~ /^bats-/ { print $$1 }')
 $(BATS_TARGETS): bin/rdd$(EXE)
 	@$(MAKE) -C bats $@
 .PHONY: $(BATS_TARGETS)

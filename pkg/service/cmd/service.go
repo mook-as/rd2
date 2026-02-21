@@ -85,9 +85,9 @@ func GetKubeconfig() ([]byte, error) {
 	if !Running() {
 		return nil, fmt.Errorf("control plane %q is not running", instance.Name())
 	}
-	data, err := os.ReadFile(instance.KubeConfig())
+	data, err := os.ReadFile(instance.Config())
 	if err != nil {
-		return nil, fmt.Errorf("could not read kubeconfig from %s: %w (control plane may still be starting)", instance.KubeConfig(), err)
+		return nil, fmt.Errorf("could not read config from %s: %w (control plane may still be starting)", instance.Config(), err)
 	}
 	return data, nil
 }
@@ -108,8 +108,8 @@ func storeKubeConfigToDisk(adminToken, userToken, serverURL, tlsServerName strin
 	if err != nil {
 		return fmt.Errorf("failed to marshal kubeconfig: %w", err)
 	}
-	if err := os.WriteFile(instance.KubeConfig(), data, 0o600); err != nil {
-		return fmt.Errorf("failed to write kubeconfig to %s: %w", instance.KubeConfig(), err)
+	if err := os.WriteFile(instance.Config(), data, 0o600); err != nil {
+		return fmt.Errorf("failed to write config to %s: %w", instance.Config(), err)
 	}
 	return nil
 }
@@ -366,14 +366,14 @@ func StopWithWait(wait bool) error {
 				return fmt.Errorf("timed out waiting for %q control plane with pid %d to stop", instance.Name(), pid)
 			case <-ticker.C:
 				if !Running() {
-					_ = os.Remove(instance.KubeConfig()) // Ignore error as file might not exist
+					_ = os.Remove(instance.Config()) // Ignore error as file might not exist
 					return nil
 				}
 			}
 		}
 	}
 
-	_ = os.Remove(instance.KubeConfig()) // Ignore error as file might not exist
+	_ = os.Remove(instance.Config()) // Ignore error as file might not exist
 	return nil
 }
 

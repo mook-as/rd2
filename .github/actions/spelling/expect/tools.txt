@@ -13,7 +13,6 @@ pulumi
 Trivy
 
 # golangci-lint & its linter / formatter names
-golangci
 bodyclose
 copyloopvar
 depguard
@@ -26,6 +25,7 @@ gocritic
 godot
 gofmt
 gofumpt
+golangci
 govet
 ineffassign
 intrange
@@ -35,14 +35,14 @@ perfsprint
 usetesting
 
 # golangci-lint options
+errorf
+gotest
 localmodule
+mgechev
 nolint
 nolintlint
-gotest
-unlabel
-errorf
 strconcat
-mgechev
+unlabel
 
 # awk
 RLENGTH
@@ -50,6 +50,7 @@ RSTART
 
 # bash
 neq
+nullglob
 
 # bats
 batslib
@@ -68,10 +69,11 @@ DSQLITE
 endef
 ifeq
 ifneq
+MAKEFLAGS
 notdir
 patsubst
 VTAB
 
 # check-spelling
-hunspell
 dic
+hunspell
