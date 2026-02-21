@@ -16,9 +16,9 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	metav1apply "k8s.io/client-go/applyconfigurations/meta/v1"
 	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -27,6 +27,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	containersv1alpha1 "github.com/rancher-sandbox/rancher-desktop-daemon/pkg/apis/containers/v1alpha1"
+	containersv1alpha1apply "github.com/rancher-sandbox/rancher-desktop-daemon/pkg/apis/containers/v1alpha1/applyconfiguration/containers/v1alpha1"
 )
 
 //go:embed testdata/containers.json
@@ -61,11 +62,15 @@ func (r *containerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{}, err
 	}
 
+	ownerReference := metav1apply.OwnerReference().
+		WithAPIVersion(gvk.GroupVersion().String()).
+		WithKind(gvk.Kind).
+		WithName(rddNamespace.GetName()).
+		WithUID(rddNamespace.GetUID()).
+		WithBlockOwnerDeletion(true).
+		WithController(true)
+
 	for _, inspect := range r.inspects {
-		namespacedName := types.NamespacedName{
-			Namespace: metav1.NamespaceDefault,
-			Name:      inspect.ID,
-		}
 		namespace, name, _ := strings.Cut(inspect.Name, "/")
 		if namespace == "" {
 			namespace = containerNamespace
@@ -74,63 +79,44 @@ func (r *containerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		if inspect.State.Running {
 			state = containersv1alpha1.ContainerStatusRunning
 		}
-		targetContainer := containersv1alpha1.Container{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      inspect.ID,
-				Namespace: metav1.NamespaceDefault,
-				Labels: map[string]string{
-					"namespace": namespace,
-					"name":      name,
-				},
-				OwnerReferences: []metav1.OwnerReference{
-					*metav1.NewControllerRef(&rddNamespace, gvk),
-				},
-			},
-			Spec: containersv1alpha1.ContainerSpec{
-				State: state,
-			},
-			Status: containersv1alpha1.ContainerStatus{
-				Path:   inspect.Path,
-				Args:   inspect.Args,
-				Image:  inspect.Image,
-				Labels: inspect.Config.Labels,
-				Status: containersv1alpha1.ContainerStatusValue(inspect.State.Status),
-			},
+		applyConfig := containersv1alpha1apply.Container(inspect.ID, metav1.NamespaceDefault).
+			WithLabels(map[string]string{
+				"namespace": namespace,
+				"name":      name,
+			}).
+			WithOwnerReferences(ownerReference).
+			WithSpec(containersv1alpha1apply.ContainerSpec().WithState(state))
+
+		err := r.Client.Apply(ctx, applyConfig, client.ForceOwnership, client.FieldOwner(controllerLongName))
+		if err != nil {
+			errs = append(errs, fmt.Errorf("failed to apply container %s/%s: %w", namespace, name, err))
 		}
+
+		applyStatus := containersv1alpha1apply.ContainerStatus().
+			WithPath(inspect.Path).
+			WithArgs(inspect.Args...).
+			WithImage(inspect.Image).
+			WithLabels(inspect.Config.Labels).
+			WithStatus(containersv1alpha1.ContainerStatusValue(inspect.State.Status))
+		var applyPorts []*containersv1alpha1apply.ContainerPortApplyConfiguration
 		for portName, ports := range inspect.NetworkSettings.Ports {
-			containerPort := containersv1alpha1.ContainerPort{
-				Name: portName.String(),
-			}
+			var bindings []*containersv1alpha1apply.ContainerPortBindingApplyConfiguration
 			for _, port := range ports {
-				containerPort.Bindings = append(containerPort.Bindings, containersv1alpha1.ContainerPortBinding{
-					HostIP:   port.HostIP.String(),
-					HostPort: port.HostPort,
-				})
+				bindings = append(bindings, containersv1alpha1apply.ContainerPortBinding().
+					WithHostIP(port.HostIP.String()).
+					WithHostPort(port.HostPort))
 			}
-			targetContainer.Status.Ports = append(targetContainer.Status.Ports, containerPort)
+			applyPorts = append(applyPorts, containersv1alpha1apply.ContainerPort().
+				WithName(portName.String()).
+				WithBindings(bindings...))
 		}
-		var existingContainer containersv1alpha1.Container
-		canUpdateStatus := true
-		if err := r.Get(ctx, namespacedName, &existingContainer); apierrors.IsNotFound(err) {
-			if err := r.Create(ctx, &targetContainer); err != nil {
-				errs = append(errs, fmt.Errorf("failed to create static container %s: %w", namespacedName, err))
-				canUpdateStatus = false
-			}
-		} else if err != nil {
-			log.Error(err, "Failed to get static container", "name", namespacedName)
-			errs = append(errs, err)
-		} else {
-			targetContainer.ResourceVersion = existingContainer.ResourceVersion
-			targetContainer.Status.Conditions = existingContainer.Status.Conditions
-			if err := r.Update(ctx, &targetContainer); err != nil {
-				errs = append(errs, fmt.Errorf("failed to update static container %s: %w", namespacedName, err))
-				canUpdateStatus = false
-			}
-		}
-		if canUpdateStatus {
-			if err := r.Status().Update(ctx, &targetContainer); err != nil {
-				errs = append(errs, fmt.Errorf("failed to update status for static container %s: %w", namespacedName, err))
-			}
+		applyStatus.WithPorts(applyPorts...)
+		applyConfig = containersv1alpha1apply.Container(inspect.ID, metav1.NamespaceDefault).
+			WithStatus(applyStatus)
+
+		err = r.Client.SubResource("status").Apply(ctx, applyConfig, client.ForceOwnership, client.FieldOwner(controllerLongName))
+		if err != nil {
+			errs = append(errs, fmt.Errorf("failed to apply container status %s/%s: %w", namespace, name, err))
 		}
 	}
 
