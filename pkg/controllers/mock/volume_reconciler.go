@@ -79,7 +79,7 @@ func (r *volumeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		err = r.Client.Apply(
 			ctx,
 			containersv1alpha1apply.
-				Volume(sanitizeKubernetesObjectName(inspect.Name), metav1.NamespaceDefault).
+				Volume(sanitizeKubernetesObjectName(inspect.Name), apiNamespace).
 				WithOwnerReferences(ownerReference),
 			client.ForceOwnership,
 			client.FieldOwner(controllerLongName))
@@ -104,7 +104,7 @@ func (r *volumeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		err = r.Client.Status().Apply(
 			ctx,
 			containersv1alpha1apply.
-				Volume(sanitizeKubernetesObjectName(inspect.Name), metav1.NamespaceDefault).
+				Volume(sanitizeKubernetesObjectName(inspect.Name), apiNamespace).
 				WithStatus(statusApplyConfig),
 			client.ForceOwnership,
 			client.FieldOwner(controllerLongName))

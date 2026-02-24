@@ -14,7 +14,6 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	metav1apply "k8s.io/client-go/applyconfigurations/meta/v1"
 	"k8s.io/client-go/tools/events"
@@ -28,13 +27,13 @@ import (
 	containersv1alpha1apply "github.com/rancher-sandbox/rancher-desktop-daemon/pkg/apis/containers/v1alpha1/applyconfiguration/containers/v1alpha1"
 )
 
-type namespaceReconciler struct {
+type containerNamespaceReconciler struct {
 	client.Client
 	Recorder events.EventRecorder
 	volumes  []mobyvolume.Volume
 }
 
-func (r *namespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *containerNamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := log.FromContext(ctx)
 
 	// Check for the CRD to be registered.
@@ -64,7 +63,7 @@ func (r *namespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 
 	var errs []error
 	for namespace := range namespaces {
-		applyConfig := containersv1alpha1apply.ContainerNamespace(namespace, metav1.NamespaceDefault).
+		applyConfig := containersv1alpha1apply.ContainerNamespace(namespace, apiNamespace).
 			WithOwnerReferences(metav1apply.OwnerReference().
 				WithAPIVersion(gvk.GroupVersion().String()).
 				WithKind(gvk.Kind).
@@ -81,7 +80,7 @@ func (r *namespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	return ctrl.Result{}, errors.Join(errs...)
 }
 
-func (r *namespaceReconciler) SetupWithManager(mgr ctrl.Manager) error {
+func (r *containerNamespaceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	var volumes []mobyvolume.Volume
 	if err := json.Unmarshal(testVolumes, &volumes); err != nil {
 		return fmt.Errorf("failed to load static test volume data: %w", err)
@@ -90,7 +89,7 @@ func (r *namespaceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&corev1.Namespace{}).
-		Named("mock-namespace-reconciler").
+		Named("mock-container-namespace-reconciler").
 		Watches(
 			&containersv1alpha1.ContainerNamespace{},
 			handler.EnqueueRequestForOwner(
