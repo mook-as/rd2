@@ -46,7 +46,7 @@
       <template #col:Name="{ row } : { row: RowItem }">
         <td data-testid="volume-name-cell">
           <span v-tooltip="getTooltipConfig(row.status.name)">
-            {{ shortSha(row.status.name) }}
+            {{ shortHash(row.status.name) }}
           </span>
         </td>
       </template>
@@ -144,7 +144,7 @@ export default defineComponent({
       return (this.volumes ?? [])
         .filter(hasField('metadata'))
         .filter(hasField('status'))
-        .sort((a, b) => a.metadata.labels!.name.localeCompare(b.metadata.labels!.name))
+        .sort((a, b) => a.status.name.localeCompare(b.status.name))
         .map(volume => merge({}, volume, {
           createdText:          volume.status.createdAt ? new Date(volume.status.createdAt).toLocaleDateString() : '',
           availableActions: [
@@ -165,10 +165,10 @@ export default defineComponent({
           deleteVolume: (args?: Volume | Volume[]) => {
             const volumes = Array.isArray(args) ? args : [args].filter(defined);
 
-            volumes.map(volume => this.volumeDelete({ volume }));
+            return Promise.all(volumes.map(volume => this.volumeDelete({ volume })));
           },
           browseFiles: () => {
-            this.$router.push({ name: 'volumes-files-name', params: { name: volume.metadata.name } });
+            this.$router.push({ name: 'volumes-files-name', params: { name: volume.status.name } });
           },
         }));
     },
@@ -215,14 +215,14 @@ export default defineComponent({
         this.SET_CURRENT_NAMESPACE(value);
       }
     },
-    shortSha(sha: string) {
-      const [_, prefix, actualSha] = /^([^:]+:)(.+)$/.exec(sha) ?? [];
+    shortHash(hash: string) {
+      const [_, prefix, actualHash] = /^([^:]+:)(.+)$/.exec(hash) ?? [];
 
       if (!prefix) {
-        return sha;
+        return hash;
       }
 
-      return `${ prefix }${ actualSha.slice(0, 3) }..${ actualSha.slice(-3) }`;
+      return `${ prefix }${ actualHash.slice(0, 3) }..${ actualHash.slice(-3) }`;
     },
     shortPath(path: string) {
       if (!path || path.length <= MAX_PATH_LENGTH) {
