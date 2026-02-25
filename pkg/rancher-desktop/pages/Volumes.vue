@@ -26,7 +26,7 @@
           <div v-if="supportsNamespaces">
             <label>Namespace</label>
             <select
-              :value="namespace"
+              :value="currentNamespace"
               class="select-namespace"
               data-testid="namespace-selector"
               @change="onChangeNamespace($event)"
@@ -34,7 +34,7 @@
               <option
                 v-for="item in namespaces ?? []"
                 :key="item"
-                :selected="item === namespace"
+                :selected="item === currentNamespace"
                 :value="item"
               >
                 {{ item }}
@@ -45,20 +45,20 @@
       </template>
       <template #col:Name="{ row } : { row: RowItem }">
         <td data-testid="volume-name-cell">
-          <span v-tooltip="getTooltipConfig(row.Name)">
-            {{ shortSha(row.Name) }}
+          <span v-tooltip="getTooltipConfig(row.status.name)">
+            {{ shortHash(row.status.name) }}
           </span>
         </td>
       </template>
       <template #col:Driver="{ row } : { row: RowItem }">
         <td data-testid="volume-driver-cell">
-          {{ row.Driver }}
+          {{ row.status.driver }}
         </td>
       </template>
       <template #col:Mountpoint="{ row } : { row: RowItem }">
         <td data-testid="volume-mountpoint-cell">
-          <span v-tooltip="getTooltipConfig(row.Mountpoint)">
-            {{ shortPath(row.Mountpoint) }}
+          <span v-tooltip="getTooltipConfig(row.status.mountpoint)">
+            {{ shortPath(row.status.mountpoint) }}
           </span>
         </td>
       </template>
@@ -78,16 +78,17 @@ import { defineComponent } from 'vue';
 
 import SortableTable from '@pkg/components/SortableTable';
 import type { Settings } from '@pkg/config/settings';
-import { mapTypedGetters, mapTypedState } from '@pkg/entry/store';
-import type { Volume } from '@pkg/store/container-engine';
-import { ipcRenderer } from '@pkg/utils/ipcRenderer';
+import { mapTypedActions, mapTypedGetters, mapTypedMutations, mapTypedState } from '@pkg/entry/store';
+import { hasField } from '@pkg/utils/iterator';
+import { defined } from '@pkg/utils/typeUtils';
+import { IoRancherdesktopContainersV1alpha1Volume as Volume } from '@rdd-client';
 
 const MAX_PATH_LENGTH = 40;
 
 /**
  * The RowItem type describes the type of one row.
  */
-interface RowItem extends Volume {
+type RowItem = Volume & Required<Pick<Volume, 'status' | 'metadata'>> & {
   createdText:      string;
   availableActions: {
     label:       string;
@@ -98,7 +99,7 @@ interface RowItem extends Volume {
   }[];
   deleteVolume: (items?: RowItem[]) => void;
   browseFiles:  (items?: RowItem[]) => void;
-}
+};
 
 export default defineComponent({
   name:       'Volumes',
@@ -107,8 +108,6 @@ export default defineComponent({
   data() {
     return {
       settings:       undefined as Settings | undefined,
-      subscribeTimer: undefined as ReturnType<typeof setTimeout> | undefined,
-      execError:      null as string | null,
       headers:        [
         {
           name:  'Name',
@@ -135,13 +134,19 @@ export default defineComponent({
     };
   },
   computed: {
-    ...mapTypedState('container-engine', ['namespaces', 'volumes']),
-    ...mapTypedGetters('container-engine', ['namespace', 'supportsNamespaces', 'error']),
+    ...mapTypedState('container-engine', ['error', 'currentNamespace', 'volumes']),
+    ...mapTypedState('container-engine', { namespaceObjects: 'namespaces' }),
+    ...mapTypedGetters('container-engine', ['supportsNamespaces']),
+    namespaces() {
+      return (this.namespaceObjects ?? []).map(ns => ns.metadata?.name).filter(defined);
+    },
     rows(): RowItem[] {
-      return Object.values(this.volumes ?? {})
-        .sort((a, b) => a.Name.localeCompare(b.Name))
+      return (this.volumes ?? [])
+        .filter(hasField('metadata'))
+        .filter(hasField('status'))
+        .sort((a, b) => a.status.name.localeCompare(b.status.name))
         .map(volume => merge({}, volume, {
-          createdText:          volume.CreatedAt ? new Date(volume.CreatedAt).toLocaleDateString() : '',
+          createdText:          volume.status.createdAt ? new Date(volume.status.createdAt).toLocaleDateString() : '',
           availableActions: [
             {
               label:    this.t('volumes.manager.table.action.browse'),
@@ -157,18 +162,17 @@ export default defineComponent({
               bulkAction: 'deleteVolume',
             },
           ],
-          deleteVolume: (args?: Volume[]) => {
-            this.execCommand(['volume', 'rm'], Array.isArray(args) ? args : [volume]);
+          deleteVolume: (args?: Volume | Volume[]) => {
+            const volumes = Array.isArray(args) ? args : [args].filter(defined);
+
+            return Promise.all(volumes.map(volume => this.volumeDelete({ volume })));
           },
           browseFiles: () => {
-            this.$router.push({ name: 'volumes-files-name', params: { name: volume.Name } });
+            this.$router.push({ name: 'volumes-files-name', params: { name: volume.status.name } });
           },
         }));
     },
     errorMessage() {
-      if (this.execError) {
-        return this.execError;
-      }
       switch (this.error?.source) {
       case 'namespaces': case 'volumes': {
         const error: any = this.error.error;
@@ -180,112 +184,45 @@ export default defineComponent({
     },
   },
   mounted() {
-    this.$store.dispatch('page/setHeader', {
+    this.setHeader({
       title:       this.t('volumes.title'),
       description: '',
     });
 
-    ipcRenderer.on('settings-read', (event, settings) => {
-      this.settings = settings;
-      this.subscribe().catch(console.error);
+    this.watchVolumes({
+      callback: error => {
+        this.SET_ERROR({ error, source: 'volumes' });
+      },
     });
-
-    ipcRenderer.send('settings-read');
-
-    ipcRenderer.on('settings-update', (_event, settings) => {
-      this.settings = settings;
-      this.checkSelectedNamespace();
-    });
-
-    this.subscribe().catch(console.error);
-  },
-  beforeUnmount() {
-    this.$store.dispatch('container-engine/unsubscribe');
-    clearTimeout(this.subscribeTimer);
   },
   methods: {
-    async subscribe() {
-      clearTimeout(this.subscribeTimer);
-      try {
-        if (!window.ddClient || !this.settings) {
-          setTimeout(() => this.subscribe(), 1_000);
-          return;
-        }
-        await this.$store.dispatch('container-engine/subscribe', {
-          type:      'volumes',
-          client:    window.ddClient,
-        });
-      } catch (error) {
-        console.error('There was a problem subscribing to container events:', { error });
-      }
-    },
+    ...mapTypedActions('container-engine', ['volumeDelete', 'watchVolumes']),
+    ...mapTypedActions('page', ['setHeader']),
+    ...mapTypedMutations('container-engine', ['SET_ERROR', 'SET_CURRENT_NAMESPACE']),
     checkSelectedNamespace() {
-      if (!this.supportsNamespaces || !this.namespaces?.length) {
+      if (!this.supportsNamespaces || !this.namespaces.length) {
         return;
       }
-      if (!this.namespaces.includes(this.namespace ?? '')) {
+      if (!this.namespaces.includes(this.currentNamespace ?? '')) {
         const K8S_NAMESPACE = 'k8s.io';
         const defaultNamespace = this.namespaces.includes(K8S_NAMESPACE) ? K8S_NAMESPACE : this.namespaces[0];
-
-        ipcRenderer.invoke('settings-write',
-          { containers: { namespace: defaultNamespace } });
+        this.SET_CURRENT_NAMESPACE(defaultNamespace);
       }
     },
-    async onChangeNamespace(event: Event) {
+    onChangeNamespace(event: Event) {
       const { value } = event.target as HTMLSelectElement;
-      if (value !== this.namespace) {
-        await ipcRenderer.invoke('settings-write',
-          { containers: { namespace: value } });
-        await this.$store.dispatch('container-engine/subscribe', {
-          type:      'volumes',
-          client:    window.ddClient,
-          namespace: value,
-        });
+      if (value !== this.currentNamespace) {
+        this.SET_CURRENT_NAMESPACE(value);
       }
     },
-    async execCommand(args: string[], volumes: Volume[]) {
-      try {
-        const names = volumes.map(v => v.Name);
-        const [baseCommand, ...subCommands] = args;
+    shortHash(hash: string) {
+      const [_, prefix, actualHash] = /^([^:]+:)(.+)$/.exec(hash) ?? [];
 
-        console.info(`Executing command ${ args.join(' ') } on volume ${ names }`);
-
-        const execOptions: { cwd: string, namespace?: string } = { cwd: '/' };
-        if (this.supportsNamespaces && this.namespace) {
-          execOptions.namespace = this.namespace;
-        }
-
-        const { stderr, stdout } = await window.ddClient.docker.cli.exec(
-          baseCommand,
-          [...subCommands, ...names],
-          execOptions,
-        );
-
-        if (stderr) {
-          throw new Error(stderr);
-        }
-
-        await this.$store.dispatch('container-engine/fetchVolumes');
-
-        return stdout;
-      } catch (error: any) {
-        const errorSources = [
-          error?.message,
-          error?.stderr,
-          error?.error,
-          typeof error === 'string' ? error : null,
-          `Failed to execute command: ${ args.join(' ') }`,
-        ];
-
-        this.execError = errorSources.find(msg => msg);
-        console.error(`Error executing command ${ args.join(' ') }`, error);
+      if (!prefix) {
+        return hash;
       }
-    },
-    shortSha(sha: string) {
-      if (!sha?.startsWith('sha256:')) return sha || '';
 
-      const hash = sha.replace('sha256:', '');
-      return `sha256:${ hash.slice(0, 3) }..${ hash.slice(-3) }`;
+      return `${ prefix }${ actualHash.slice(0, 3) }..${ actualHash.slice(-3) }`;
     },
     shortPath(path: string) {
       if (!path || path.length <= MAX_PATH_LENGTH) {
@@ -307,19 +244,9 @@ export default defineComponent({
       return { content: undefined };
     },
     clearError() {
-      this.execError = null;
       switch (this.error?.source) {
       case 'namespaces': case 'volumes':
-        this.$store.commit('container-engine/SET_ERROR', null);
-      }
-    },
-  },
-  watch: {
-    isK8sReady(isK8sReady) {
-      if (!isK8sReady) {
-        // The backend went from ready -> unready, unsubscribe and restart.
-        this.$store.dispatch('container-engine/unsubscribe').catch(console.error);
-        this.subscribe().catch(console.error);
+        this.SET_ERROR(undefined);
       }
     },
   },

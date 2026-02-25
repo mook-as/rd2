@@ -33,9 +33,15 @@ const resources = [
     makeClient: config => config.makeApiClient(RDDClient.ContainersRancherdesktopIoV1alpha1Api),
     list:       listContainerNamespacedResource('ContainerNamespace'),
   }),
+  defineResource({
+    name:       'volumes',
+    path:       '/apis/containers.rancherdesktop.io/v1alpha1/volumes',
+    makeClient: config => config.makeApiClient(RDDClient.ContainersRancherdesktopIoV1alpha1Api),
+    list:       listContainerNamespacedResource('Volume'),
+  }),
 ] as const;
 
-type errorSource = 'namespaces';
+type errorSource = 'volumes' | 'namespaces';
 
 export const state = () => ({
   ...resourceState(resources),
@@ -62,4 +68,28 @@ export const mutations = {
 
 export const actions = {
   ...resourceWatchActions(resources),
+  async volumeDelete(
+    { rootState, commit },
+    { volume }: {
+      volume: RDDClient.IoRancherdesktopContainersV1alpha1Volume,
+    },
+  ) {
+    const config: RDDClient.KubeConfig = rootState['rdd-connection'].config;
+    const client = config.makeApiClient(RDDClient.ContainersRancherdesktopIoV1alpha1Api);
+
+    try {
+      const status = await client.deleteNamespacedVolume({
+        name:      volume.metadata!.name!,
+        namespace: volume.metadata!.namespace!,
+      });
+      if (status.status !== 'Success') {
+        commit('SET_ERROR', {
+          error:  new Error(`Failed to delete volume ${ volume.metadata!.name }: ${ status.message }`),
+          source: 'volumes',
+        });
+      }
+    } catch (error: any) {
+      commit('SET_ERROR', { error, source: 'volumes' });
+    }
+  },
 } satisfies ActionTree<ContainerEngineState, any, typeof mutations>;
