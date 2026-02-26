@@ -6,6 +6,7 @@ package mock
 
 import (
 	"context"
+	"crypto/sha256"
 	_ "embed"
 	"encoding/json"
 	"errors"
@@ -17,9 +18,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/types"
 	metav1apply "k8s.io/client-go/applyconfigurations/meta/v1"
 	"k8s.io/client-go/tools/events"
@@ -102,20 +101,21 @@ func (r *imageReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 
 		if len(inspect.RepoTags) > 0 {
 			for _, tag := range inspect.RepoTags {
-				image, err := r.findOrCreateImage(ctx, inspect.ID, tag)
-				if err != nil {
-					errs = append(errs, fmt.Errorf("failed to find or create image %s: %w", tag, err))
-					continue
-				}
+				// Deterministically generate a name for the Image based on the
+				// tag and the image ID, to avoid having to search for an
+				// existing image since we cannot atomically update the status
+				// at the same time as creating the object.
+				name := fmt.Sprintf("%s-%32x",
+					sanitizeKubernetesObjectName(inspect.ID),
+					sha256.Sum256([]byte(tag)))
 				statusApplyCopy := *statusApplyConfig
 				errs = append(errs, r.updateImage(ctx,
-					containersv1alpha1apply.Image(image.GetName(), image.GetNamespace()).
+					containersv1alpha1apply.Image(name, metav1.NamespaceDefault).
 						WithOwnerReferences(ownerReference),
 					statusApplyCopy.
 						WithRepoTag(tag).
 						WithNamespace(containerNamespace),
-				)...,
-				)
+				)...)
 			}
 		} else {
 			// No tags; create a single dangling image.
@@ -133,41 +133,6 @@ func (r *imageReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	}
 
 	return ctrl.Result{}, nil
-}
-
-// findOrCreateImage looks for an existing Image with the given ID and repoTag,
-// and creates one if it doesn't exist.  This is needed because apply cannot be
-// used with `GenerateName` (because it is unclear when a new object needs to be
-// created).
-func (r *imageReconciler) findOrCreateImage(ctx context.Context, id, repoTag string) (*containersv1alpha1.Image, error) {
-	var existingImages containersv1alpha1.ImageList
-	err := r.List(ctx, &existingImages,
-		client.MatchingFieldsSelector{Selector: fields.AndSelectors(
-			fields.OneTermEqualSelector(".status.id", id),
-			fields.OneTermEqualSelector(".status.repoTag", repoTag),
-		)})
-	if apierrors.IsNotFound(err) || (err == nil && len(existingImages.Items) == 0) {
-		// No existing image found; create a new one.
-		image := containersv1alpha1.Image{
-			ObjectMeta: metav1.ObjectMeta{
-				Namespace:    metav1.NamespaceDefault,
-				GenerateName: sanitizeKubernetesObjectName(id) + "-",
-			},
-		}
-		if err := r.Create(ctx, &image); err != nil {
-			return nil, fmt.Errorf("failed to create image %s: %w", repoTag, err)
-		}
-		return &image, nil
-	}
-	if err != nil {
-		return nil, fmt.Errorf("failed to list images: %w", err)
-	}
-	for _, image := range existingImages.Items {
-		// Return the first matching image.
-		return &image, nil
-	}
-	// This should be unreachable, but handle it just in case.
-	return nil, fmt.Errorf("unexpectedly found no images with id %s and repoTag %s", id, repoTag)
 }
 
 // updateImage applies the given configuration to the Image and its status.
