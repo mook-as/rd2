@@ -12,17 +12,30 @@ Create a new `LimaVM` instance `NAME` in `NAMESPACE` (or `default`) using `TEMPL
 
 `TEMPLATE` will be treated as a local filename or template URL if it contains a `/` or a `:`.  In that case the `create` command will create a ConfigMap in `NAMESPACE` called `NAME`. It will store the "fully embedded" template from the file or URL inside that ConfigMap and use it as the `spec.templateRef`. If a ConfigMap of this name already exists, then the `create` command will fail. If `LimaVM` creation succeeds then ownership of this ConfigMap is transferred to the `LimaVM` resource, and it will be deleted when the `LimaVM` instance is deleted. But when the command fails, then any ConfigMap created from a file or URL is deleted immediately.
 
+- `--start` (default `false`): Set `spec.running=true` to start the VM immediately after creation.
+- `--wait` (default `true`): When used with `--start`, wait until the Running condition becomes True before returning.
+- `--timeout` (default `0`): Maximum time to wait. A value of `0` waits indefinitely. Accepts Go duration strings (e.g., `30s`, `5m`).
+
 ### `rdd limavm start NAME`
 
 Set `spec.running` of the specified instance to `true`. There is no `--namespace` option because `LimaVM` names are globally unique (within the control plane).
+
+- `--wait` (default `true`): Wait until the Running condition becomes True before returning.
+- `--timeout` (default `0`): Maximum time to wait. A value of `0` waits indefinitely. Accepts Go duration strings (e.g., `30s`, `5m`).
 
 ### `rdd limavm stop NAME`
 
 Set `spec.running` of the specified instance to `false`.
 
+- `--wait` (default `true`): Wait until the Running condition becomes False before returning.
+- `--timeout` (default `0`): Maximum time to wait. A value of `0` waits indefinitely.
+
 ### `rdd limavm delete NAME`
 
-This will stop and delete the instance. The `LimaVM` resource will be deleted, which in turn will delete all owned resources. Currently, this is the `status.templateConfigMap`, and potentially the `spec.templateRef.name` template if it was created by `rdd limavm create`.
+Stop and delete the instance. The `LimaVM` resource deletion triggers cleanup of all owned resources: the `status.templateConfigMap`, and the `spec.templateRef.name` template if `rdd limavm create` created it.
+
+- `--wait` (default `false`): Wait until the resource is fully deleted before returning.
+- `--timeout` (default `0`): Maximum time to wait. A value of `0` waits indefinitely.
 
 ### `rdd limavm params NAME1=VALUE1 NAME2=VALUE2`
 
@@ -38,7 +51,10 @@ Set `lima.rancherdesktop.io/resetRequested` annotation to the current timestamp.
 
 ### `rdd limavm restart NAME`
 
-Set `lima.rancherdesktop.io/restartRequested` annotation to the current timestamp. This tells the reconciler to stop the instance, if it is running. Then it will start the instance, even if it had been stopped initially.
+Set `lima.rancherdesktop.io/restartRequested` annotation and `spec.running=true` in a single patch. The annotation tells the reconciler to stop the instance if it is running; setting `spec.running=true` ensures the instance starts afterward, even if it had been stopped initially.
+
+- `--wait` (default `true`): Wait until `status.restartCount` increments (the instance has fully restarted) before returning.
+- `--timeout` (default `0`): Maximum time to wait. A value of `0` waits indefinitely.
 
 ### `rdd limavm shell NAME CMD`
 

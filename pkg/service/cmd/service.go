@@ -17,6 +17,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -355,8 +356,9 @@ func StopWithWait(wait bool) error {
 	}
 
 	if wait {
-		// Wait for the process to actually terminate
-		timeout := time.After(10 * time.Second)
+		// Wait for the process to actually terminate. The service needs up to
+		// 30s for graceful hostagent shutdown plus overhead, so allow 60s total.
+		timeout := time.After(60 * time.Second)
 		ticker := time.NewTicker(100 * time.Millisecond)
 		defer ticker.Stop()
 
@@ -670,9 +672,14 @@ func Run(ctx context.Context, opts options.CompletedOptions) error {
 		}
 	}
 
-	// Start shared controller manager if any controllers are enabled
+	// Start shared controller manager if any controllers are enabled.
+	// The WaitGroup ensures the controller manager completes shutdown
+	// (including terminating hostagent processes) before Run returns.
+	var mgrWg sync.WaitGroup
 	if len(enabledControllers) > 0 {
+		mgrWg.Add(1)
 		go func() {
+			defer mgrWg.Done()
 			klog.InfoS("Starting shared controller manager", "controllers", len(enabledControllers))
 
 			// Get available ports for metrics and health endpoints with instance offset
@@ -729,6 +736,21 @@ func Run(ctx context.Context, opts options.CompletedOptions) error {
 	}
 
 	<-ctx.Done()
+
+	// Wait for the controller manager to finish shutdown, but don't block
+	// forever — a misbehaving controller should not prevent the service
+	// from exiting. The graceful shutdown timeout for hostagents is 30s;
+	// allow 45s total before giving up.
+	mgrDone := make(chan struct{})
+	go func() {
+		mgrWg.Wait()
+		close(mgrDone)
+	}()
+	select {
+	case <-mgrDone:
+	case <-time.After(45 * time.Second):
+		klog.Warning("Controller manager did not shut down within 45s, exiting anyway")
+	}
 
 	return nil
 }

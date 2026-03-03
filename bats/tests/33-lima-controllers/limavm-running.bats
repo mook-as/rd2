@@ -10,8 +10,9 @@ NAMESPACE="running-test-ns"
 VM_NAME="alpine-running"
 TEMPLATE_NAME="${VM_NAME}-template"
 
-# Use a minimal Alpine template for faster boot
-ALPINE_TEMPLATE='
+# Use a minimal Alpine template for faster boot.
+# Set RDD_VM_TYPE=qemu to reproduce QEMU-specific behavior on macOS.
+ALPINE_TEMPLATE="
 images:
 - location: https://github.com/lima-vm/alpine-lima/releases/download/v0.2.47/alpine-lima-std-3.23.0-x86_64.iso
   arch: x86_64
@@ -19,9 +20,10 @@ images:
 - location: https://github.com/lima-vm/alpine-lima/releases/download/v0.2.47/alpine-lima-std-3.23.0-aarch64.iso
   arch: aarch64
   digest: sha512:44659e71c1e277361bc10ecc813fba799d0371c2bc291db811e05e43429fd31aaa7ebe185331d02dccadccddfe9d54184376cdceeb1c444b58e3e9a4e690ce33
+${RDD_VM_TYPE:+vmType: ${RDD_VM_TYPE}}
 containerd:
   system: false
-  user: false'
+  user: false"
 
 local_setup_file() {
     setup_rdd_control_plane "lima"
@@ -94,22 +96,15 @@ lima_instance_running() {
     assert_file_exists "${RDD_LIMA_HOME}/${name}/ha.pid"
 }
 
-get_instance_running_transition_time() {
+get_restart_count() {
     local name=$1
     rdd ctl get limavm "${name}" --namespace "${NAMESPACE}" \
-        --output jsonpath='{.status.conditions[?(@.type=="Running")].lastTransitionTime}'
+        --output jsonpath='{.status.restartCount}'
 }
 
 get_hostagent_pid() {
     local name=$1
     cat "${RDD_LIMA_HOME}/${name}/ha.pid"
-}
-
-assert_recovery_completed() {
-    local before_time=$1
-    run -0 get_instance_running_transition_time "${VM_NAME}"
-    refute_output "${before_time}"
-    assert_instance_running_reason "${VM_NAME}" "Started"
 }
 
 assert_limavm_not_exists() {
@@ -257,19 +252,28 @@ EOF
     kill -0 "${OLD_HA_PID}"
     save_var OLD_HA_PID
 
+    # Save restart count before the kill. The watcher detects the crash
+    # instantly, so recovery may complete before the next test starts.
+    # shellcheck disable=SC2030 # Persisted via save_var, not subshell
+    BEFORE_KILL_COUNT=$(get_restart_count "${VM_NAME}")
+    save_var BEFORE_KILL_COUNT
+
     kill -9 "${OLD_HA_PID}"
 }
 
 @test "trigger reconcile and verify crash recovery" {
-    run -0 get_instance_running_transition_time "${VM_NAME}"
-    assert_output
-    before_time=${output}
+    load_var BEFORE_KILL_COUNT
 
+    # Annotate the resource to exercise concurrent modification during recovery.
+    # The watcher already triggers a reconcile, but users may also modify the
+    # object while the controller is restarting the hostagent.
     rdd ctl annotate limavm "${VM_NAME}" --namespace "${NAMESPACE}" --overwrite \
         reconcile-trigger="$(date +%s)"
 
-    # The reconciler should detect the dead hostagent and restart the VM.
-    try --max 60 --delay 5 -- assert_recovery_completed "${before_time}"
+    # restartCount increments in the same status write that sets Running=True.
+    # shellcheck disable=SC2031 # Loaded via load_var, not subshell
+    rdd ctl wait --for=jsonpath='{.status.restartCount}'="$((BEFORE_KILL_COUNT + 1))" \
+        "limavm/${VM_NAME}" --namespace "${NAMESPACE}" --timeout=300s
 }
 
 @test "verify new hostagent after crash recovery" {
@@ -280,55 +284,162 @@ EOF
     assert [ -n "${new_pid}" ]
     kill -0 "${new_pid}"
 
+    # Windows recycles PIDs quickly, so this assertion is only reliable on Unix.
     load_var OLD_HA_PID
     # shellcheck disable=SC2031 # Loaded via load_var, not subshell
-    refute [ "${new_pid}" = "${OLD_HA_PID}" ]
+    if is_unix; then
+        refute [ "${new_pid}" = "${OLD_HA_PID}" ]
+    fi
 }
 
-# Broken state recovery tests
-# These tests verify that the controller can recover from a broken Lima instance.
-# We simulate breakage by replacing the hostagent socket with a regular file.
-# This makes Lima report StatusBroken (socket exists but is not a Unix socket)
-# without killing the VM process (which on VZ runs inside the hostagent).
+# Orphaned hostagent recovery tests
+# When the service crashes (SIGKILL), the hostagent survives (own process group).
+# On restart, the controller detects the orphaned hostagent via store.Inspect(),
+# kills it, and starts a fresh one with a watcher.
 
-@test "simulate broken state by replacing hostagent socket" {
-    local sock_file="${RDD_LIMA_HOME}/${VM_NAME}/ha.sock"
-    assert_socket_exists "${sock_file}"
+@test "save hostagent PID before service crash" {
+    # shellcheck disable=SC2030 # Persisted via save_var, not subshell
+    ORPHAN_HA_PID=$(get_hostagent_pid "${VM_NAME}")
+    assert [ -n "${ORPHAN_HA_PID}" ]
+    kill -0 "${ORPHAN_HA_PID}"
+    save_var ORPHAN_HA_PID
 
-    # Replace the Unix socket with a regular file so Lima can't connect
-    rm "${sock_file}"
-    touch "${sock_file}"
-    assert_file_exists "${sock_file}"
+    # Save restart count to detect when recovery completes after restart.
+    # shellcheck disable=SC2030 # Persisted via save_var, not subshell
+    BEFORE_CRASH_COUNT=$(get_restart_count "${VM_NAME}")
+    save_var BEFORE_CRASH_COUNT
 }
 
-@test "trigger reconcile and verify recovery from broken state" {
-    # Capture the lastTransitionTime before triggering reconcile
-    run -0 get_instance_running_transition_time "${VM_NAME}"
-    assert_output
-    before_time=${output}
+@test "simulate service crash with SIGKILL" {
+    local svc_pid
+    svc_pid=$(cat "${RDD_PID_FILE}")
+    assert [ -n "${svc_pid}" ]
 
-    # Annotate to trigger a reconcile while spec.running is still true
+    kill -9 "${svc_pid}"
+
+    # Wait for the service process to be fully reaped
+    try --max 10 --delay 1 --until-fail -- kill -0 "${svc_pid}"
+}
+
+@test "verify hostagent survived service crash" {
+    load_var ORPHAN_HA_PID
+    # shellcheck disable=SC2031 # Loaded via load_var, not subshell
+    kill -0 "${ORPHAN_HA_PID}"
+}
+
+@test "restart service and verify orphaned hostagent recovery" {
+    rdd svc start
+
+    load_var ORPHAN_HA_PID
+    load_var BEFORE_CRASH_COUNT
+
+    # Wait for the controller to detect and kill the orphaned hostagent.
+    # shellcheck disable=SC2031 # Loaded via load_var, not subshell
+    try --max 30 --delay 1 --until-fail -- kill -0 "${ORPHAN_HA_PID}"
+
+    # restartCount increments when the new hostagent reaches Running.
+    # shellcheck disable=SC2031 # Loaded via load_var, not subshell
+    rdd ctl wait --for=jsonpath='{.status.restartCount}'="$((BEFORE_CRASH_COUNT + 1))" \
+        "limavm/${VM_NAME}" --namespace "${NAMESPACE}" --timeout=300s
+
+    local new_pid
+    new_pid=$(get_hostagent_pid "${VM_NAME}")
+    assert [ -n "${new_pid}" ]
+    kill -0 "${new_pid}"
+
+    # Windows recycles PIDs quickly, so this assertion is only reliable on Unix.
+    # shellcheck disable=SC2031 # Loaded via load_var, not subshell
+    if is_unix; then
+        refute [ "${new_pid}" = "${ORPHAN_HA_PID}" ]
+    fi
+}
+
+# Graceful shutdown test
+# Verifies that stopping the service terminates all running hostagents.
+# The controller's shutdown runnable calls shutdownAllHostagents() on exit.
+
+@test "graceful service stop terminates hostagent" {
+    local ha_pid
+    ha_pid=$(get_hostagent_pid "${VM_NAME}")
+    assert [ -n "${ha_pid}" ]
+    kill -0 "${ha_pid}"
+
+    rdd svc stop
+
+    try --max 15 --delay 1 --until-fail -- kill -0 "${ha_pid}"
+}
+
+@test "restart service after graceful shutdown" {
+    rdd svc start
+
+    # VM should start fresh (no orphan — graceful shutdown killed it).
+    try --max 60 --delay 5 -- assert_instance_running_condition "${VM_NAME}" "True"
+    assert_instance_running_reason "${VM_NAME}" "Started"
+}
+
+# Restart tests
+# These tests verify the restart mechanism: annotation → status.restartNeeded → stop → start.
+
+@test "restart running VM via rdd limavm restart" {
+    run -0 get_restart_count "${VM_NAME}"
+    local before_count=${output}
+
+    # restart blocks until restartCount increments (Running=True/Started).
+    rdd limavm restart "${VM_NAME}"
+
+    run -0 get_restart_count "${VM_NAME}"
+    assert_output "$((before_count + 1))"
+}
+
+@test "verify restartNeeded cleared and annotation removed after restart" {
+    run -0 rdd ctl get limavm "${VM_NAME}" --namespace "${NAMESPACE}" \
+        --output jsonpath='{.status.restartNeeded}'
+    refute_output # restartNeeded has omitempty; false means absent
+
+    run -0 rdd ctl get limavm "${VM_NAME}" --namespace "${NAMESPACE}" \
+        --output "jsonpath={.metadata.annotations['lima\.rancherdesktop\.io/restartRequested']}"
+    refute_output
+}
+
+@test "stop VM for stopped-restart test" {
+    rdd ctl patch limavm "${VM_NAME}" --namespace "${NAMESPACE}" \
+        --type=merge --patch '{"spec":{"running":false}}'
+    rdd ctl wait --for=condition=Running=False \
+        "limavm/${VM_NAME}" --namespace "${NAMESPACE}" --timeout=300s
+}
+
+assert_restart_annotation_absent() {
+    local name=$1
+    run -0 rdd ctl get limavm "${name}" --namespace "${NAMESPACE}" \
+        --output "jsonpath={.metadata.annotations['lima\.rancherdesktop\.io/restartRequested']}"
+    refute_output
+}
+
+@test "restart annotation on stopped VM with running=false clears restartNeeded" {
+    # Set annotation without changing spec.running (simulates annotation-only path)
     rdd ctl annotate limavm "${VM_NAME}" --namespace "${NAMESPACE}" --overwrite \
-        reconcile-trigger="$(date +%s)"
+        "lima.rancherdesktop.io/restartRequested=$(date +%s)"
 
-    # The reconciler should detect broken state, force stop, then restart.
-    # Verify the condition was actually updated by checking lastTransitionTime changed.
-    try --max 60 --delay 5 -- assert_recovery_completed "${before_time}"
+    # Wait for the annotation to be removed (reconciler processed it)
+    try --max 30 --delay 1 -- assert_restart_annotation_absent "${VM_NAME}"
+
+    # restartNeeded should be cleared
+    run -0 rdd ctl get limavm "${VM_NAME}" --namespace "${NAMESPACE}" \
+        --output jsonpath='{.status.restartNeeded}'
+    refute_output # restartNeeded has omitempty; false means absent
+
+    # VM should stay stopped because spec.running=false
+    assert_instance_running_condition "${VM_NAME}" "False"
+    assert_instance_running_reason "${VM_NAME}" "Stopped"
 }
 
-@test "verify hostagent is alive after recovery" {
-    local pid_file="${RDD_LIMA_HOME}/${VM_NAME}/ha.pid"
-    assert_file_exists "${pid_file}"
-    local pid
-    pid=$(cat "${pid_file}")
-    assert [ -n "${pid}" ]
-    kill -0 "${pid}"
-}
+@test "restart command on stopped VM starts it" {
+    # restart blocks until the VM is running again.
+    rdd limavm restart "${VM_NAME}"
 
-@test "verify BrokenStateRecovered event was emitted" {
-    run -0 rdd ctl get events --namespace "${NAMESPACE}" \
-        --field-selector involvedObject.kind=LimaVM,involvedObject.name="${VM_NAME}"
-    assert_output --partial "BrokenStateRecovered"
+    run -0 rdd ctl get limavm "${VM_NAME}" --namespace "${NAMESPACE}" \
+        --output jsonpath='{.status.restartNeeded}'
+    refute_output # restartNeeded has omitempty; false means absent
 }
 
 @test "cleanup LimaVM running test" {

@@ -64,12 +64,13 @@ assert_created() {
     assert_running "false"
 
     # Start the VM (cross-namespace lookup: no --namespace flag needed)
-    run -0 rdd limavm start "test-vm"
+    # --wait=false because the template is non-functional (no real VM boots)
+    run -0 rdd limavm start --wait=false "test-vm"
     assert_output --partial 'started'
     assert_running "true"
 
     # Stop the VM
-    run -0 rdd limavm stop "test-vm"
+    run -0 rdd limavm stop --wait=false "test-vm"
     assert_output --partial 'stopped'
     assert_running "false"
 
@@ -78,6 +79,19 @@ assert_created() {
     assert_output --partial 'deleted'
     run -1 rdd ctl get limavm "test-vm" --namespace "${LIMA_TEST_NS}"
     assert_output --partial "not found"
+}
+
+@test "lima create --start sets running=true" {
+    rdd ctl create configmap "start-vm" --namespace "${LIMA_TEST_NS}" --from-literal="template=${TEMPLATE}"
+
+    # --wait=false because the template is non-functional (no real VM boots)
+    run_e -0 rdd limavm create "start-vm" "start-vm" --namespace "${LIMA_TEST_NS}" --start --wait=false
+    assert_created "start-vm" "${LIMA_TEST_NS}" "start-vm"
+
+    run -0 rdd ctl get limavm "start-vm" --namespace "${LIMA_TEST_NS}" -o jsonpath='{.spec.running}'
+    assert_output "true"
+
+    run -0 rdd limavm delete --wait "start-vm"
 }
 
 @test "lima create with file template" {
@@ -163,6 +177,37 @@ assert_created() {
     assert_fatal "${not_found}"
 }
 
+@test "lima restart sets running=true" {
+    # Create a template ConfigMap and VM
+    rdd ctl create configmap "restart-vm" --namespace "${LIMA_TEST_NS}" --from-literal="template=${TEMPLATE}"
+    run_e -0 rdd limavm create "restart-vm" "restart-vm" --namespace "${LIMA_TEST_NS}"
+    assert_created "restart-vm" "${LIMA_TEST_NS}" "restart-vm"
+
+    # --wait=false because the template is non-functional (no real VM boots)
+    run -0 rdd limavm restart --wait=false "restart-vm"
+    assert_output --partial "restart requested"
+
+    # Verify spec.running is true
+    run -0 rdd ctl get limavm "restart-vm" --namespace "${LIMA_TEST_NS}" \
+        --output jsonpath='{.spec.running}'
+    assert_output "true"
+
+    # Delete the VM
+    run -0 rdd limavm delete "restart-vm"
+    rdd ctl wait --for=delete "limavm/restart-vm" --namespace "${LIMA_TEST_NS}" --timeout="30s"
+}
+
+@test "lima start --timeout fails when VM cannot reach desired state" {
+    rdd ctl create configmap "timeout-vm" --namespace "${LIMA_TEST_NS}" \
+        --from-literal="template=${TEMPLATE}"
+    run_e -0 rdd limavm create "timeout-vm" "timeout-vm" --namespace "${LIMA_TEST_NS}"
+    assert_created "timeout-vm" "${LIMA_TEST_NS}" "timeout-vm"
+
+    # Non-functional template cannot boot, so --wait --timeout should fail
+    run -1 rdd limavm start --wait --timeout=3s "timeout-vm"
+    assert_output --partial 'context deadline exceeded'
+}
+
 @test "lima help text is displayed" {
     # lima is an alias of the limavm command
     run -0 rdd lima --help
@@ -170,6 +215,7 @@ assert_created() {
     assert_output --partial "Create a new LimaVM"
     assert_output --partial "Start a LimaVM"
     assert_output --partial "Stop a LimaVM"
+    assert_output --partial "Restart a LimaVM"
     assert_output --partial "Delete a LimaVM"
     assert_output --partial "Show LimaVM logs"
     assert_output --partial "Execute shell in Lima VM"

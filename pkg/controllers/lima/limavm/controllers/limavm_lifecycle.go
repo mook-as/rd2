@@ -18,9 +18,9 @@ import (
 	"github.com/lima-vm/lima/v2/pkg/limatype/filenames"
 	"github.com/lima-vm/lima/v2/pkg/store"
 
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/rancher-sandbox/rancher-desktop-daemon/pkg/apis/lima/v1alpha1"
@@ -32,6 +32,8 @@ import (
 func (r *LimaVMReconciler) handleDeletion(ctx context.Context, limaVM *v1alpha1.LimaVM) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 
+	r.stopWatcher(limaVM.Name)
+
 	// Stop and delete the Lima instance.
 	// Inspect may fail if the instance doesn't exist, which is fine during
 	// deletion - we just proceed to remove the finalizer.
@@ -40,13 +42,12 @@ func (r *LimaVMReconciler) handleDeletion(ctx context.Context, limaVM *v1alpha1.
 		logger.Error(err, "Failed to inspect Lima instance for deletion")
 	}
 	if existingInst != nil {
-		// Stop the instance if running
+		// Force-stop the instance if running. No graceful shutdown needed
+		// since the instance is being deleted; users who want a graceful
+		// shutdown can stop the instance before deleting.
 		if existingInst.Status == limatype.StatusRunning {
-			logger.Info("Stopping Lima instance before deletion", "instance", limaVM.Name)
-			if err := limainstance.StopGracefully(ctx, existingInst, false); err != nil {
-				logger.Error(err, "Failed to stop Lima instance gracefully, forcing stop")
-				limainstance.StopForcibly(existingInst)
-			}
+			logger.Info("Force-stopping Lima instance before deletion", "instance", limaVM.Name)
+			limainstance.StopForcibly(existingInst)
 		}
 		logger.Info("Deleting Lima instance", "instance", limaVM.Name)
 		if err := limainstance.Delete(ctx, existingInst, true); err != nil {
@@ -76,119 +77,239 @@ func (r *LimaVMReconciler) handleDeletion(ctx context.Context, limaVM *v1alpha1.
 	return ctrl.Result{}, nil
 }
 
-// handleRunningState manages VM start/stop based on spec.running.
-func (r *LimaVMReconciler) handleRunningState(ctx context.Context, limaVM *v1alpha1.LimaVM) (ctrl.Result, error) {
+// handleRestartAnnotation translates the restartRequested annotation into
+// status.restartNeeded. It takes two reconcile cycles:
+//  1. Set status.restartNeeded=true (if not already set).
+//  2. Remove the annotation (status is already persisted).
+//
+// This ordering ensures the status is durable before metadata changes.
+// If the annotation removal fails, the next reconcile sees both and retries.
+func (r *LimaVMReconciler) handleRestartAnnotation(ctx context.Context, limaVM *v1alpha1.LimaVM) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 
-	// Get current instance status
+	if !limaVM.Status.RestartNeeded {
+		logger.Info("Restart requested via annotation, setting status.restartNeeded")
+		patch := client.MergeFrom(limaVM.DeepCopy())
+		limaVM.Status.RestartNeeded = true
+		if err := r.Status().Patch(ctx, limaVM, patch); err != nil {
+			logger.Error(err, "Failed to set status.restartNeeded")
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{}, nil
+	}
+
+	// status.restartNeeded is already true; remove the annotation.
+	logger.Info("Removing restartRequested annotation")
+	patch := client.MergeFrom(limaVM.DeepCopy())
+	delete(limaVM.Annotations, v1alpha1.AnnotationRestartRequested)
+	if err := r.Patch(ctx, limaVM, patch); err != nil {
+		logger.Error(err, "Failed to remove restartRequested annotation")
+		return ctrl.Result{}, err
+	}
+	return ctrl.Result{}, nil
+}
+
+// handleRunningState manages VM start/stop based on spec.running and the
+// watcher's observed phase. When a watcher is active, its phase is the source
+// of truth. When no watcher exists (controller restart), store.Inspect detects
+// orphaned hostagents.
+func (r *LimaVMReconciler) handleRunningState(ctx context.Context, limaVM *v1alpha1.LimaVM) (ctrl.Result, error) {
+	logger := log.FromContext(ctx)
+	shouldRun := limaVM.Spec.Running
+	phase := r.getInstancePhase(limaVM.Name)
+
+	logger.Info("Checking running state", "shouldRun", shouldRun, "phase", phase)
+
+	if limaVM.Status.RestartNeeded {
+		return r.handleRestartNeeded(ctx, limaVM, phase)
+	}
+
+	if phase != phaseUnknown {
+		return r.handleWatchedState(ctx, limaVM, shouldRun, phase)
+	}
+	return r.handleUnwatchedState(ctx, limaVM, shouldRun)
+}
+
+// handleWatchedState handles a VM that has an active watcher reporting its phase.
+func (r *LimaVMReconciler) handleWatchedState(ctx context.Context, limaVM *v1alpha1.LimaVM, shouldRun bool, phase instancePhase) (ctrl.Result, error) {
+	logger := log.FromContext(ctx)
+
+	switch {
+	case phase == phaseStarting && shouldRun:
+		// Watcher triggers the next reconcile when phase changes.
+		if !base.HasConditionWithReason(limaVM.Status.Conditions, ConditionRunning, metav1.ConditionFalse, ReasonStarting) {
+			if err := r.updateCondition(ctx, limaVM, ConditionRunning, metav1.ConditionFalse, ReasonStarting, "Lima instance is starting"); err != nil {
+				logger.Error(err, "Failed to update starting condition")
+				return ctrl.Result{}, err
+			}
+		}
+		return ctrl.Result{}, nil
+
+	case phase == phaseRunning && shouldRun:
+		if !base.HasConditionWithReason(limaVM.Status.Conditions, ConditionRunning, metav1.ConditionTrue, ReasonStarted) {
+			patch := client.MergeFrom(limaVM.DeepCopy())
+			limaVM.Status.RestartCount++
+			r.setCondition(limaVM, ConditionRunning, metav1.ConditionTrue, ReasonStarted, "Lima instance is running")
+			if err := r.Status().Patch(ctx, limaVM, patch); err != nil {
+				logger.Error(err, "Failed to update running condition")
+				return ctrl.Result{}, err
+			}
+		}
+		return ctrl.Result{}, nil
+
+	case phase == phaseStopped && shouldRun:
+		// Hostagent exited while it should be running (crash or failed start).
+		// Clean up the dead watcher and start fresh.
+		r.stopWatcher(limaVM.Name)
+		inst, err := store.Inspect(ctx, limaVM.Name)
+		if err != nil {
+			logger.Error(err, "Failed to inspect Lima instance")
+			return ctrl.Result{}, err
+		}
+		if inst == nil {
+			return ctrl.Result{}, errors.New("instance not found")
+		}
+		// The VM driver (e.g., QEMU) may outlive the hostagent. Force-stop
+		// the instance so the next hostagent can start with a clean slate.
+		if inst.Status == limatype.StatusRunning || inst.Status == limatype.StatusBroken {
+			logger.Info("Force-stopping orphaned VM driver", "status", inst.Status)
+			limainstance.StopForcibly(inst)
+		}
+		return r.startInstance(ctx, limaVM, inst)
+
+	case phase == phaseRunning && !shouldRun:
+		inst, err := store.Inspect(ctx, limaVM.Name)
+		if err != nil {
+			logger.Error(err, "Failed to inspect Lima instance")
+			return ctrl.Result{}, err
+		}
+		if inst == nil {
+			return ctrl.Result{}, errors.New("instance not found")
+		}
+		// TODO: Non-blocking stop: send SIGINT and return immediately;
+		// the watcher detects the Exiting event and triggers a reconcile.
+		return r.stopInstance(ctx, limaVM, inst)
+
+	case phase == phaseStarting && !shouldRun:
+		// Hostagent is alive and starting, but user wants it stopped.
+		inst, err := store.Inspect(ctx, limaVM.Name)
+		if err != nil {
+			logger.Error(err, "Failed to inspect Lima instance")
+			return ctrl.Result{}, err
+		}
+		if inst == nil {
+			return ctrl.Result{}, errors.New("instance not found")
+		}
+		return r.stopInstance(ctx, limaVM, inst)
+
+	default:
+		// phase == phaseStopped && !shouldRun
+		r.stopWatcher(limaVM.Name)
+		if !base.HasConditionWithReason(limaVM.Status.Conditions, ConditionRunning, metav1.ConditionFalse, ReasonStopped) {
+			if err := r.updateCondition(ctx, limaVM, ConditionRunning, metav1.ConditionFalse, ReasonStopped, "Lima instance is stopped"); err != nil {
+				logger.Error(err, "Failed to update stopped condition")
+				return ctrl.Result{}, err
+			}
+		}
+		return ctrl.Result{}, nil
+	}
+}
+
+// handleUnwatchedState handles a VM with no active watcher. This occurs after
+// controller restart. If a hostagent is still running, it is orphaned and must
+// be killed so the next reconcile can start fresh with a watcher.
+func (r *LimaVMReconciler) handleUnwatchedState(ctx context.Context, limaVM *v1alpha1.LimaVM, shouldRun bool) (ctrl.Result, error) {
+	logger := log.FromContext(ctx)
+
 	inst, err := store.Inspect(ctx, limaVM.Name)
 	if err != nil {
 		logger.Error(err, "Failed to inspect Lima instance")
 		return ctrl.Result{}, err
 	}
 	if inst == nil {
-		// Instance doesn't exist - shouldn't happen if Created is True
-		logger.Error(nil, "Lima instance not found despite Created condition")
 		return ctrl.Result{}, errors.New("instance not found")
 	}
 
-	// Handle broken state. Lima reports "broken" when the hostagent PID file
-	// exists but the socket is not yet responding. During startup this is normal:
-	// the hostagent creates its PID file before the socket. If the hostagent
-	// process is alive and the socket doesn't exist yet, treat it as starting.
-	if inst.Status == limatype.StatusBroken {
-		haSockPath := filepath.Join(inst.Dir, filenames.HostAgentSock)
-		if inst.HostAgentPID > 0 && !fileExists(haSockPath) {
-			logger.Info("Instance reports broken but hostagent is alive and socket not yet created, treating as starting", "pid", inst.HostAgentPID)
-			if !base.HasConditionWithReason(limaVM.Status.Conditions, ConditionRunning, metav1.ConditionFalse, ReasonStarting) {
-				if err := r.updateCondition(ctx, limaVM, ConditionRunning, metav1.ConditionFalse, ReasonStarting, "Lima instance is starting"); err != nil {
-					logger.Error(err, "Failed to update starting condition")
-					return ctrl.Result{}, err
-				}
-			}
-			// Poll until the hostagent finishes startup and the socket appears.
-			return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
-		}
-
-		logger.Info("Lima instance is broken, attempting force stop to recover", "errors", inst.Errors)
-		limainstance.StopForcibly(inst)
-
-		// Re-inspect to see if recovery succeeded
-		inst, err = store.Inspect(ctx, limaVM.Name)
-		if err != nil {
-			logger.Error(err, "Failed to inspect Lima instance after force stop")
+	switch inst.Status {
+	case limatype.StatusRunning, limatype.StatusBroken:
+		// Orphaned hostagent from before controller restart. Kill it so the
+		// next reconcile can start with a watcher.
+		logger.Info("Found orphaned hostagent, killing it", "status", inst.Status)
+		if err := r.killOrphanedHostagent(ctx, inst); err != nil {
+			logger.Error(err, "Failed to kill orphaned hostagent")
 			return ctrl.Result{}, err
 		}
+		return ctrl.Result{RequeueAfter: time.Second}, nil
 
-		if inst.Status == limatype.StatusBroken {
-			errMsg := "Lima instance is in broken state"
-			if len(inst.Errors) > 0 {
-				errMsg = inst.Errors[0].Error()
-			}
-			logger.Error(nil, "Failed to recover broken Lima instance", "errors", inst.Errors)
-			if err := r.updateCondition(ctx, limaVM, ConditionRunning, metav1.ConditionFalse, ReasonBroken, errMsg); err != nil {
-				logger.Error(err, "Failed to update broken condition")
-				return ctrl.Result{}, err
-			}
-			return ctrl.Result{}, errors.New(errMsg)
+	default:
+		// Stopped — proceed normally.
+		if shouldRun {
+			return r.startInstance(ctx, limaVM, inst)
 		}
-
-		logger.Info("Recovered broken Lima instance via force stop", "newStatus", inst.Status)
-		if r.Recorder != nil {
-			r.Recorder.Eventf(limaVM, nil, corev1.EventTypeWarning, "BrokenStateRecovered", "Recovery",
-				"Recovered from broken state via force stop")
-		}
-	}
-
-	shouldRun := limaVM.Spec.Running
-	isRunning := inst.Status == limatype.StatusRunning
-
-	logger.Info("Checking running state", "shouldRun", shouldRun, "isRunning", isRunning, "status", inst.Status)
-
-	if shouldRun && !isRunning {
-		// Check if hostagent is already starting (PID file exists)
-		haPIDPath := filepath.Join(inst.Dir, filenames.HostAgentPID)
-		if _, err := os.Stat(haPIDPath); err == nil {
-			// PID file exists, hostagent is starting
-			logger.Info("Lima instance is starting, waiting for it to be running")
-			if !base.HasConditionWithReason(limaVM.Status.Conditions, ConditionRunning, metav1.ConditionFalse, ReasonStarting) {
-				if err := r.updateCondition(ctx, limaVM, ConditionRunning, metav1.ConditionFalse, ReasonStarting, "Lima instance is starting"); err != nil {
-					logger.Error(err, "Failed to update starting condition")
-					return ctrl.Result{}, err
-				}
-			}
-			return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
-		}
-		return r.startInstance(ctx, limaVM, inst)
-	}
-	if !shouldRun && isRunning {
-		return r.stopInstance(ctx, limaVM, inst)
-	}
-
-	// Update condition to reflect current state (including reason, so StartFailed/Starting gets updated)
-	if isRunning {
-		if !base.HasConditionWithReason(limaVM.Status.Conditions, ConditionRunning, metav1.ConditionTrue, ReasonStarted) {
-			if err := r.updateCondition(ctx, limaVM, ConditionRunning, metav1.ConditionTrue, ReasonStarted, "Lima instance is running"); err != nil {
-				logger.Error(err, "Failed to update running condition")
-				return ctrl.Result{}, err
-			}
-		}
-	} else {
 		if !base.HasConditionWithReason(limaVM.Status.Conditions, ConditionRunning, metav1.ConditionFalse, ReasonStopped) {
 			if err := r.updateCondition(ctx, limaVM, ConditionRunning, metav1.ConditionFalse, ReasonStopped, "Lima instance is stopped"); err != nil {
-				logger.Error(err, "Failed to update running condition")
+				logger.Error(err, "Failed to update stopped condition")
 				return ctrl.Result{}, err
 			}
 		}
+		return ctrl.Result{}, nil
 	}
-
-	return ctrl.Result{}, nil
 }
 
-// startInstance starts the Lima VM hostagent in the background.
-// It returns immediately after launching the hostagent, without waiting for
-// the VM to be fully running. The reconciler will be requeued to check the
-// running state later.
+// handleRestartNeeded acts on status.restartNeeded based on the watcher phase:
+//   - Running: stop the instance and clear restartNeeded atomically.
+//     The next reconcile starts it via normal shouldRun && !isRunning logic.
+//   - Starting: return and let the watcher trigger the next reconcile.
+//   - Stopped/Unknown: clear restartNeeded and fall through to normal logic.
+func (r *LimaVMReconciler) handleRestartNeeded(ctx context.Context, limaVM *v1alpha1.LimaVM, phase instancePhase) (ctrl.Result, error) {
+	logger := log.FromContext(ctx)
+
+	switch phase {
+	case phaseRunning:
+		logger.Info("Restart needed: stopping running instance")
+
+		r.signalHostagent(limaVM.Name, os.Interrupt)
+		stopCtx, cancel := context.WithTimeout(ctx, gracefulShutdownTimeout)
+		defer cancel()
+		if !r.waitForProcessExit(stopCtx, limaVM.Name) {
+			logger.Info("Hostagent did not exit gracefully, forcing stop")
+			inst, err := store.Inspect(ctx, limaVM.Name)
+			if err != nil {
+				logger.Error(err, "Failed to inspect Lima instance for forceful stop")
+			} else if inst != nil {
+				limainstance.StopForcibly(inst)
+			}
+			r.waitForProcessExit(ctx, limaVM.Name)
+		}
+
+		r.stopWatcher(limaVM.Name)
+
+		// Clear restartNeeded and set Stopped condition in one write.
+		// This is inlined (rather than calling stopInstance) so both changes
+		// land in a single patch — stopInstance's updateCondition would take
+		// its own DeepCopy and miss the RestartNeeded change.
+		patch := client.MergeFrom(limaVM.DeepCopy())
+		limaVM.Status.RestartNeeded = false
+		r.setCondition(limaVM, ConditionRunning, metav1.ConditionFalse, ReasonStopped, "Stopped for restart")
+		return ctrl.Result{}, r.Status().Patch(ctx, limaVM, patch)
+
+	case phaseStarting:
+		// Watcher triggers next reconcile when phase changes.
+		logger.Info("Restart needed but instance is starting, waiting for boot to complete")
+		return ctrl.Result{}, nil
+
+	default:
+		// phaseStopped or phaseUnknown: clear flag and let normal logic handle it.
+		logger.Info("Restart needed but instance not running, clearing flag", "phase", phase)
+		patch := client.MergeFrom(limaVM.DeepCopy())
+		limaVM.Status.RestartNeeded = false
+		return ctrl.Result{}, r.Status().Patch(ctx, limaVM, patch)
+	}
+}
+
+// startInstance launches the hostagent and starts a watcher goroutine to track
+// its lifecycle. The watcher triggers reconciles as the hostagent progresses
+// through Starting → Running → Stopped, so no polling is needed.
 //
 // This duplicates much of Lima's own start logic because Lima's API blocks
 // until the VM is fully running. We need to return immediately so the
@@ -196,6 +317,14 @@ func (r *LimaVMReconciler) handleRunningState(ctx context.Context, limaVM *v1alp
 func (r *LimaVMReconciler) startInstance(ctx context.Context, limaVM *v1alpha1.LimaVM, inst *limatype.Instance) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 	logger.Info("Starting Lima instance", "instance", limaVM.Name)
+
+	// Record the Starting condition before any slow operations (waitForPIDFile
+	// can block up to 5 seconds). This ensures the True→False status transition
+	// is visible even if the object is modified externally during startup.
+	if err := r.updateCondition(ctx, limaVM, ConditionRunning, metav1.ConditionFalse, ReasonStarting, "Lima instance is starting"); err != nil {
+		logger.Error(err, "Failed to update starting condition")
+		return ctrl.Result{}, err
+	}
 
 	// Get the path to our own executable (rdd) to use as the hostagent launcher
 	rddPath, err := os.Executable()
@@ -223,7 +352,7 @@ func (r *LimaVMReconciler) startInstance(ctx context.Context, limaVM *v1alpha1.L
 	args = append(args, inst.Name)
 
 	// Create rotated log files. The active names (ha.stdout.log, ha.stderr.log)
-	// match what Lima expects for StopGracefully.
+	// match what Lima expects (e.g. StopForcibly, store.Inspect).
 	keepLogs := os.Getenv("RDD_KEEP_LOGS") != ""
 	title := os.Getenv("RDD_LOG_TITLE")
 	var header string
@@ -253,7 +382,10 @@ func (r *LimaVMReconciler) startInstance(ctx context.Context, limaVM *v1alpha1.L
 		return ctrl.Result{}, err
 	}
 	defer haStderrW.Close()
-	// Start hostagent in background
+
+	begin := time.Now()
+
+	// Start hostagent in background.
 	haCmd := exec.CommandContext(ctx, rddPath, args...)
 	process.SetGroup(haCmd)
 	haCmd.Stdout = haStdoutW
@@ -267,14 +399,6 @@ func (r *LimaVMReconciler) startInstance(ctx context.Context, limaVM *v1alpha1.L
 		return ctrl.Result{}, err
 	}
 
-	// Reap the hostagent process when it exits. Without this, the hostagent
-	// becomes a zombie, and Lima's kill(pid, 0) check thinks it is still alive.
-	go func() {
-		if err := haCmd.Wait(); err != nil {
-			logger.Error(err, "Hostagent process exited with error")
-		}
-	}()
-
 	// Wait for PID file to be created (indicates hostagent has started)
 	if err := r.waitForPIDFile(haPIDPath, haStderrPath); err != nil {
 		logger.Error(err, "Hostagent did not start")
@@ -284,13 +408,12 @@ func (r *LimaVMReconciler) startInstance(ctx context.Context, limaVM *v1alpha1.L
 		return ctrl.Result{}, err
 	}
 
-	logger.Info("Hostagent started, waiting for instance to be running", "instance", limaVM.Name)
-	if err := r.updateCondition(ctx, limaVM, ConditionRunning, metav1.ConditionFalse, ReasonStarting, "Lima instance is starting"); err != nil {
-		logger.Error(err, "Failed to update status after hostagent start")
-		return ctrl.Result{}, err
-	}
+	// Start watcher goroutine to track hostagent lifecycle and reap the process.
+	// The watcher enqueues reconciles as phase transitions occur.
+	r.startWatcher(ctx, limaVM.Name, limaVM.Namespace, haCmd, inst.Dir, begin)
 
-	return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
+	logger.Info("Hostagent started, watcher active", "instance", limaVM.Name)
+	return ctrl.Result{}, nil
 }
 
 // waitForPIDFile waits for the hostagent PID file to be created.
@@ -307,17 +430,23 @@ func (r *LimaVMReconciler) waitForPIDFile(haPIDPath, haStderrPath string) error 
 	}
 }
 
-// stopInstance stops the Lima VM.
+// stopInstance stops the Lima VM and cleans up its watcher.
+// TODO: Non-blocking stop: send SIGINT and return immediately;
+// the watcher detects the Exiting event and triggers a reconcile.
 func (r *LimaVMReconciler) stopInstance(ctx context.Context, limaVM *v1alpha1.LimaVM, inst *limatype.Instance) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 	logger.Info("Stopping Lima instance", "instance", limaVM.Name)
 
-	if err := limainstance.StopGracefully(ctx, inst, false); err != nil {
-		logger.Error(err, "Failed to stop Lima instance gracefully")
-		// Try forceful stop
-		logger.Info("Attempting forceful stop")
+	r.signalHostagent(limaVM.Name, os.Interrupt)
+	stopCtx, cancel := context.WithTimeout(ctx, gracefulShutdownTimeout)
+	defer cancel()
+	if !r.waitForProcessExit(stopCtx, limaVM.Name) {
+		logger.Info("Hostagent did not exit gracefully, forcing stop")
 		limainstance.StopForcibly(inst)
+		r.waitForProcessExit(ctx, limaVM.Name)
 	}
+
+	r.stopWatcher(limaVM.Name)
 
 	// Verify the instance stopped
 	inst, err := store.Inspect(ctx, limaVM.Name)
@@ -347,7 +476,14 @@ func (r *LimaVMReconciler) stopInstance(ctx context.Context, limaVM *v1alpha1.Li
 	return ctrl.Result{}, nil
 }
 
-func fileExists(path string) bool {
-	_, err := os.Stat(path)
-	return err == nil
+// killOrphanedHostagent terminates an orphaned hostagent (one running without a
+// watcher, typically after a controller restart). Sends SIGTERM first and falls
+// back to SIGKILL after the graceful shutdown timeout.
+func (r *LimaVMReconciler) killOrphanedHostagent(ctx context.Context, inst *limatype.Instance) error {
+	stopCtx, cancel := context.WithTimeout(ctx, gracefulShutdownTimeout)
+	defer cancel()
+	if err := limainstance.StopGracefully(stopCtx, inst, false); err != nil {
+		limainstance.StopForcibly(inst)
+	}
+	return nil
 }

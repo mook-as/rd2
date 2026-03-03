@@ -18,11 +18,14 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/validation"
+	k8swatch "k8s.io/apimachinery/pkg/watch"
 	corev1scheme "k8s.io/client-go/kubernetes/scheme"
+	toolswatch "k8s.io/client-go/tools/watch"
 	"k8s.io/kubectl/pkg/cmd/util/editor"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrl "sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -44,6 +47,7 @@ func newLimaVMCommand() *cobra.Command {
 		newLimaVMCreateCommand(),
 		newLimaVMStartCommand(),
 		newLimaVMStopCommand(),
+		newLimaVMRestartCommand(),
 		newLimaVMDeleteCommand(),
 		newLimaVMLogsCommand(),
 		newLimaVMShellCommand(),
@@ -119,6 +123,9 @@ func limaVMEditAction(ctx context.Context, name string) error {
 func newLimaVMCreateCommand() *cobra.Command {
 	var namespace string
 	var dryRun bool
+	var start bool
+	var wait bool
+	var timeout time.Duration
 	command := &cobra.Command{
 		Use:   "create NAME TEMPLATE",
 		Short: "Create a new LimaVM resource",
@@ -129,54 +136,124 @@ TEMPLATE can be one of:
 - A file path (if it's not a valid ConfigMap name) - creates a ConfigMap with the VM name`,
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return limaVMCreateAction(cmd.Context(), args[0], args[1], namespace, dryRun)
+			return limaVMCreateAction(cmd.Context(), args[0], args[1], namespace, dryRun, start, wait, timeout)
 		},
 	}
 	command.Flags().StringVarP(&namespace, "namespace", "n", metav1.NamespaceDefault, "Namespace for the LimaVM resource")
 	command.Flags().BoolVar(&dryRun, "dry-run", false, "If set, do not commit any changes to the cluster")
+	command.Flags().BoolVar(&start, "start", false, "Start the VM after creation")
+	command.Flags().BoolVar(&wait, "wait", true, "Wait for the operation to complete (only applies with --start)")
+	command.Flags().DurationVar(&timeout, "timeout", 0, "Timeout for --wait (0 means wait indefinitely)")
 	return command
 }
 
 func newLimaVMStartCommand() *cobra.Command {
+	var wait bool
+	var timeout time.Duration
 	command := &cobra.Command{
 		Use:   "start NAME",
 		Short: "Start a LimaVM by setting running=true",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return limaVMSetRunningAction(cmd.Context(), args[0], true)
+			return limaVMSetRunningAction(cmd.Context(), args[0], true, wait, timeout)
 		},
 	}
+	command.Flags().BoolVar(&wait, "wait", true, "Wait for the operation to complete")
+	command.Flags().DurationVar(&timeout, "timeout", 0, "Timeout for --wait (0 means wait indefinitely)")
 	return command
 }
 
 func newLimaVMStopCommand() *cobra.Command {
+	var wait bool
+	var timeout time.Duration
 	command := &cobra.Command{
 		Use:   "stop NAME",
 		Short: "Stop a LimaVM by setting running=false",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return limaVMSetRunningAction(cmd.Context(), args[0], false)
+			return limaVMSetRunningAction(cmd.Context(), args[0], false, wait, timeout)
 		},
 	}
+	command.Flags().BoolVar(&wait, "wait", true, "Wait for the operation to complete")
+	command.Flags().DurationVar(&timeout, "timeout", 0, "Timeout for --wait (0 means wait indefinitely)")
 	return command
+}
+
+func newLimaVMRestartCommand() *cobra.Command {
+	var wait bool
+	var timeout time.Duration
+	command := &cobra.Command{
+		Use:   "restart NAME",
+		Short: "Restart a LimaVM instance",
+		Long:  "Set the restartRequested annotation and spec.running=true to restart the instance.",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return limaVMRestartAction(cmd.Context(), args[0], wait, timeout)
+		},
+	}
+	command.Flags().BoolVar(&wait, "wait", true, "Wait for the operation to complete")
+	command.Flags().DurationVar(&timeout, "timeout", 0, "Timeout for --wait (0 means wait indefinitely)")
+	return command
+}
+
+func limaVMRestartAction(ctx context.Context, name string, wait bool, timeout time.Duration) error {
+	c, err := getKubeClient(ctx)
+	if err != nil {
+		return err
+	}
+	limaVM, err := findLimaVM(ctx, c, name)
+	if err != nil {
+		return err
+	}
+
+	beforeCount := limaVM.Status.RestartCount
+
+	patch := client.MergeFrom(limaVM.DeepCopy())
+	limaVM.Spec.Running = true
+	if limaVM.Annotations == nil {
+		limaVM.Annotations = make(map[string]string)
+	}
+	limaVM.Annotations[limav1alpha1.AnnotationRestartRequested] = time.Now().UTC().Format(time.RFC3339)
+
+	if err := c.Patch(ctx, limaVM, patch); err != nil {
+		return fmt.Errorf("failed to restart LimaVM: %w", err)
+	}
+
+	logrus.Infof("LimaVM %q restart requested in namespace %q", name, limaVM.Namespace)
+
+	if wait {
+		waitCtx, cancel := toolswatch.ContextWithOptionalTimeout(ctx, timeout)
+		defer cancel()
+		key := client.ObjectKeyFromObject(limaVM)
+		if err := watchUntil(waitCtx, c, key, func(vm *limav1alpha1.LimaVM) bool {
+			return vm.Status.RestartCount > beforeCount
+		}); err != nil {
+			return fmt.Errorf("failed waiting for restart to complete: %w", err)
+		}
+		logrus.Infof("LimaVM %q restarted in namespace %q", name, limaVM.Namespace)
+	}
+	return nil
 }
 
 func newLimaVMDeleteCommand() *cobra.Command {
 	var wait bool
+	var timeout time.Duration
 	command := &cobra.Command{
 		Use:   "delete NAME",
 		Short: "Delete a LimaVM resource",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return limaVMDeleteAction(cmd.Context(), args[0], wait)
+			return limaVMDeleteAction(cmd.Context(), args[0], wait, timeout)
 		},
 	}
 	command.Flags().BoolVar(&wait, "wait", false, "Wait for the VM to be deleted before returning")
+	command.Flags().DurationVar(&timeout, "timeout", 0, "Timeout for --wait (0 means wait indefinitely)")
 	return command
 }
 
 // getKubeClient returns a controller-runtime client configured for the RDD control plane.
-func getKubeClient(ctx context.Context) (client.Client, error) {
+// The returned client supports Watch for event-driven waiting on resource changes.
+func getKubeClient(ctx context.Context) (client.WithWatch, error) {
 	if err := ensureServiceRunning(ctx); err != nil {
 		return nil, err
 	}
@@ -191,7 +268,7 @@ func getKubeClient(ctx context.Context) (client.Client, error) {
 	if err := limav1alpha1.AddToScheme(runtimeScheme); err != nil {
 		return nil, fmt.Errorf("failed to add LimaVM types to scheme: %w", err)
 	}
-	c, err := client.New(config, client.Options{Scheme: runtimeScheme})
+	c, err := client.NewWithWatch(config, client.Options{Scheme: runtimeScheme})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create client: %w", err)
 	}
@@ -263,7 +340,7 @@ func takeOwnership(ctx context.Context, c client.Client, limaVM *limav1alpha1.Li
 	return nil
 }
 
-func limaVMCreateAction(ctx context.Context, name, template, namespace string, dryRun bool) error {
+func limaVMCreateAction(ctx context.Context, name, template, namespace string, dryRun, start, wait bool, timeout time.Duration) error {
 	c, err := getKubeClient(ctx)
 	if err != nil {
 		return err
@@ -292,7 +369,6 @@ func limaVMCreateAction(ctx context.Context, name, template, namespace string, d
 	}()
 
 	// Create the LimaVM resource with the template reference
-	running := false
 	limaVM := &limav1alpha1.LimaVM{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
@@ -302,7 +378,7 @@ func limaVMCreateAction(ctx context.Context, name, template, namespace string, d
 			TemplateRef: limav1alpha1.TemplateReference{
 				Name: configMapName,
 			},
-			Running: running,
+			Running: start,
 		},
 	}
 
@@ -324,10 +400,22 @@ func limaVMCreateAction(ctx context.Context, name, template, namespace string, d
 			createdConfigMap = nil
 		}
 	}
+
+	if start && wait && !dryRun {
+		waitCtx, cancel := toolswatch.ContextWithOptionalTimeout(ctx, timeout)
+		defer cancel()
+		key := client.ObjectKeyFromObject(limaVM)
+		if err := watchUntil(waitCtx, c, key, func(vm *limav1alpha1.LimaVM) bool {
+			return apimeta.IsStatusConditionPresentAndEqual(vm.Status.Conditions, "Running", metav1.ConditionTrue)
+		}); err != nil {
+			return fmt.Errorf("failed waiting for LimaVM to start: %w", err)
+		}
+		logrus.Infof("LimaVM %q started in namespace %q", name, namespace)
+	}
 	return nil
 }
 
-func limaVMSetRunningAction(ctx context.Context, name string, running bool) error {
+func limaVMSetRunningAction(ctx context.Context, name string, running, wait bool, timeout time.Duration) error {
 	c, err := getKubeClient(ctx)
 	if err != nil {
 		return err
@@ -346,14 +434,103 @@ func limaVMSetRunningAction(ctx context.Context, name string, running bool) erro
 	}
 
 	action := "stopped"
+	desiredStatus := metav1.ConditionFalse
 	if running {
 		action = "started"
+		desiredStatus = metav1.ConditionTrue
 	}
 	logrus.Infof("LimaVM %q %s in namespace %q", name, action, limaVM.Namespace)
+
+	if wait {
+		waitCtx, cancel := toolswatch.ContextWithOptionalTimeout(ctx, timeout)
+		defer cancel()
+		key := client.ObjectKeyFromObject(limaVM)
+		if err := watchUntil(waitCtx, c, key, func(vm *limav1alpha1.LimaVM) bool {
+			return apimeta.IsStatusConditionPresentAndEqual(vm.Status.Conditions, "Running", desiredStatus)
+		}); err != nil {
+			return fmt.Errorf("failed waiting for LimaVM to be %s: %w", action, err)
+		}
+	}
 	return nil
 }
 
-func limaVMDeleteAction(ctx context.Context, name string, wait bool) error {
+// watchUntil watches a LimaVM until the check function returns true.
+// It reads the current state first, then watches from that resource version
+// to avoid missing events between reads.
+func watchUntil(ctx context.Context, c client.WithWatch, key client.ObjectKey, check func(*limav1alpha1.LimaVM) bool) error {
+	var vm limav1alpha1.LimaVM
+	if err := c.Get(ctx, key, &vm); err != nil {
+		return err
+	}
+	if check(&vm) {
+		return nil
+	}
+
+	vmList := &limav1alpha1.LimaVMList{}
+	watcher, err := c.Watch(ctx, vmList,
+		client.InNamespace(key.Namespace),
+		client.MatchingFields{"metadata.name": key.Name},
+		&client.ListOptions{Raw: &metav1.ListOptions{ResourceVersion: vm.ResourceVersion}},
+	)
+	if err != nil {
+		return err
+	}
+	defer watcher.Stop()
+
+	for ev := range watcher.ResultChan() {
+		switch ev.Type {
+		case k8swatch.Error:
+			return apierrors.FromObject(ev.Object)
+		case k8swatch.Deleted:
+			return fmt.Errorf("LimaVM %q was deleted while waiting", key.Name)
+		}
+		updated, ok := ev.Object.(*limav1alpha1.LimaVM)
+		if ok && check(updated) {
+			return nil
+		}
+	}
+	return ctx.Err()
+}
+
+// watchUntilDeleted watches a LimaVM until it is deleted.
+func watchUntilDeleted(ctx context.Context, c client.WithWatch, limaVM *limav1alpha1.LimaVM) error {
+	key := client.ObjectKeyFromObject(limaVM)
+
+	var vm limav1alpha1.LimaVM
+	err := c.Get(ctx, key, &vm)
+	if apierrors.IsNotFound(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if vm.UID != limaVM.UID {
+		return nil
+	}
+
+	vmList := &limav1alpha1.LimaVMList{}
+	watcher, err := c.Watch(ctx, vmList,
+		client.InNamespace(key.Namespace),
+		client.MatchingFields{"metadata.name": key.Name},
+		&client.ListOptions{Raw: &metav1.ListOptions{ResourceVersion: vm.ResourceVersion}},
+	)
+	if err != nil {
+		return err
+	}
+	defer watcher.Stop()
+
+	for ev := range watcher.ResultChan() {
+		switch ev.Type {
+		case k8swatch.Deleted:
+			return nil
+		case k8swatch.Error:
+			return apierrors.FromObject(ev.Object)
+		}
+	}
+	return ctx.Err()
+}
+
+func limaVMDeleteAction(ctx context.Context, name string, wait bool, timeout time.Duration) error {
 	c, err := getKubeClient(ctx)
 	if err != nil {
 		return err
@@ -369,20 +546,9 @@ func limaVMDeleteAction(ctx context.Context, name string, wait bool) error {
 	}
 
 	if wait {
-		// Wait for the LimaVM to be deleted
-		for {
-			var vm limav1alpha1.LimaVM
-			time.Sleep(time.Second)
-			err := c.Get(ctx, client.ObjectKeyFromObject(limaVM), &vm)
-			if apierrors.IsNotFound(err) {
-				break
-			}
-			if err == nil {
-				if vm.UID != limaVM.UID {
-					break
-				}
-				continue
-			}
+		waitCtx, cancel := toolswatch.ContextWithOptionalTimeout(ctx, timeout)
+		defer cancel()
+		if err := watchUntilDeleted(waitCtx, c, limaVM); err != nil {
 			return fmt.Errorf("failed to wait for LimaVM deletion: %w", err)
 		}
 	}

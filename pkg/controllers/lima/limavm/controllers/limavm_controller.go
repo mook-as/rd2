@@ -7,8 +7,12 @@ package controllers
 import (
 	"context"
 	"errors"
+	"maps"
 	"os"
 	"path/filepath"
+	"sync"
+	"syscall"
+	"time"
 
 	limainstance "github.com/lima-vm/lima/v2/pkg/instance"
 	"github.com/lima-vm/lima/v2/pkg/store"
@@ -22,7 +26,11 @@ import (
 	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
+	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	"github.com/rancher-sandbox/rancher-desktop-daemon/pkg/apis/lima/v1alpha1"
 	"github.com/rancher-sandbox/rancher-desktop-daemon/pkg/controllers/base"
@@ -63,12 +71,13 @@ const (
 	// ReasonStopFailed is used when the Lima instance failed to stop.
 	ReasonStopFailed = "StopFailed"
 
-	// ReasonBroken is used when the Lima instance is in an inconsistent state.
-	ReasonBroken = "Broken"
-
 	// preparingSentinel is a marker file created during instance preparation.
 	// Its presence indicates that preparation is in progress or failed.
 	preparingSentinel = ".preparing"
+
+	// gracefulShutdownTimeout is the time to wait for a hostagent to exit
+	// after sending SIGINT before falling back to SIGKILL.
+	gracefulShutdownTimeout = 30 * time.Second
 )
 
 // sentinelPath returns the path to the preparing sentinel file for an instance.
@@ -102,6 +111,10 @@ type LimaVMReconciler struct {
 	Scheme   *runtime.Scheme
 	Manager  ctrl.Manager
 	Recorder events.EventRecorder
+
+	instanceStatesMu sync.RWMutex
+	instanceStates   map[string]*instanceState
+	reconcileChan    chan event.TypedGenericEvent[*v1alpha1.LimaVM]
 }
 
 // +kubebuilder:rbac:groups=lima.rancherdesktop.io,resources=limavms,verbs=get;list;watch;create;update;patch;delete
@@ -171,7 +184,7 @@ func (r *LimaVMReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 			}
 		}
 		// Requeue to continue with fresh state after cleanup.
-		return ctrl.Result{Requeue: true}, nil
+		return ctrl.Result{RequeueAfter: time.Second}, nil
 	}
 
 	// Delete any leftover instance from a failed deletion before setting up owner references.
@@ -220,8 +233,11 @@ func (r *LimaVMReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		return ctrl.Result{}, nil
 	}
 
-	// Instance already created - proceed to handle running state
+	// Instance already created - handle restart annotation, then running state.
 	if apimeta.IsStatusConditionTrue(limaVM.Status.Conditions, ConditionCreated) {
+		if _, hasAnnotation := limaVM.Annotations[v1alpha1.AnnotationRestartRequested]; hasAnnotation {
+			return r.handleRestartAnnotation(ctx, &limaVM)
+		}
 		return r.handleRunningState(ctx, &limaVM)
 	}
 
@@ -316,16 +332,79 @@ func (r *LimaVMReconciler) setCondition(limaVM *v1alpha1.LimaVM, conditionType s
 	}
 }
 
-// updateCondition sets a condition and updates the status in one call.
+// updateCondition sets a condition and patches the status subresource.
 func (r *LimaVMReconciler) updateCondition(ctx context.Context, limaVM *v1alpha1.LimaVM, conditionType string, status metav1.ConditionStatus, reason, message string) error {
+	// Patch (not Update) avoids resource version conflicts when the object is
+	// modified externally during long-running operations like waitForPIDFile or
+	// graceful shutdown.
+	patch := client.MergeFrom(limaVM.DeepCopy())
 	r.setCondition(limaVM, conditionType, status, reason, message)
-	return r.Status().Update(ctx, limaVM)
+	return r.Status().Patch(ctx, limaVM, patch)
 }
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *LimaVMReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	r.instanceStates = make(map[string]*instanceState)
+	r.reconcileChan = make(chan event.TypedGenericEvent[*v1alpha1.LimaVM], 1)
+
+	if err := mgr.Add(manager.RunnableFunc(r.waitForShutdown)); err != nil {
+		return err
+	}
+
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha1.LimaVM{}).
 		Owns(&corev1.ConfigMap{}).
+		WatchesRawSource(source.Channel(
+			r.reconcileChan,
+			&handler.TypedEnqueueRequestForObject[*v1alpha1.LimaVM]{},
+		)).
 		Complete(r)
+}
+
+// waitForShutdown blocks until the manager context is cancelled, then
+// terminates all running hostagents.
+func (r *LimaVMReconciler) waitForShutdown(ctx context.Context) error {
+	<-ctx.Done()
+	r.shutdownAllHostagents()
+	return nil
+}
+
+// shutdownAllHostagents terminates all running hostagents during graceful shutdown.
+// It sends SIGINT to each hostagent for graceful shutdown, waits for them to exit,
+// and falls back to SIGKILL after a timeout.
+func (r *LimaVMReconciler) shutdownAllHostagents() {
+	r.instanceStatesMu.RLock()
+	states := maps.Clone(r.instanceStates)
+	r.instanceStatesMu.RUnlock()
+
+	if len(states) == 0 {
+		return
+	}
+
+	// Send SIGINT to all hostagents in parallel for graceful shutdown.
+	for _, state := range states {
+		if state.cmd != nil && state.cmd.Process != nil {
+			_ = state.cmd.Process.Signal(syscall.SIGINT)
+		}
+	}
+
+	// Wait for each hostagent process to exit. The watcher goroutine may finish
+	// before the process (events.Watch returns on context cancel), so we wait on
+	// procExited (closed by haCmd.Wait) rather than done (closed by the watcher).
+	// TODO: Wait on all hostagents in parallel instead of sequentially; with the
+	// current loop, the total wait is N × gracefulShutdownTimeout in the worst case.
+	for name, state := range states {
+		select {
+		case <-state.procExited:
+		case <-time.After(gracefulShutdownTimeout):
+			if state.cmd != nil && state.cmd.Process != nil {
+				_ = state.cmd.Process.Kill()
+			}
+			<-state.procExited
+		}
+		state.cancel()
+		r.instanceStatesMu.Lock()
+		delete(r.instanceStates, name)
+		r.instanceStatesMu.Unlock()
+	}
 }
