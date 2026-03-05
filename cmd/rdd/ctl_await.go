@@ -108,16 +108,13 @@ func ctlAwaitAction(cmd *cobra.Command, rawArgs []string) error {
 
 // parseConditionFlag parses "condition=TYPE[=STATUS]" from the --for flag.
 func parseConditionFlag(flag string) (condType, condStatus string, err error) {
-	prefix := "condition="
-	if !strings.HasPrefix(flag, prefix) {
+	value, found := strings.CutPrefix(flag, "condition=")
+	if !found {
 		return "", "", fmt.Errorf("--for must start with \"condition=\", got %q", flag)
 	}
-	value := flag[len(prefix):]
-	parts := strings.SplitN(value, "=", 2)
-	condType = parts[0]
-	condStatus = "True"
-	if len(parts) == 2 {
-		condStatus = parts[1]
+	condType, condStatus, _ = strings.Cut(value, "=")
+	if condStatus == "" {
+		condStatus = "True"
 	}
 	if condType == "" {
 		return "", "", fmt.Errorf("condition type must not be empty in --for=%q", flag)
@@ -127,12 +124,10 @@ func parseConditionFlag(flag string) (condType, condStatus string, err error) {
 
 // parseResourceArg parses "TYPE[.GROUP]/NAME" into resource type and name.
 func parseResourceArg(arg string) (resourceType, name string, err error) {
-	slash := strings.IndexByte(arg, '/')
-	if slash < 0 {
+	resourceType, name, found := strings.Cut(arg, "/")
+	if !found {
 		return "", "", fmt.Errorf("expected TYPE/NAME, got %q", arg)
 	}
-	resourceType = arg[:slash]
-	name = arg[slash+1:]
 	if resourceType == "" || name == "" {
 		return "", "", fmt.Errorf("both TYPE and NAME must be non-empty in %q", arg)
 	}
@@ -142,13 +137,7 @@ func parseResourceArg(arg string) (resourceType, name string, err error) {
 // resolveGVR finds the GroupVersionResource for a resource type string like
 // "limavm" or "limavm.lima.rancherdesktop.io".
 func resolveGVR(client discovery.DiscoveryInterface, resourceType string) (schema.GroupVersionResource, error) {
-	var resourceName, group string
-	if dot := strings.IndexByte(resourceType, '.'); dot >= 0 {
-		resourceName = resourceType[:dot]
-		group = resourceType[dot+1:]
-	} else {
-		resourceName = resourceType
-	}
+	resourceName, group, _ := strings.Cut(resourceType, ".")
 
 	_, apiResourceLists, err := client.ServerGroupsAndResources()
 	if err != nil {
