@@ -599,6 +599,25 @@ func Run(ctx context.Context, opts options.CompletedOptions) error {
 	klog.Infof("Version: %+v", version.Get())
 	klog.InfoS("Golang settings", "GOGC", os.Getenv("GOGC"), "GOMAXPROCS", os.Getenv("GOMAXPROCS"), "GOTRACEBACK", os.Getenv("GOTRACEBACK"))
 
+	// Start kine before NewConfig because BuildGenericConfig opens gRPC
+	// connections to the etcd backend immediately. Kine uses a child context
+	// cancelled after the controller manager shuts down, so the etcd client
+	// connections drain before the socket disappears.
+	var kineCancel context.CancelFunc
+	if opts.Datastore.Enabled {
+		dsConfig, err := datastore.NewConfig(opts.Datastore)
+		if err != nil {
+			return err
+		}
+		var kineCtx context.Context
+		kineCtx, kineCancel = context.WithCancel(ctx)
+		defer kineCancel()
+		klog.Infof("Starting kine/sqlite server listening on %s", opts.Datastore.EndpointConfig.Listener)
+		if err := datastore.NewServer(dsConfig.Complete()).Run(kineCtx); err != nil {
+			return fmt.Errorf("failed to start kine server: %w", err)
+		}
+	}
+
 	config, err := options.NewConfig(opts)
 	if err != nil {
 		return err
@@ -606,14 +625,6 @@ func Run(ctx context.Context, opts options.CompletedOptions) error {
 	completed, err := config.Complete()
 	if err != nil {
 		return err
-	}
-
-	// the etcd server must be up before NewServer because storage decorators access it right away
-	if completed.Datastore.Config != nil {
-		klog.Warningf("Starting kine/sqlite server listening on %s", completed.Datastore.EndpointConfig.Listener)
-		if err := datastore.NewServer(completed.Datastore).Run(ctx); err != nil {
-			return fmt.Errorf("failed to start kine server: %w", err)
-		}
 	}
 
 	server, err := createServerChain(completed)

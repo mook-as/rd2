@@ -47,9 +47,12 @@ func NewServer(config CompletedConfig) *Server {
 	}
 }
 
-// Run starts the embedded etcd server. It blocks until it is ready for up to a minute.
+// Run starts the embedded etcd server. endpoint.Listen starts the gRPC server
+// in a background goroutine and returns once the listener is bound. Some gRPC
+// "server preface" warnings from the kube-apiserver's etcd client are expected
+// during the initial connection burst — these resolve via automatic retry and
+// do not affect functionality.
 func (s *Server) Run(ctx context.Context) error {
 	_, err := endpoint.Listen(ctx, s.config.EndpointConfig)
-	// TODO: is the endpoint guaranteed to be ready by the time Listen() returns?
 	return err
 }

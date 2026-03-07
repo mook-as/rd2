@@ -17,14 +17,12 @@ import (
 	generatedopenapi "k8s.io/kubernetes/pkg/generated/openapi"
 
 	"github.com/rancher-sandbox/rancher-desktop-daemon/pkg/service/controllers"
-	"github.com/rancher-sandbox/rancher-desktop-daemon/pkg/service/datastore"
 )
 
 // Config holds the configuration for the controlplane server.
 type Config struct {
 	Options CompletedOptions
 
-	Datastore     *datastore.Config
 	Aggregator    *aggregatorapiserver.Config
 	ControlPlane  *controlplaneapiserver.Config
 	APIExtensions *apiextensionsapiserver.Config
@@ -43,7 +41,6 @@ type ExtraConfig struct {
 type completedConfig struct {
 	Options CompletedOptions
 
-	Datastore     datastore.CompletedConfig
 	Aggregator    aggregatorapiserver.CompletedConfig
 	ControlPlane  controlplaneapiserver.CompletedConfig
 	APIExtensions apiextensionsapiserver.CompletedConfig
@@ -62,7 +59,6 @@ func (c *Config) Complete() (CompletedConfig, error) {
 	return CompletedConfig{&completedConfig{
 		Options: c.Options,
 
-		Datastore:     c.Datastore.Complete(),
 		ControlPlane:  c.ControlPlane.Complete(),
 		Aggregator:    c.Aggregator.Complete(),
 		APIExtensions: c.APIExtensions.Complete(),
@@ -78,14 +74,6 @@ func NewConfig(opts CompletedOptions) (*Config, error) {
 		ExtraConfig: ExtraConfig{
 			Controllers: opts.Controllers,
 		},
-	}
-
-	var err error
-	if opts.Datastore.Enabled {
-		c.Datastore, err = datastore.NewConfig(opts.Datastore)
-		if err != nil {
-			return nil, err
-		}
 	}
 
 	genericConfig, versionedInformers, storageFactory, err := controlplaneapiserver.BuildGenericConfig(
