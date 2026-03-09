@@ -158,8 +158,8 @@ spec:
                 description: |-
                   restartNeeded indicates a restart has been requested but not yet executed.
                   Set by the reconciler when it processes a restartRequested annotation or
-                  detects a template change on a running instance. Cleared when the restart
-                  completes or the instance is already stopped.
+                  detects a template change on a running instance. Cleared when the instance
+                  stops (before the restart starts) or immediately if already stopped.
                 type: boolean
               templateConfigMap:
                 description: |-

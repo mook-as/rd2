@@ -28,8 +28,8 @@ type LimaVMStatusApplyConfiguration struct {
 	TemplateConfigMap *string `json:"templateConfigMap,omitempty"`
 	// restartNeeded indicates a restart has been requested but not yet executed.
 	// Set by the reconciler when it processes a restartRequested annotation or
-	// detects a template change on a running instance. Cleared when the restart
-	// completes or the instance is already stopped.
+	// detects a template change on a running instance. Cleared when the instance
+	// stops (before the restart starts) or immediately if already stopped.
 	RestartNeeded *bool `json:"restartNeeded,omitempty"`
 	// restartCount tracks how many times the instance has reached the Running state.
 	// Incremented each time the controller sets Running=True/Started.
