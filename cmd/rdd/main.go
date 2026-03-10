@@ -138,6 +138,10 @@ func main() {
 	limaCmd.Hidden = !developer.Mode()
 	cmd.AddCommand(limaCmd)
 
+	yqCmd := newYQCommand()
+	yqCmd.Hidden = !developer.Mode()
+	cmd.AddCommand(yqCmd)
+
 	cmd.AddCommand(
 		hostagent.NewCommand(),
 		newKubectlCommand(),
