@@ -54,8 +54,7 @@ assert_crd_has_change_count() {
 
 @test "restart control plane without controllers" {
     rdd svc delete
-    rdd svc create --controllers=""
-    rdd svc start
+    rdd svc start --controllers=""
     run -0 rdd ctl get namespaces --output name
     assert_line namespace/default
 }
