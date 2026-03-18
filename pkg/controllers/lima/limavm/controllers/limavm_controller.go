@@ -503,18 +503,20 @@ func (r *LimaVMReconciler) shutdownAllHostagents() {
 		case <-state.procExited:
 		case <-time.After(gracefulShutdownTimeout):
 			graceful = false
+			// The manager context is cancelled; use background context for
+			// post-shutdown cleanup.
 			if state.cmd != nil && state.cmd.Process != nil {
 				_ = process.KillTree(context.Background(), state.cmd.Process.Pid)
 			}
 			<-state.procExited
 		}
 		if !graceful {
-			// The manager context is cancelled, so use a fresh context for
-			// store.Inspect and WSL2 cleanup.
-			cleanupCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+			// Manager context is cancelled; use a fresh context for cleanup.
+			logger := ctrl.Log.WithName("shutdownAllHostagents")
+			cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			inst, err := store.Inspect(cleanupCtx, name)
 			if err == nil && inst != nil {
-				stopInstanceForcibly(cleanupCtx, inst)
+				stopInstanceForcibly(cleanupCtx, logger, inst)
 			}
 			cancel()
 		}
