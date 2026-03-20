@@ -9,6 +9,8 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -37,6 +39,7 @@ func RunControllers(apiGroupName string) int {
 	flag.IntVar(&desiredHealthPort, "health-port", 8081+instanceOffset, "The desired port the health probe endpoint binds to.")
 
 	klog.InitFlags(nil)
+	setVerbosityFromEnv()
 	//revive:disable-next-line:deep-exit
 	flag.Parse()
 
@@ -249,4 +252,34 @@ func shouldStartController(ctx context.Context, config *rest.Config, controllerN
 		"metricsEndpoint", info.MetricsEndpoint)
 
 	return false, nil
+}
+
+// setVerbosityFromEnv sets klog verbosity from RDD_LOG_LEVEL as a default.
+// Called before flag.Parse() so that an explicit -v flag on the command line
+// takes precedence.
+//
+// The RDD service (cmd/rdd) uses logrus, where log levels map directly to
+// names (trace, debug, info, warn, error). External controllers use klog,
+// which has numeric verbosity instead of named levels. The mapping is:
+//   - trace → v=4 (very verbose, including per-reconcile details)
+//   - debug → v=2 (controller lifecycle events)
+//   - info  → v=0 (default; errors and high-level status only)
+func setVerbosityFromEnv() {
+	level := strings.TrimSpace(os.Getenv("RDD_LOG_LEVEL"))
+	switch strings.ToLower(level) {
+	case "trace":
+		if err := flag.Set("v", "4"); err != nil {
+			fmt.Fprintf(os.Stderr, "failed to set klog verbosity: %v\n", err)
+		}
+	case "debug":
+		if err := flag.Set("v", "2"); err != nil {
+			fmt.Fprintf(os.Stderr, "failed to set klog verbosity: %v\n", err)
+		}
+	case "", "info":
+		// info is the default klog verbosity; nothing to change.
+	default:
+		// klog has no warn/error levels; unsupported values fall through to
+		// the default verbosity (v=0), which is equivalent to info-only.
+		fmt.Fprintf(os.Stderr, "RDD_LOG_LEVEL=%q is not supported for klog; valid values are trace, debug, info\n", level)
+	}
 }
