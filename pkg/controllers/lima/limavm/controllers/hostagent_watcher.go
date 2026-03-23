@@ -75,7 +75,7 @@ func (r *LimaVMReconciler) runWatcher(ctx context.Context, name, namespace, inst
 	// Reap the hostagent process in a sub-goroutine. haCmd.Wait() blocks until
 	// the process exits and cannot be cancelled via context. This is safe because
 	// every code path that cancels the watcher also kills the hostagent process
-	// (stopInstance, shutdownAllHostagents, StopForcibly on delete), so this
+	// (stopInstance, shutdownAllHostagents, stopInstanceForcibly on delete), so this
 	// goroutine always returns promptly after cancellation.
 	// When the process exits, cancel the Watch context so events.Watch returns.
 	waitCtx, waitCancel := context.WithCancel(ctx)

@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -57,10 +58,15 @@ func (r *LimaVMReconciler) handleDeletion(ctx context.Context, limaVM *v1alpha1.
 			// since the PIDs may have been recycled on Windows.
 			terminateWSL2Distro(ctx, logger, existingInst.Name)
 		}
-		// Clear PIDs so Lima's Delete → StopForcibly does not kill
-		// unrelated processes if the PIDs were recycled (likely on Windows).
-		existingInst.DriverPID = 0
-		existingInst.HostAgentPID = 0
+		if runtime.GOOS == "windows" {
+			// Clear PIDs so Lima's Delete → StopForcibly does not kill
+			// unrelated processes if the PIDs were recycled. Windows recycles
+			// PIDs aggressively, and Lima's ReadPIDFile treats any live PID
+			// as valid. On Unix, PID recycling is rare (wraps around 32768+),
+			// so we let Lima's Delete clean up any surviving driver processes.
+			existingInst.DriverPID = 0
+			existingInst.HostAgentPID = 0
+		}
 		logger.Info("Deleting Lima instance", "instance", limaVM.Name)
 		// Use a timeout because Lima's WSL2 driver calls wsl.exe --unregister
 		// which can hang indefinitely if the WSL subsystem is degraded.

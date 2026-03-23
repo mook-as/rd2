@@ -512,7 +512,9 @@ func (r *LimaVMReconciler) shutdownAllHostagents() {
 			// The manager context is cancelled; use background context for
 			// post-shutdown cleanup.
 			if state.cmd != nil && state.cmd.Process != nil {
-				_ = process.KillTree(context.Background(), state.cmd.Process.Pid)
+				killCtx, killCancel := context.WithTimeout(context.Background(), 5*time.Second)
+				_ = process.KillTree(killCtx, state.cmd.Process.Pid)
+				killCancel()
 			}
 			<-state.procExited
 		}
