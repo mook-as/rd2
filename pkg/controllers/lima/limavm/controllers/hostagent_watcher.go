@@ -211,25 +211,6 @@ func (r *LimaVMReconciler) signalHostagent(name string) bool {
 	return process.Interrupt(state.cmd.Process.Pid) == nil
 }
 
-// killHostagent terminates the hostagent process tree. Uses KillTree instead
-// of Process.Kill so child processes (e.g. SSH port forwarders) are also
-// terminated. On Windows, Process.Kill only sends TerminateProcess to the
-// parent; children that inherited the parent's pipes would keep cmd.Wait
-// blocked indefinitely.
-func (r *LimaVMReconciler) killHostagent(name string) {
-	r.instanceStatesMu.RLock()
-	state, ok := r.instanceStates[name]
-	r.instanceStatesMu.RUnlock()
-	if !ok || state.cmd == nil || state.cmd.Process == nil {
-		return
-	}
-	// Background context: killHostagent runs during shutdown when the
-	// reconciler context may already be cancelled.
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	_ = process.KillTree(ctx, state.cmd.Process.Pid)
-}
-
 // enqueueReconcile sends a GenericEvent to trigger a reconcile for the named VM.
 func (r *LimaVMReconciler) enqueueReconcile(name, namespace string) {
 	vm := &v1alpha1.LimaVM{}

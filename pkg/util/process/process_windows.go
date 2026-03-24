@@ -60,6 +60,10 @@ func Kill(pid int) error {
 	return nil
 }
 
+// taskkillExitNotFound is the exit code taskkill returns when the target
+// process does not exist. Not officially documented by Microsoft.
+const taskkillExitNotFound = 128
+
 // KillTree terminates the process and all its descendants.
 // The target must have been started with SetGroup so it leads its own group.
 // On Windows, this uses taskkill /F /T to walk the parent-child tree. On
@@ -78,7 +82,7 @@ func Kill(pid int) error {
 func KillTree(ctx context.Context, pid int) error {
 	err := exec.CommandContext(ctx, "taskkill", "/F", "/T", "/PID", strconv.Itoa(pid)).Run()
 	var exitErr *exec.ExitError
-	if errors.As(err, &exitErr) && exitErr.ExitCode() == 128 {
+	if errors.As(err, &exitErr) && exitErr.ExitCode() == taskkillExitNotFound {
 		return nil
 	}
 	return err

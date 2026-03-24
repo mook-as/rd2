@@ -555,7 +555,6 @@ func (r *LimaVMReconciler) shutdownHostagent(ctx context.Context, name string, i
 		}
 	} else {
 		logger.Info("No watcher for hostagent, forcing stop via stored PIDs")
-		r.killHostagent(name) // no-op if watcher absent; forceStop uses stored PIDs
 		forceStop()
 		waitAfterKill()
 	}
