@@ -76,9 +76,12 @@ export const actions = {
   ...resourceWatchActions(resources),
   setCurrentNamespace({ commit, state }, { namespace }: { namespace: string | undefined }) {
     if (namespace !== undefined && !state.namespaces?.some(ns => ns.metadata?.name === namespace)) {
-      throw new Error(`Cannot set current namespace to nonexistent namespace ${ namespace }`);
+      const error = new Error(`Cannot set current namespace to nonexistent namespace ${ namespace }`);
+      commit('SET_ERROR', { error, source: 'namespaces' });
+      console.log(error);
+    } else {
+      commit('SET_CURRENT_NAMESPACE', namespace);
     }
-    commit('SET_CURRENT_NAMESPACE', namespace);
   },
   imagePush(
     { rootState },

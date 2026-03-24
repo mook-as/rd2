@@ -12,7 +12,7 @@
         class="imagesTable"
         data-test="imagesTableRows"
         key-field="_key"
-        default-sort-by="imageName"
+        default-sort-by="name"
         :headers="headers"
         :rows="rows"
         no-rows-key="images.sortableTables.noRows"
@@ -58,14 +58,7 @@
         <template #col:size="{ row }:{ row: RowItem }">
           <td>
             <span v-tooltip="{ content: row.size }">
-              {{
-                Intl.NumberFormat(undefined, {
-                  style: 'unit',
-                  unit: 'byte',
-                  unitDisplay: 'narrow',
-                  notation: 'compact',
-                }).format(row.size)
-              }}
+              {{ sizeFormatter.format(row.size) }}
             </span>
           </td>
         </template>
@@ -113,7 +106,6 @@
 
 <script lang="ts">
 import { Card, Checkbox } from '@rancher/components';
-import _ from 'lodash';
 import { defineComponent, PropType } from 'vue';
 
 import ImagesOutputWindow from '@pkg/components/ImagesOutputWindow.vue';
@@ -185,7 +177,7 @@ export default defineComponent({
     /**
      * List of images that should be protected; the list should only contain
      * the image name, excluding the tag; e.g.
-     * `registry.opensuse.org/opensuse.leap` (excluding `:16.0`).
+     * `registry.opensuse.org/opensuse/leap` (excluding `:16.0`).
      */
     protectedImages: {
       type:    Array as PropType<string[]>,
@@ -210,6 +202,12 @@ export default defineComponent({
   },
 
   data() {
+    const sizeFormatter = Intl.NumberFormat(undefined, {
+      style:       'unit',
+      unit:        'byte',
+      unitDisplay: 'narrow',
+      notation:    'compact',
+    });
     return {
       currentCommand: undefined as string | undefined,
       headers:
@@ -240,10 +238,11 @@ export default defineComponent({
       mainWindowScroll:                 -1,
       selected:                         [] as RowItem[],
       imageToPull:                      undefined as string | undefined,
+      sizeFormatter,
     };
   },
   computed: {
-    ...mapTypedState('action-menu', { menuImages: state => state.resources?.map((i: RowItem) => i.reference) ?? [] }),
+    ...mapTypedState('action-menu', { menuImages: state => state.resources?.map((i: RowItem) => i._key) ?? [] }),
     main() {
       return document.getElementsByTagName('main')[0];
     },
@@ -345,8 +344,8 @@ export default defineComponent({
       // Hide the action menu if some of the images that the menu would act upon
       // have been updated while the menu was open.
       handler(newRows: RowItem[]) {
-        if (this.menuImages.some(name => newRows.map(r => r.reference).includes(name))) {
-          this.hideMenu(undefined);
+        if (this.menuImages.some(name => newRows.map(r => r._key).includes(name))) {
+          this.hideMenu();
         }
       },
       deep: true,
@@ -435,7 +434,7 @@ export default defineComponent({
     scanImage(row: ParsedImage) {
       this.$router.push({
         name:   'images-scans-image-name',
-        params: { image: row.reference ?? row.id, namespace: this.selectedNamespace },
+        params: { image: row.reference || row.id, namespace: this.selectedNamespace },
       });
     },
     isDeletable(row: ParsedImage) {

@@ -17,8 +17,6 @@
 </template>
 
 <script lang="ts">
-
-import _ from 'lodash';
 import { defineComponent } from 'vue';
 
 import Images from '@pkg/components/Images.vue';
@@ -31,28 +29,24 @@ export default defineComponent({
   components: { Images },
   data() {
     return {
-      settings:           defaultSettings,
-      supportsNamespaces: false,
+      settings: defaultSettings,
     };
   },
 
   computed: {
     ...mapTypedGetters('extensions', ['installedExtensions']),
+    ...mapTypedGetters('container-engine', ['supportsNamespaces']),
     ...mapTypedState('rdd-connection', { kubeNamespace: 'namespace' }),
     ...mapTypedState('container-engine', ['currentNamespace', 'images']),
     ...mapTypedState('container-engine', { namespaceObjects: 'namespaces' }),
     namespaces() {
       return (this.namespaceObjects ?? []).map(ns => ns.metadata?.name).filter(defined);
     },
-    ready() {
-      // TODO: Actually look up the state (once that exists).
-      return Array.isArray(this.images);
-    },
     rancherImages(): string[] {
       return (this.images ?? [])
         .map(image => image.status?.repoTag)
         .filter(defined)
-        .map(reference => reference.replace(/:.*?$/, ''))
+        .map(reference => reference.replace(/:[^/]*?$/, ''))
         .filter(name => name.startsWith('rancher/'));
     },
     installedExtensionImages(): string[] {
@@ -73,7 +67,7 @@ export default defineComponent({
   watch: {
     images: {
       handler(images) {
-        if (images?.length) {
+        if (Array.isArray(images)) {
           this.setAction({ action: 'ImagesButtonAdd' });
         }
       },
