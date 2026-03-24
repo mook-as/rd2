@@ -64,6 +64,12 @@ func (r *LimaVMReconciler) handleDeletion(ctx context.Context, limaVM *v1alpha1.
 			// PIDs aggressively, and Lima's ReadPIDFile treats any live PID
 			// as valid. On Unix, PID recycling is rare (wraps around 32768+),
 			// so we let Lima's Delete clean up any surviving driver processes.
+			//
+			// This disables Lima's internal kill retry even if stopInstanceForcibly
+			// failed above. That is intentional: a failed kill means KillTree
+			// could not reach the process (access denied, already reaped), and
+			// the PID may already be recycled. Retrying with a stale PID is
+			// worse than letting Delete proceed without a kill.
 			existingInst.DriverPID = 0
 			existingInst.HostAgentPID = 0
 		}

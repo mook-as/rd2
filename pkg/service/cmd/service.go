@@ -365,7 +365,7 @@ func StopWithWait(wait bool) error {
 		for {
 			select {
 			case <-timeout:
-				// Graceful shutdown timed out; force-kill so we don't leave
+				// Graceful shutdown timed out; terminate so we don't leave
 				// a hung service process. Kill targets only the service; on
 				// Windows (TerminateProcess) this avoids killing hostagents
 				// that are children of the service but run in their own

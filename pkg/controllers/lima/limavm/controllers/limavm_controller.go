@@ -522,7 +522,16 @@ func (r *LimaVMReconciler) shutdownAllHostagents() {
 				stopInstanceForcibly(cleanupCtx, logger, inst)
 			}
 			cancel()
-			<-state.procExited
+			// Wait briefly for the process to exit after forced kill.
+			// Without a timeout, cmd.Wait can block indefinitely if a
+			// child process survives KillTree and holds an inherited pipe.
+			waitCtx, waitCancel := context.WithTimeout(context.Background(), 10*time.Second)
+			select {
+			case <-state.procExited:
+			case <-waitCtx.Done():
+				logger.Info("Timed out waiting for hostagent to exit after forced kill", "instance", name)
+			}
+			waitCancel()
 		}
 		state.cancel()
 		r.instanceStatesMu.Lock()

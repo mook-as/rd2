@@ -5,21 +5,12 @@
 #   - "opensuse":           rancher-desktop-opensuse (the target distro for RD2)
 #
 # Usage in test files:
-#   VM_TEMPLATE=$(vm_template)         # for limavm-instance tests
-#   VM_TEMPLATE=$(vm_template_running) # for limavm-running tests
-# Both support RDD_VM_TYPE on Unix (expands to vmType: <value> when set).
+#   VM_TEMPLATE=$(vm_template)
+# Supports RDD_VM_TYPE on Unix (expands to vmType: <value> when set).
 
 : "${RDD_WSL_DISTRO:=finch}"
 
 vm_template() {
-    if is_windows; then
-        _wsl2_template
-    else
-        _unix_template
-    fi
-}
-
-vm_template_running() {
     if is_windows; then
         _wsl2_template
     else

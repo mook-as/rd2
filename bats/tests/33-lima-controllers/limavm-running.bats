@@ -10,8 +10,8 @@ NAMESPACE="running-test-ns"
 VM_NAME="test-running"
 TEMPLATE_NAME="${VM_NAME}-template"
 
-# vm_template_running supports RDD_VM_TYPE on macOS/Linux (e.g. RDD_VM_TYPE=qemu).
-RUNNING_TEMPLATE=$(vm_template_running)
+# vm_template supports RDD_VM_TYPE on macOS/Linux (e.g. RDD_VM_TYPE=qemu).
+RUNNING_TEMPLATE=$(vm_template)
 
 local_setup_file() {
     setup_rdd_control_plane "lima"
