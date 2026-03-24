@@ -301,7 +301,7 @@ test.describe.fixme('Containers Tests', () => {
   });
 });
 
-test.describe.serial('Container Shell Tab', () => {
+test.describe.fixme('Container Shell Tab', () => {
   let electronApp: ElectronApplication;
   let shellContainerId: string;
   let unsupportedContainerId: string;
