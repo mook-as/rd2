@@ -122,7 +122,8 @@ const untaggedTag = '<none>';
 
 type Image = RDDClient.IoRancherdesktopContainersV1alpha1Image;
 /**
- * ParsedImage represents an image with the tag parsed to its component parts.
+ * ParsedImage represents an image with the `.status.repoTag` field parsed to
+ * its component parts.
  */
 type ParsedImage = Image & {
   /** The full repoTag reference; may be empty (for dangling images). */
@@ -131,13 +132,13 @@ type ParsedImage = Image & {
   name:       string;
   /** The image registry; may be empty for `docker.io` images. */
   registry:   string;
-  /** The image repository; may be empty for `docker.io/library` images. */
+  /** The image repository; may not contain a slash for `docker.io/library` images. */
   repository: string;
   /** The image tag, i.e. the part after the `:`. */
   tag:        string;
   /** The image ID, something like `sha256:abcdef...` */
   id:         string;
-  /** Truncated image ID, for display purposes. */
+  /** Truncated image ID, for display purposes; e.g. `sha256:abc..def`. */
   shortId?:   string;
   /** The image size, in bytes. */
   size:       number;
@@ -248,17 +249,17 @@ export default defineComponent({
     },
     parsedImages(): ParsedImage[] {
       // For our purposes, an image reference can be split up into:
-      // registry.opensuse.org/opensuse/leap:15.6
-      // ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^   reference
-      // ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^        name
-      // ^^^^^^^^^^^^^^^^^^^^^                      registry
-      //                       ^^^^^^^^^^^^^        repository
-      //                                     ^^^^   tag
+      // registry.opensuse.org:443/opensuse/leap:15.6
+      // ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^   reference
+      // ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^        name
+      // ^^^^^^^^^^^^^^^^^^^^^^^^^                      registry
+      //                           ^^^^^^^^^^^^^        repository
+      //                                         ^^^^   tag
       // If an image does not have a reference (i.e. untagged), we use the image ID as the name,
       // and '<none>' as the tag.
       return (this.images ?? []).filter(hasField('status')).map(image => {
         const reference = image.status.repoTag ?? '';
-        const [, name, tag] = /^(.*):([^:]*)$/.exec(reference) ?? ['', reference || image.status.id, untaggedTag];
+        const [, name, tag] = /^(.*):([^/:]*)$/.exec(reference) ?? ['', reference || image.status.id, untaggedTag];
         // The registry part must have at least one dot or colon (for port), because it's a host name.
         const [, registry, repository] = /^([^/]+[.:][^/]+)\/(.*)$/.exec(name) ?? ['', '', name];
 
