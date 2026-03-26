@@ -27,9 +27,11 @@ func PreserveLogs(srcDir, instanceName string) (int, error) {
 
 	// Filter to .log files before creating the destination directory,
 	// so we don't leave empty directories when no logs exist.
+	// Symlinked log files are not expected and not supported; they
+	// would become dangling after the source directory is removed.
 	var logFiles []os.DirEntry
 	for _, entry := range entries {
-		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".log") {
+		if entry.Type().IsRegular() && strings.HasSuffix(entry.Name(), ".log") {
 			logFiles = append(logFiles, entry)
 		}
 	}
@@ -47,20 +49,22 @@ func PreserveLogs(srcDir, instanceName string) (int, error) {
 		return 0, err
 	}
 
+	var errs []error
 	count := 0
 	for _, entry := range logFiles {
 		src := filepath.Join(srcDir, entry.Name())
 		dst := filepath.Join(destDir, entry.Name())
 		if err := os.Rename(src, dst); err != nil {
-			if count == 0 {
-				os.Remove(destDir)
-			}
-			return count, fmt.Errorf("preserve %s: %w", entry.Name(), err)
+			errs = append(errs, fmt.Errorf("preserve %s: %w", entry.Name(), err))
+			continue
 		}
 		count++
 	}
+	if count == 0 {
+		os.Remove(destDir)
+	}
 
-	return count, nil
+	return count, errors.Join(errs...)
 }
 
 // nextAvailableDir creates a directory named {name} under parent. If it

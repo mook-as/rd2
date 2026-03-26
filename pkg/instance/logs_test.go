@@ -41,7 +41,7 @@ func TestNextAvailableDir_Collision(t *testing.T) {
 }
 
 func TestNextAvailableDir_ParentNotExist(t *testing.T) {
-	_, err := nextAvailableDir("/nonexistent/path", "instance")
+	_, err := nextAvailableDir(filepath.Join(t.TempDir(), "nonexistent"), "instance")
 	assert.Assert(t, err != nil, "expected error for nonexistent parent")
 }
 
@@ -93,7 +93,7 @@ func TestPreserveLogs_NoLogFiles(t *testing.T) {
 }
 
 func TestPreserveLogs_SrcDirNotExist(t *testing.T) {
-	_, err := PreserveLogs("/nonexistent/path", "instance")
+	_, err := PreserveLogs(filepath.Join(t.TempDir(), "nonexistent"), "instance")
 	assert.Assert(t, err != nil, "expected error for nonexistent source directory")
 }
 

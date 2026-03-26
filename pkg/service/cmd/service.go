@@ -460,7 +460,7 @@ func preserveAllInstanceLogs() {
 			continue
 		}
 		if count > 0 {
-			logrus.WithFields(logrus.Fields{"instance": entry.Name(), "count": count}).Info("Preserved instance logs")
+			logrus.WithFields(logrus.Fields{"instance": entry.Name(), "count": count}).Debug("Preserved instance logs")
 		}
 	}
 }
