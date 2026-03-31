@@ -47,6 +47,36 @@ spec:
           spec:
             description: AppSpec defines the desired state of App.
             properties:
+              containerEngine:
+                default:
+                  name: moby
+                description: containerEngine specifies the container engine configuration.
+                properties:
+                  name:
+                    default: moby
+                    description: |-
+                      name specifies the container engine to use.
+                      Valid values are "moby" (Docker-compatible) and "containerd".
+                    enum:
+                    - moby
+                    - containerd
+                    type: string
+                required:
+                - name
+                type: object
+              kubernetes:
+                description: kubernetes specifies the Kubernetes configuration.
+                properties:
+                  enabled:
+                    description: enabled specifies whether Kubernetes should be enabled
+                      in the VM.
+                    type: boolean
+                  version:
+                    description: version is the Kubernetes version to use (e.g. "1.32.2").
+                    type: string
+                required:
+                - enabled
+                type: object
               namespace:
                 default: default
                 description: |-
@@ -60,7 +90,6 @@ spec:
                 - message: spec.namespace is immutable
                   rule: self == oldSelf
               running:
-                default: false
                 description: running specifies whether the VM should be running.
                 type: boolean
             required:

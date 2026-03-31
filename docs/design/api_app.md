@@ -59,7 +59,7 @@ spec:
     name: moby
   kubernetes:
     enabled: false
-    version: 1.30.2
+    version: 1.32.2
   running: true
   namespace: rancher-desktop
 
@@ -83,7 +83,7 @@ status:
 
 - **spec.running**: Set to `true` to start the LimaVM, `false` to stop it. The App controller propagates this value to `LimaVM.spec.running` on every reconcile.
 
-- **spec.containerEngine.name**: The container engine to use inside the VM. Valid values: `moby` (Docker-compatible, default) and `containerd`. Propagated to the `CONTAINER_ENGINE` Lima template param. When changed on a running App, the App controller updates the LimaVM's template ConfigMap, which triggers the LimaVM controller's template-update path (a VM restart).
+**spec.containerEngine.name**: The container engine to use inside the VM. Valid values: `moby` (Docker-compatible, default) and `containerd`. Propagated to the `CONTAINER_ENGINE` Lima template param.
 
 - **spec.kubernetes.enabled**: Whether Kubernetes should be enabled in the VM. Defaults to `false`. Propagated to the `KUBERNETES_ENABLED` Lima template param.
 

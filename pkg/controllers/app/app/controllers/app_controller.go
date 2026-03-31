@@ -39,6 +39,15 @@ type AppReconciler struct {
 	LimaTemplateData string
 }
 
+func applySpecToTemplate(baseTemplate string, spec v1alpha1.AppSpec) string {
+	return baseTemplate + fmt.Sprintf(
+		"\nparam:\n  CONTAINER_ENGINE: %s\n  KUBERNETES_ENABLED: %v\n  KUBERNETES_VERSION: %s\n",
+		spec.ContainerEngine.Name,
+		spec.Kubernetes.Enabled,
+		spec.Kubernetes.Version,
+	)
+}
+
 // Reconcile implements a singleton app reconciliation loop.
 // The app controller is a cluster-scoped singleton - only one instance named 'app' is allowed.
 func (r *AppReconciler) Reconcile(ctx context.Context, _ ctrl.Request) (ctrl.Result, error) {
@@ -118,7 +127,7 @@ func (r *AppReconciler) Reconcile(ctx context.Context, _ ctrl.Request) (ctrl.Res
 					Namespace: namespace,
 				},
 				Data: map[string]string{
-					limav1alpha1.TemplateConfigMapKey: r.LimaTemplateData,
+					limav1alpha1.TemplateConfigMapKey: applySpecToTemplate(r.LimaTemplateData, app.Spec),
 				},
 			}
 			if err := ctrl.SetControllerReference(&app, inputCM, r.Scheme); err != nil {
@@ -169,9 +178,43 @@ func (r *AppReconciler) Reconcile(ctx context.Context, _ ctrl.Request) (ctrl.Res
 		return ctrl.Result{}, fmt.Errorf("failed to fetch input ConfigMap: %w", err)
 	}
 
-	// Propagate spec.running from App into the LimaVM.
-	if limaVM.Spec.Running != app.Spec.Running {
-		limaVM.Spec.Running = app.Spec.Running
+	if limaVM.Spec.Running && !app.Spec.Running {
+		limaVM.Spec.Running = false
+		if err := r.Update(ctx, limaVM); err != nil {
+			return ctrl.Result{}, fmt.Errorf("failed to propagate running state to LimaVM: %w", err)
+		}
+		return ctrl.Result{}, nil
+	}
+
+	// Propagate app spec.containerEngine and spec.kubernetes into the LimaVM's
+	// template ConfigMap.
+	if limaVM.Status.TemplateConfigMap != "" {
+		templateCM := &corev1.ConfigMap{}
+		if err := r.Get(ctx, client.ObjectKey{Name: limaVM.Status.TemplateConfigMap, Namespace: namespace}, templateCM); err != nil {
+			if !apierrors.IsNotFound(err) {
+				return ctrl.Result{}, fmt.Errorf("failed to fetch LimaVM template ConfigMap: %w", err)
+			}
+		} else {
+			desired := applySpecToTemplate(r.LimaTemplateData, app.Spec)
+			if templateCM.Data[limav1alpha1.TemplateConfigMapKey] != desired {
+				if templateCM.Data == nil {
+					templateCM.Data = make(map[string]string)
+				}
+				templateCM.Data[limav1alpha1.TemplateConfigMapKey] = desired
+				if err := r.Update(ctx, templateCM); err != nil {
+					return ctrl.Result{}, fmt.Errorf("failed to update template ConfigMap: %w", err)
+				}
+				log.Info("Updated template ConfigMap",
+					"containerEngine", app.Spec.ContainerEngine.Name,
+					"kubernetesEnabled", app.Spec.Kubernetes.Enabled,
+					"kubernetesVersion", app.Spec.Kubernetes.Version)
+				return ctrl.Result{}, nil
+			}
+		}
+	}
+
+	if !limaVM.Spec.Running && app.Spec.Running {
+		limaVM.Spec.Running = true
 		if err := r.Update(ctx, limaVM); err != nil {
 			return ctrl.Result{}, fmt.Errorf("failed to propagate running state to LimaVM: %w", err)
 		}

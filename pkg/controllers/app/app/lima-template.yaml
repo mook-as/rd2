@@ -28,6 +28,17 @@ portForwards:
   - 0
   - 0
   hostSocket: "{{.Home}}/.rd/docker.sock"
+provision:
+- mode: system
+  script: |
+    #!/bin/bash
+    set -eux
+    mkdir -p /etc/rancher-desktop
+    printf 'CONTAINER_ENGINE=%s\nKUBERNETES_ENABLED=%s\nKUBERNETES_VERSION=%s\n' \
+      '{{.Param.CONTAINER_ENGINE}}' \
+      '{{.Param.KUBERNETES_ENABLED}}' \
+      '{{.Param.KUBERNETES_VERSION}}' \
+      > /etc/rancher-desktop/params.env
 hostResolver:
   hosts:
     host.docker.internal: host.lima.internal
