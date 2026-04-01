@@ -11,10 +11,27 @@ import (
 // AppKind is the Kind string for App resources.
 const AppKind = "App"
 
+// ContainerEngineSpec defines the desired container engine configuration.
+type ContainerEngineSpec struct {
+	// name specifies the container engine to use.
+	// Valid values are "moby" (Docker-compatible) and "containerd".
+	// +kubebuilder:validation:Enum=moby;containerd
+	// +kubebuilder:default=moby
+	Name string `json:"name"`
+}
+
+// KubernetesSpec defines the desired Kubernetes configuration.
+type KubernetesSpec struct {
+	// enabled specifies whether Kubernetes should be enabled in the VM.
+	Enabled bool `json:"enabled"`
+	// version is the Kubernetes version to use (e.g. "1.32.2").
+	// +optional
+	Version string `json:"version,omitempty"`
+}
+
 // AppSpec defines the desired state of App.
 type AppSpec struct {
 	// running specifies whether the VM should be running.
-	// +kubebuilder:default=false
 	Running bool `json:"running"`
 	// Namespace is the namespace where this cluster-scoped App resource
 	// creates and manages its owned namespaced resources (e.g., rancher-desktop).
@@ -25,6 +42,13 @@ type AppSpec struct {
 	// +kubebuilder:default="default"
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="spec.namespace is immutable"
 	Namespace string `json:"namespace,omitempty"`
+	// containerEngine specifies the container engine configuration.
+	// +optional
+	// +kubebuilder:default={name:"moby"}
+	ContainerEngine ContainerEngineSpec `json:"containerEngine,omitempty"`
+	// kubernetes specifies the Kubernetes configuration.
+	// +optional
+	Kubernetes KubernetesSpec `json:"kubernetes,omitempty"`
 }
 
 // AppStatus defines the observed state of App.
