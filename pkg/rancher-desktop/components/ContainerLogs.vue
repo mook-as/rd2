@@ -187,9 +187,11 @@ watch(terminalContainer, async(terminalContainer, _oldValue, onCleanup) => {
   fitAddon.fit();
 });
 
-// Start streaming logs from the container.
-watch([logURL, reconnectTrigger], async([logURL], _, cleanUp) => {
-  if (!container.value || !logURL) {
+// Start streaming logs from the container.  We want to set `immediate` so that
+// if `logURL` is already available by the time we set up the watcher, we don't
+// have to wait for another change to trigger the log streaming.
+watch([logURL, reconnectTrigger], async([logURL], [,], cleanUp) => {
+  if (!logURL) {
     return;
   }
   errorMessage.value = undefined;
@@ -307,7 +309,7 @@ watch([logURL, reconnectTrigger], async([logURL], _, cleanUp) => {
     console.error('Error setting up log stream:', err);
     errorMessage.value = `Failed to load logs: ${ err.message || err }`;
   }
-});
+}, { immediate: true });
 
 let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
 

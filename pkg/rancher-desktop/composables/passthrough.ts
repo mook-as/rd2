@@ -55,6 +55,6 @@ export function usePassthroughURL(endpoint: string) {
     if (!serverURL.value || !controller.value) {
       return undefined;
     }
-    return new URL(`/passthrough/${ controller.value }/${ endpoint }/`, serverURL.value);
+    return new URL(`/passthrough/${ controller.value }/${ endpoint }/`, serverURL.value).href;
   });
 }
