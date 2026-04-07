@@ -25,23 +25,10 @@ const resources = [
     list:       client => client.listNamespacedConfigMap({ namespace: 'rdd-system' }),
   }),
   defineResource({
-    name:       'demos',
-    path:       '/apis/app.rancherdesktop.io/v1alpha1/demos',
+    name:       'apps',
+    path:       '/apis/apps.rancherdesktop.io/v1alpha1/apps',
     makeClient: config => config.makeApiClient(RDDClient.AppRancherdesktopIoV1alpha1Api),
-    list:       client => client.listDemo(),
-  }),
-  defineResource({
-    name:       'configMapReplicaSets',
-    path:       '/apis/rdd.rancherdesktop.io/v1alpha1/configmapreplicasets',
-    makeClient: config => config.makeApiClient(RDDClient.RddRancherdesktopIoV1alpha1Api),
-    list:       listNamespacedResource('ConfigMapReplicaSet'),
-  }),
-  defineResource({
-    name:       'notaries',
-    type:       'notary',
-    path:       '/apis/rdd.rancherdesktop.io/v1alpha1/notaries',
-    makeClient: config => config.makeApiClient(RDDClient.RddRancherdesktopIoV1alpha1Api),
-    list:       listNamespacedResource('Notary'),
+    list:       client => client.listApp(),
   }),
 ] as const;
 
