@@ -42,10 +42,11 @@ type AppReconciler struct {
 	LimaTemplateData string
 }
 
-func applySpecToTemplate(baseTemplate string, spec v1alpha1.AppSpec) string {
+func applySpecToTemplate(baseTemplate string, spec v1alpha1.AppSpec, hostHome string) string {
 	return baseTemplate + fmt.Sprintf(
-		"\nparam:\n  CONTAINER_ENGINE: %s\n  HOST_HOME: \"{{.Home}}\"\n  KUBERNETES_ENABLED: %v\n  KUBERNETES_VERSION: %s\n",
+		"\nparam:\n  CONTAINER_ENGINE: %s\n  HOST_HOME: %q\n  KUBERNETES_ENABLED: %v\n  KUBERNETES_VERSION: %s\n",
 		spec.ContainerEngine.Name,
+		hostHome,
 		spec.Kubernetes.Enabled,
 		spec.Kubernetes.Version,
 	)
@@ -101,6 +102,11 @@ func (r *AppReconciler) Reconcile(ctx context.Context, _ ctrl.Request) (ctrl.Res
 		}
 	}
 
+	hostHome, err := os.UserHomeDir()
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("failed to get host home directory: %w", err)
+	}
+
 	// Make sure the App is finalized so deletion goes through cleanup.
 	if added, err := base.EnsureCleanupFinalizer(ctx, r.Client, &app); err != nil {
 		return ctrl.Result{}, err
@@ -130,7 +136,7 @@ func (r *AppReconciler) Reconcile(ctx context.Context, _ ctrl.Request) (ctrl.Res
 					Namespace: namespace,
 				},
 				Data: map[string]string{
-					limav1alpha1.TemplateConfigMapKey: applySpecToTemplate(r.LimaTemplateData, app.Spec),
+					limav1alpha1.TemplateConfigMapKey: applySpecToTemplate(r.LimaTemplateData, app.Spec, hostHome),
 				},
 			}
 			if err := ctrl.SetControllerReference(&app, inputCM, r.Scheme); err != nil {
@@ -198,7 +204,7 @@ func (r *AppReconciler) Reconcile(ctx context.Context, _ ctrl.Request) (ctrl.Res
 				return ctrl.Result{}, fmt.Errorf("failed to fetch LimaVM template ConfigMap: %w", err)
 			}
 		} else {
-			desired := applySpecToTemplate(r.LimaTemplateData, app.Spec)
+			desired := applySpecToTemplate(r.LimaTemplateData, app.Spec, hostHome)
 			if templateCM.Data[limav1alpha1.TemplateConfigMapKey] != desired {
 				if templateCM.Data == nil {
 					templateCM.Data = make(map[string]string)
