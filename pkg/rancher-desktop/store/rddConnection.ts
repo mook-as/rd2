@@ -224,7 +224,7 @@ export function listNamespacedResource<
 /**
  * ResourceNames extracts the union of resource names from an array of ResourceTypeLike.
  */
-type ResourceNames<T extends readonly ResourceTypeLike[]> = {
+export type ResourceNames<T extends readonly ResourceTypeLike[]> = {
   [K in keyof T]: T[K] extends
   ResourceType<infer C, infer StateName extends string, infer TypeName extends string>
     ? StateName
@@ -238,13 +238,13 @@ type ResourceStateWatcher<N extends string, T extends RDDClient.KubernetesObject
   Record<N, {
     watcher:  Watcher<N, T>,
     refCount: number,
-    options:  ResourceWatchActionsOptions | undefined,
+    options:  ResourceWatchActionsOptions<any> | undefined,
   }>;
 /**
  * ResourceStateItem defines the state object derived from one specific resource type.
  */
 type ResourceStateItem<Key extends string, T extends RDDClient.KubernetesObject> =
-  Record<Key, null | T[]> & { _watchers: ResourceStateWatcher<Key, T> };
+  Record<Key, null | T[]> & { _watchers: ResourceStateWatcher<Key, T>; _watchersInitialized: ReturnType<typeof Latch<void>> };
 
 type ResourceStateReturn<R> =
   R extends ResourceType<infer C, infer StateName extends string, infer TypeName extends string>
@@ -259,7 +259,8 @@ type ResourceStateReturn<R> =
 export function resourceState<const T extends readonly ResourceTypeLike[]>(resources: T):
 IntersectMapped<{ [K in keyof T]: ResourceStateReturn<T[K]> }> {
   return {
-    _watchers: {},
+    _watchers:            {},
+    _watchersInitialized: markRaw(Latch()),
     ...Object.fromEntries(resources.map(r => [r.name, null])),
   } as ReturnType<typeof resourceState<T>>;
 }
@@ -268,10 +269,10 @@ type ResourceMutationsReturn<R> =
   R extends ResourceType<infer C, infer N extends string, infer TypeName extends string>
     ? {
       [key in N as `SET_${ UpperSnakeCase<key> }`]:
-      (state: ResourceStateItem<N, ItemType<C, TypeName>>, payload: ItemType<C, TypeName>[] | null) => void }
-      & {
-        SET__WATCHERS: ResourceMutationsBuiltin<C, N, TypeName, '_watchers'>,
-      }
+      (state: ResourceStateItem<N, ItemType<C, TypeName>>, payload: ItemType<C, TypeName>[] | null) => void
+    } & {
+      SET__WATCHERS: ResourceMutationsBuiltin<C, N, TypeName, '_watchers'>,
+    }
     : never;
 type ResourceMutationsBuiltin<C, N extends string, TypeName extends string, prop extends keyof ResourceStateItem<N, ItemType<C, TypeName>>> =
   (state: ResourceStateItem<N, ItemType<C, TypeName>>, payload: ResourceStateItem<N, ItemType<C, TypeName>>[prop]) => void;
@@ -294,150 +295,172 @@ IntersectMapped<{ [K in keyof T]: ResourceMutationsReturn<T[K]> }> {
   } as ReturnType<typeof resourceMutations<T>>;
 }
 
-type ResourceActionName<Action extends string, StateName extends string> = `${ Action }${ Capitalize<StateName> }`;
-
-export function resourceActionName<Action extends string, StateName extends string>(action: Action, stateName: StateName): ResourceActionName<Action, StateName> {
-  return action + stateName.replace(/^./, c => c.toUpperCase()) as ResourceActionName<Action, StateName>;
-}
-
 /**
  * ResourceWatchActionsOptions describes options the caller may pass to start
  * watching a resource.
  */
-interface ResourceWatchActionsOptions {
+interface ResourceWatchActionsOptions<T extends readonly ResourceTypeLike[]> {
   /** Callback that is invoked when an error occurs. */
-  callback?:        (error: Error) => void,
-  /** The initial reference count. */
-  initialRefCount?: number,
+  callback?: (error: Error, resourceName: ResourceNames<T>) => void,
 }
 
-type ResourceWatchActionsReturnItem<StateName extends string, StateItem extends RDDClient.KubernetesObject> = {
-  /**
-   * Set up watching for the resource type.  This does not automatically
-   * start watching; calling the `watch<T>` action is required to
-   * start the watch.
-   */
-  [key in StateName as ResourceActionName<'setupWatch', key>]: (
-    context: ActionContext<ResourceStateItem<StateName, StateItem>>,
-    options?: ResourceWatchActionsOptions,
-  ) => Promise<void>;
-} & {
-  [key in StateName as ResourceActionName<'watch', key>]: (
-    context: ActionContext<ResourceStateItem<StateName, StateItem>>,
-  ) => void;
-} & {
-  [key in StateName as ResourceActionName<'unwatch', key>]: (
-    context: ActionContext<ResourceStateItem<StateName, StateItem>>,
-  ) => void;
-} & {
-  [key in StateName as ResourceActionName<'waitForWatch', key>]: () => Promise<void>;
-};
-
 /** ResourceWatchActionsReturn defines the return type of resourceWatchActions(). */
-type ResourceWatchActionsReturn<R> =
-  R extends ResourceType<infer C, infer StateName extends string, infer TypeName extends string>
-    ? ResourceWatchActionsReturnItem<StateName, ItemType<C, TypeName>>
-    : never;
+interface ResourceWatchActionsReturn<T extends readonly ResourceTypeLike[]> {
+  /**
+   * Set up watching resources; this is expected to be called in a plugin when
+   * the store is initialized.  This does not automatically start watching;
+   * calling the `watchResources` action is required to start the watch.
+   * @param actionContext
+   * @param callback
+   */
+  setupResourceWatch(actionContext: ActionContext<ResourceStateReturn<T[number]>>, options?: ResourceWatchActionsOptions<T>): Promise<void>;
+
+  /**
+   * Start watching the specified resources.  This is expected to be called in a
+   * component's onBeforeMount() hook.  The promise is resolved once the watch
+   * has started, possibly before the initial list has returned; use
+   * `waitForResources` to wait for the initial list to be loaded.
+   */
+  watchResources(actionContext: ActionContext<ResourceStateReturn<T[number]>>, resources: readonly ResourceNames<T>[]): Promise<void>;
+
+  /**
+   * Stop watching the specified resources.  This is expected to be called in a
+   * component's onBeforeUnmount() hook.
+   */
+  unwatchResources(actionContext: ActionContext<ResourceStateReturn<T[number]>>, resources: readonly ResourceNames<T>[]): Promise<void>;
+
+  /**
+   * Block until the specified resources have been loaded at least once.
+   */
+  waitForResources(actionContext: ActionContext<ResourceStateReturn<T[number]>>, resources: readonly ResourceNames<T>[]): Promise<void>;
+}
 
 /**
  * resourceWatchActions is a helper function to define the actions object.
  * @param resources Array of literals that satisfy ResourceType<T>.
  */
 export function resourceWatchActions<const T extends readonly ResourceTypeLike[]>(resources: T):
-IntersectMapped<{ [K in keyof T]: ResourceWatchActionsReturn<T[K]> }> {
+ResourceWatchActionsReturn<T> {
   type State = ResourceStateReturn<T[number]>;
-  type StateName = ResourceNames<T>;
 
-  const result: Partial<Record<
-    ResourceActionName<'setupWatch' | 'watch' | 'unwatch' | 'waitForWatch', StateName>,
-    unknown >> = {};
+  let reconnectTimeout: ReturnType<typeof setTimeout> | undefined;
 
-  for (const r of resources) {
-    result[resourceActionName('setupWatch', r.name as ResourceNames<T>)] =
-      async(actionContext: ActionContext<State>, options?: ResourceWatchActionsOptions) => {
-        const { commit, state, dispatch, rootState } = actionContext;
-        const rddState = rootState['rdd-connection'];
+  return {
+    async setupResourceWatch(actionContext: ActionContext<State>, options?: ResourceWatchActionsOptions<T>) {
+      const { commit, state, dispatch, rootState } = actionContext;
+      const rddState = rootState['rdd-connection'];
 
-        if (!rddState.config.currentContext) {
+      while (!rddState.config.currentContext) {
+        try {
           await dispatch('rdd-connection/fetchConfig', {}, { root: true });
+        } catch (error) {
+          // If any error occurs during fetching of config, retry forever until
+          // the backend is up.
+          // TODO: Once we have diagnostics, emit one here so the user can
+          // deal with it.
+          commit('rdd-connection/SET_ERROR', error, { root: true });
+          console.error(error);
+          await new Promise(resolve => setTimeout(resolve, 1_000));
         }
-        state._watchers[r.name]?.watcher?.close();
-        const client = r.makeClient(rddState.config);
-        const watcher = new Watcher(
-          r.name,
-          r.path(rddState.namespace),
-          async() => { // listFn
-            // If this throws, the `doneFn` callback gets called with the exception.
-            const listOptions: ListResourceOptions<any> = {
-              namespace:       rddState.namespace,
-              state,
-              connectionState: rddState,
-              fieldSelector:   r.fieldSelector?.(actionContext),
-              labelSelector:   r.labelSelector?.(actionContext),
-            };
-            const result = await r.list(client, listOptions);
-            commit('rdd-connection/SET_ERROR', undefined, { root: true });
-            return result;
-          },
-          async(error) => { // doneFn
-            commit('rdd-connection/SET_ERROR', error, { root: true });
-            await dispatch('rdd-connection/notifyDisconnected', null, { root: true });
-            if (error) {
-              options?.callback?.(error);
-              console.error(`${ r.name }:`, error);
-            } else {
-              console.error(`${ r.name }: Closing connection without error`);
-            }
-            setTimeout(async() => {
-              await dispatch('rdd-connection/fetchConfig', {}, { root: true });
-              await dispatch(resourceActionName('setupWatch', r.name), {
-                ...options,
-                initialRefCount: state._watchers[r.name]?.refCount ?? 0,
-              });
-            }, 1_000);
-          },
-          rootState['rdd-connection'].watch,
-          commit,
-          undefined, // namespace
-          () => r.labelSelector?.(actionContext),
-          () => r.fieldSelector?.(actionContext),
-        );
-        commit('SET__WATCHERS', {
-          ...state._watchers,
-          [r.name]: { watcher, options, refCount: options?.initialRefCount ?? 0 },
-        } as any);
-        if ((options?.initialRefCount ?? 0) > 0) {
-          // If the initial refcount is set (i.e. a reconnect), start watching
-          // automatically.
-          watcher.start();
-        }
+      }
 
-        await dispatch('rdd-connection/registerDisconnectCallback',
-          {
-            key:      r.name,
-            callback: () => {
-              watcher.close();
-              dispatch('rdd-connection/registerDisconnectCallback', { key: r.name }, { root: true });
+      try {
+        // Reset `_watchersInitialized`, so if this is a reconnect, the callers
+        // can wait on it again.
+        state._watchersInitialized.reset();
+        for (const r of resources) {
+          state._watchers[r.name]?.watcher?.close();
+          const client = r.makeClient(rddState.config);
+          const watcher = new Watcher(
+            r.name,
+            r.path(rddState.namespace),
+            async() => { // listFn
+            // If this throws, the `doneFn` callback gets called with the exception.
+              const listOptions: ListResourceOptions<any> = {
+                namespace:       rddState.namespace,
+                state,
+                connectionState: rddState,
+                fieldSelector:   r.fieldSelector?.(actionContext),
+                labelSelector:   r.labelSelector?.(actionContext),
+              };
+              const result = await r.list(client, listOptions);
+              commit('rdd-connection/SET_ERROR', undefined, { root: true });
+              return result;
             },
-          }, { root: true });
-      };
-    result[resourceActionName('watch', r.name as ResourceNames<T>)] =
-      (actionContext: ActionContext<State>) => {
-        const { state, commit } = actionContext;
-        const watcherInfo = state._watchers[r.name];
+            async(error) => { // doneFn
+              commit('rdd-connection/SET_ERROR', error, { root: true });
+              await dispatch('rdd-connection/notifyDisconnected', null, { root: true });
+              if (error) {
+                options?.callback?.(error, r.name as ResourceNames<T>);
+                console.error(`${ r.name }:`, error);
+              } else {
+                console.error(`${ r.name }: Closing connection without error`);
+              }
+              // The old config is no longer valid; clear it so when we set up
+              // the next watch, it will be re-fetched.
+              commit('rdd-connection/SET_CONFIG', new RDDClient.KubeConfig(), { root: true });
+              clearTimeout(reconnectTimeout);
+              const doReconnect = async() => {
+                try {
+                  await dispatch('setupResourceWatch', options);
+                } catch (error) {
+                  console.error(error);
+                  commit('rdd-connection/SET_ERROR', error, { root: true });
+                  // If we failed to connect, try again after a delay.
+                  reconnectTimeout = setTimeout(doReconnect, 1_000);
+                }
+              };
+              reconnectTimeout = setTimeout(doReconnect, 1_000);
+            },
+            rootState['rdd-connection'].watch,
+            commit,
+            undefined, // namespace
+            () => r.labelSelector?.(actionContext),
+            () => r.fieldSelector?.(actionContext),
+          );
+          const refCount = state._watchers[r.name]?.refCount ?? 0;
+          commit('SET__WATCHERS', {
+            ...state._watchers,
+            [r.name]: { watcher, options, refCount },
+          } as any);
+          if (refCount > 0) {
+          // If the existing refcount is set (i.e. a reconnect), start watching
+          // automatically.
+            watcher.start();
+          }
+          await dispatch('rdd-connection/registerDisconnectCallback',
+            {
+              key:      r.name,
+              callback: () => {
+                watcher.close();
+                dispatch('rdd-connection/registerDisconnectCallback', { key: r.name }, { root: true });
+              },
+            }, { root: true });
+        }
+        state._watchersInitialized.resolve();
+      } catch (error) {
+        state._watchersInitialized.reject(error);
+      }
+    },
+    async watchResources(actionContext: ActionContext<State>, resources: ResourceNames<T>[]) {
+      const { state, commit } = actionContext;
+      await state._watchersInitialized;
+      for (const resource of resources) {
+        const watcherInfo = state._watchers[resource];
         if (!watcherInfo) {
-          console.error(`Action ${ resourceActionName('watch', r.name) } called before setupWatch`);
-          return;
+          const error = new Error(`Action watchResources(${ resource }) called before setupWatch`);
+          console.error(error);
+          throw error;
         }
         let count = watcherInfo.refCount ?? 0;
         if (count < 0) {
           // Invalid reference count.
-          console.error(`Action ${ resourceActionName('watch', r.name) } called with invalid reference count ${ count }`);
+          console.error(`Action watchResources(${ resource }) called with invalid reference count ${ count }`);
           count = 0;
         }
         commit('SET__WATCHERS', {
           ...state._watchers,
-          [r.name]: {
+          [resource]: {
             ...watcherInfo,
             refCount: count + 1,
           },
@@ -445,49 +468,49 @@ IntersectMapped<{ [K in keyof T]: ResourceWatchActionsReturn<T[K]> }> {
         if (count === 0) {
           watcherInfo.watcher.start();
         }
-      };
-    result[resourceActionName('unwatch', r.name as ResourceNames<T>)] =
-      (actionContext: ActionContext<State>) => {
-        const { state, commit } = actionContext;
-        const watcherInfo = state._watchers[r.name];
+      }
+    },
+    async unwatchResources(actionContext: ActionContext<State>, resources: ResourceNames<T>[]) {
+      const { state, commit } = actionContext;
+      await state._watchersInitialized;
+      for (const resource of resources) {
+        const watcherInfo = state._watchers[resource];
         if (!watcherInfo) {
-          console.error(`Action ${ resourceActionName('unwatch', r.name) } called before setupWatch`);
-          return;
+          console.error(`Action unwatchResources(${ resource }) called before setupWatch`);
+          continue;
         }
         const count = watcherInfo.refCount ?? 0;
         if (count < 1) {
           // Invalid reference count.
-          console.error(`Action ${ resourceActionName('unwatch', r.name) } called with invalid reference count ${ count }`);
-          return;
+          console.error(`Action unwatchResources(${ resource }) called with invalid reference count ${ count }`);
+          continue;
         }
         commit('SET__WATCHERS', {
           ...state._watchers,
-          [r.name]: {
+          [resource]: {
             ...watcherInfo,
-            refCount: Math.max(0, count - 1),
+            refCount: count - 1,
           },
         } as any);
         if (count === 1) {
           watcherInfo.watcher.close();
         }
-      };
-    result[resourceActionName('waitForWatch', r.name as ResourceNames<T>)] =
-      async(actionContext: ActionContext<State>) => {
-        const { state, dispatch } = actionContext;
-
-        while (true) {
-          const watcher = state._watchers[r.name]?.watcher;
-          if (watcher) {
-            return await watcher.loaded;
-          }
-
-          // Watcher isn't set up yet; make sure it is.
-          await dispatch(resourceActionName('setupWatch', r.name));
+      }
+    },
+    async waitForResources(actionContext: ActionContext<State>, resources: ResourceNames<T>[]) {
+      const { state } = actionContext;
+      await state._watchersInitialized;
+      await Promise.all(resources.map(async(resource) => {
+        const watcherInfo = state._watchers[resource];
+        if (!watcherInfo) {
+          const error = new Error(`Action waitForResources(${ resource }) called before setupWatch`);
+          console.error(error);
+          throw error;
         }
-      };
-  }
-
-  return result as ReturnType<typeof resourceWatchActions<T>>;
+        await watcherInfo.watcher.loaded;
+      }));
+    },
+  };
 }
 
 /**

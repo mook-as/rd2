@@ -1,6 +1,6 @@
 import { Plugin } from 'vuex';
 
-import { defineResource, listNamespacedResource, resourceActionName, resourceMutations, resourceState, resourceWatchActions } from '@pkg/store/rddConnection';
+import { defineResource, listNamespacedResource, resourceMutations, resourceState, resourceWatchActions, ResourceNames } from '@pkg/store/rddConnection';
 import { ActionContext, ActionTree, GetterTree, MutationsType } from '@pkg/store/ts-helpers';
 import * as RDDClient from '@rdd-client';
 
@@ -50,13 +50,12 @@ const resources = [
   }),
 ] as const;
 
-type errorSource = 'containers' | 'images' | 'volumes' | 'namespaces';
-type resourceKeys = Exclude<keyof ReturnType<typeof resourceState<typeof resources>>, '_watchers'>;
+type resourceNames = ResourceNames<typeof resources>;
 
 export const state = () => ({
   ...resourceState(resources),
   currentNamespace: undefined as string | undefined,
-  error:            undefined as undefined | { error: Error, source: errorSource },
+  error:            undefined as undefined | { error: Error, source: resourceNames },
 });
 
 export const getters = {
@@ -84,7 +83,7 @@ export const mutations = {
 
 export const actions = {
   ...resourceWatchActions(resources),
-  setCurrentNamespace({ commit, getters, state, dispatch }, { namespace }: { namespace: string | undefined }) {
+  async setCurrentNamespace({ commit, getters, state, dispatch }, { namespace }: { namespace: string | undefined }) {
     if (namespace === state.currentNamespace) {
       return;
     }
@@ -99,10 +98,11 @@ export const actions = {
     } else {
       commit('SET_CURRENT_NAMESPACE', namespace);
       // Refresh all resources to update the namespace filter.
-      for (const key of Object.keys(state._watchers)) {
-        dispatch(`watch${ key.replace(/^\w/, c => c.toUpperCase()) }`,
-          state._watchers[key as resourceKeys].options);
-      }
+      await dispatch('setupResourceWatch', {
+        callback: (error: Error, source: resourceNames) => {
+          commit('SET_ERROR', { error, source });
+        },
+      });
     }
   },
   /** Request the given container to transition to the provided state. */
@@ -248,16 +248,12 @@ export const actions = {
 
 export const plugins: Plugin<ContainerEngineState>[] = [
   function(store) {
-    for (const resource of resources) {
-      const methodName = resourceActionName('container-engine/setupWatch', resource.name);
-
-      store.dispatch(methodName, {
-        callback: (error: Error) => {
-          store.commit('SET_ERROR', { error, source: resource.name });
-        },
-      }).catch((error: Error) => {
-        store.commit('SET_ERROR', { error, source: resource.name });
-      });
-    }
+    store.dispatch('container-engine/setupResourceWatch', {
+      callback: (error: Error, resourceName: string) => {
+        store.commit('container-engine/SET_ERROR', { error, source: resourceName });
+      },
+    }).catch((error: Error) => {
+      store.commit('container-engine/SET_ERROR', { error, source: 'containers' });
+    });
   },
 ];

@@ -239,14 +239,15 @@ const clearError = () => {
 // Event handlers
 // Lifecycle hooks
 onMounted(() => {
-  store.dispatch('container-engine/watchContainers');
-
+  store.dispatch('container-engine/watchResources', ['containers']).catch(err =>
+    store.commit('container-engine/SET_ERROR', { source: 'containers', error: err }));
   window.addEventListener('keydown', handleGlobalKeydown);
 });
 
 onBeforeUnmount(() => {
   store.dispatch('page/setHeader', { action: null });
-  store.dispatch('container-engine/unwatchContainers');
+  store.dispatch('container-engine/unwatchResources', ['containers']).catch(err =>
+    console.error(err));
 
   window.removeEventListener('keydown', handleGlobalKeydown);
 });

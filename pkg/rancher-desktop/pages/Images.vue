@@ -77,25 +77,23 @@ export default defineComponent({
 
   beforeMount() {
     this.setHeader({ title: this.t('images.title') });
+    this.watchResources(['namespaces', 'images']).catch(error => {
+      this.SET_ERROR({ source: 'images', error });
+    });
   },
 
   mounted() {
     // TODO: Handle setting change (for namespaces).
-
-    this.watchNamespaces();
-    this.watchImages();
-
     ipcRenderer.on('extensions/changed', this.fetchExtensions);
     this.fetchExtensions();
   },
   beforeUnmount() {
-    this.unwatchNamespaces();
-    this.unwatchImages();
+    this.unwatchResources(['namespaces', 'images']);
     ipcRenderer.removeListener('extensions/changed', this.fetchExtensions);
   },
 
   methods: {
-    ...mapTypedActions('container-engine', ['setCurrentNamespace', 'watchImages', 'watchNamespaces', 'unwatchImages', 'unwatchNamespaces']),
+    ...mapTypedActions('container-engine', ['setCurrentNamespace', 'watchResources', 'unwatchResources']),
     ...mapTypedMutations('container-engine', ['SET_ERROR']),
     ...mapTypedActions('extensions', { fetchExtensions: 'fetch' }),
     ...mapTypedActions('page', ['setAction', 'setHeader']),

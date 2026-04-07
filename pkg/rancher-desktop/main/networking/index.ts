@@ -98,6 +98,7 @@ function configureRDDAuthentication(kubeConfig: KubeConfig) {
           ...details.requestHeaders,
           Authorization: `Bearer ${ kubeConfig.getCurrentUser()?.token ?? '' }`,
           Origin:        origin,
+          'User-Agent':  `RancherDesktopFrontend/${ Electron.app.getVersion() } (${ os.platform() })`,
         },
       });
     });

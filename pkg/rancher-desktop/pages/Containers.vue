@@ -311,22 +311,23 @@ export default defineComponent({
       return null;
     },
   },
+  beforeMount() {
+    this.watchResources(['containers', 'images', 'namespaces']).catch(error => {
+      this.SET_ERROR({ source: 'containers', error });
+    });
+  },
   mounted() {
     this.setHeader({
       title:       this.t('containers.title'),
       description: '',
     });
-
-    this.watchContainers();
-    this.watchImages();
   },
   beforeUnmount() {
-    this.unwatchContainers();
-    this.unwatchImages();
+    this.unwatchResources(['containers', 'images', 'namespaces']);
   },
   methods: {
     ...mapTypedActions('page', ['setHeader']),
-    ...mapTypedActions('container-engine', ['containerDelete', 'containerSetState', 'setCurrentNamespace', 'watchContainers', 'watchImages', 'unwatchContainers', 'unwatchImages']),
+    ...mapTypedActions('container-engine', ['containerDelete', 'containerSetState', 'setCurrentNamespace', 'watchResources', 'unwatchResources']),
     ...mapTypedMutations('container-engine', ['SET_ERROR']),
     onChangeNamespace(event: Event) {
       const { value } = event.target as HTMLSelectElement;

@@ -16,12 +16,24 @@ interface ControllerManagerInfo {
   passthroughEndpoint: string;
 }
 
+let systemConfigMapsWatched = false;
+
 /**
  * usePassthroughURL calculates the URL for a given passthrough endpoint.
  */
 export function usePassthroughURL(endpoint: string) {
   const store = useStore();
-  store.dispatch('rdd/watchSystemConfigMaps');
+
+  // Ensure that we're watching the systemConfigMaps.  We never unwatch it.
+  if (!systemConfigMapsWatched) {
+    // Temporarily set the flag synchronously; if it fails, we reset it again.
+    systemConfigMapsWatched = true;
+    store.dispatch('rdd/watchResources', ['systemConfigMaps']).catch(err => {
+      systemConfigMapsWatched = false;
+      console.error('Error watching systemConfigMaps:', err);
+    });
+  }
+
   const kubeConfig = computed(() => store.state['rdd-connection'].config);
   const serverURL = computed(() =>
     (url => url ? new URL(url) : undefined)(kubeConfig.value?.getCurrentCluster()?.server));

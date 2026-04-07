@@ -1,7 +1,7 @@
 import { Plugin } from 'vuex';
 
 import type { RootState } from '@pkg/entry/store';
-import { defineResource, listNamespacedResource, resourceActionName, resourceMutations, resourceState, resourceWatchActions } from '@pkg/store/rddConnection';
+import { defineResource, listNamespacedResource, resourceMutations, resourceState, resourceWatchActions } from '@pkg/store/rddConnection';
 import { ActionTree, GetterTree, MutationsType } from '@pkg/store/ts-helpers';
 import { PatchStrategy } from '@rdd-client';
 import * as RDDClient from '@rdd-client';
@@ -71,10 +71,23 @@ export const actions = {
   ...resourceWatchActions(resources),
 
   /** Ensure that the application is started. */
-  async ensureAppStarted({ dispatch, state, getters, rootState, commit }) {
+  async ensureAppStarted({ dispatch, getters, rootState, commit }) {
+    for (let attempt = 0; true; attempt++) {
+      try {
+        await dispatch('waitForResources', ['apps']);
+        commit('SET_ERROR', undefined);
+        break;
+      } catch (error) {
+        console.error('Error waiting for app resource:', error);
+        commit('SET_ERROR', error as Error);
+        // Quick exponential backoff; we will loop forever until success.
+        const delay = Math.min(2 ** attempt * 1_000, 30_000);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+    }
+
     const { config } = rootState['rdd-connection'];
     const client = config.makeApiClient(RDDClient.AppRancherdesktopIoV1alpha1Api);
-    await dispatch('waitForWatchApps');
 
     let app = getters.app;
     while (!app?.metadata?.name) {
@@ -122,16 +135,14 @@ export const actions = {
 
 export const plugins: Plugin<RDDState>[] = [
   function(store) {
-    for (const resource of resources) {
-      const methodName = resourceActionName('rdd/setupWatch', resource.name);
-
-      store.dispatch(methodName, {
-        callback: (error: Error) => {
-          console.error(`Error watching ${ resource.name }:`, error);
-        },
-      }).catch((error: Error) => {
-        console.error(`Failed to set up watch for ${ resource.name }:`, error);
-      });
-    }
+    store.dispatch('rdd/setupResourceWatch', {
+      callback: (error: Error) => {
+        console.error('Error watching RDD resources:', error);
+        store.commit('rdd/SET_ERROR', error);
+      },
+    }).catch((error: Error) => {
+      console.error('Failed to set up watch for RDD resources:', error);
+      store.commit('rdd/SET_ERROR', error);
+    });
   },
 ];

@@ -104,7 +104,7 @@ export default {
 
     ipcRenderer.send('backend-state-check');
 
-    this.watchApps().then(() => {
+    this.watchResources(['apps']).then(() => {
       return this.ensureAppStarted();
     }).catch(error => {
       console.error(error);
@@ -150,12 +150,12 @@ export default {
     ipcRenderer.removeAllListeners('backend-unlocked');
     ipcRenderer.removeAllListeners('window/blur');
 
-    this.unwatchApps();
+    this.unwatchResources(['apps']).catch(ex => console.error(ex));
   },
 
   methods: {
     ...mapTypedActions('rdd-connection', ['fetchConfig']),
-    ...mapTypedActions('rdd', ['ensureAppStarted', 'watchApps', 'unwatchApps']),
+    ...mapTypedActions('rdd', ['ensureAppStarted', 'watchResources', 'unwatchResources']),
     async fetch() {
       await this.fetchConfig();
     },
