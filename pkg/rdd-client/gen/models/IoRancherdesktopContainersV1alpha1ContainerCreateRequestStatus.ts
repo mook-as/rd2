@@ -10,7 +10,7 @@
  * Do not edit the class manually.
  */
 
-import { IoRancherdesktopAppV1alpha1DemoStatusConditionsInner } from '../models/IoRancherdesktopAppV1alpha1DemoStatusConditionsInner';
+import { IoRancherdesktopAppV1alpha1AppStatusConditionsInner } from '../models/IoRancherdesktopAppV1alpha1AppStatusConditionsInner';
 import { HttpFile } from '../http/http';
 
 /**
@@ -20,7 +20,7 @@ export class IoRancherdesktopContainersV1alpha1ContainerCreateRequestStatus {
     /**
     * Conditions represent the state of the container creation request. Current known condition types include: - \"Complete\": the container creation request has successfully completed. - \"Failed\": the container creation request has failed. The status of each condition is one of True, False, or Unknown.
     */
-    'conditions'?: Array<IoRancherdesktopAppV1alpha1DemoStatusConditionsInner>;
+    'conditions'?: Array<IoRancherdesktopAppV1alpha1AppStatusConditionsInner>;
     /**
     * Name is the name of the created container; this is the container ID.
     */
@@ -34,7 +34,7 @@ export class IoRancherdesktopContainersV1alpha1ContainerCreateRequestStatus {
         {
             "name": "conditions",
             "baseName": "conditions",
-            "type": "Array<IoRancherdesktopAppV1alpha1DemoStatusConditionsInner>",
+            "type": "Array<IoRancherdesktopAppV1alpha1AppStatusConditionsInner>",
             "format": ""
         },
         {

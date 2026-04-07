@@ -9,11 +9,17 @@ export * from '../models/CoreV1EventSeries';
 export * from '../models/EventsV1Event';
 export * from '../models/EventsV1EventList';
 export * from '../models/EventsV1EventSeries';
+export * from '../models/IoRancherdesktopAppV1alpha1App';
+export * from '../models/IoRancherdesktopAppV1alpha1AppList';
+export * from '../models/IoRancherdesktopAppV1alpha1AppSpec';
+export * from '../models/IoRancherdesktopAppV1alpha1AppSpecContainerEngine';
+export * from '../models/IoRancherdesktopAppV1alpha1AppSpecKubernetes';
+export * from '../models/IoRancherdesktopAppV1alpha1AppStatus';
+export * from '../models/IoRancherdesktopAppV1alpha1AppStatusConditionsInner';
 export * from '../models/IoRancherdesktopAppV1alpha1Demo';
 export * from '../models/IoRancherdesktopAppV1alpha1DemoList';
 export * from '../models/IoRancherdesktopAppV1alpha1DemoSpec';
 export * from '../models/IoRancherdesktopAppV1alpha1DemoStatus';
-export * from '../models/IoRancherdesktopAppV1alpha1DemoStatusConditionsInner';
 export * from '../models/IoRancherdesktopContainersV1alpha1Container';
 export * from '../models/IoRancherdesktopContainersV1alpha1ContainerCreateRequest';
 export * from '../models/IoRancherdesktopContainersV1alpha1ContainerCreateRequestList';
@@ -195,11 +201,17 @@ import { CoreV1EventSeries } from '../models/CoreV1EventSeries';
 import { EventsV1Event } from '../models/EventsV1Event';
 import { EventsV1EventList } from '../models/EventsV1EventList';
 import { EventsV1EventSeries } from '../models/EventsV1EventSeries';
+import { IoRancherdesktopAppV1alpha1App } from '../models/IoRancherdesktopAppV1alpha1App';
+import { IoRancherdesktopAppV1alpha1AppList } from '../models/IoRancherdesktopAppV1alpha1AppList';
+import { IoRancherdesktopAppV1alpha1AppSpec } from '../models/IoRancherdesktopAppV1alpha1AppSpec';
+import { IoRancherdesktopAppV1alpha1AppSpecContainerEngine, IoRancherdesktopAppV1alpha1AppSpecContainerEngineNameEnum   } from '../models/IoRancherdesktopAppV1alpha1AppSpecContainerEngine';
+import { IoRancherdesktopAppV1alpha1AppSpecKubernetes } from '../models/IoRancherdesktopAppV1alpha1AppSpecKubernetes';
+import { IoRancherdesktopAppV1alpha1AppStatus } from '../models/IoRancherdesktopAppV1alpha1AppStatus';
+import { IoRancherdesktopAppV1alpha1AppStatusConditionsInner    , IoRancherdesktopAppV1alpha1AppStatusConditionsInnerStatusEnum    } from '../models/IoRancherdesktopAppV1alpha1AppStatusConditionsInner';
 import { IoRancherdesktopAppV1alpha1Demo } from '../models/IoRancherdesktopAppV1alpha1Demo';
 import { IoRancherdesktopAppV1alpha1DemoList } from '../models/IoRancherdesktopAppV1alpha1DemoList';
 import { IoRancherdesktopAppV1alpha1DemoSpec } from '../models/IoRancherdesktopAppV1alpha1DemoSpec';
 import { IoRancherdesktopAppV1alpha1DemoStatus } from '../models/IoRancherdesktopAppV1alpha1DemoStatus';
-import { IoRancherdesktopAppV1alpha1DemoStatusConditionsInner    , IoRancherdesktopAppV1alpha1DemoStatusConditionsInnerStatusEnum    } from '../models/IoRancherdesktopAppV1alpha1DemoStatusConditionsInner';
 import { IoRancherdesktopContainersV1alpha1Container } from '../models/IoRancherdesktopContainersV1alpha1Container';
 import { IoRancherdesktopContainersV1alpha1ContainerCreateRequest } from '../models/IoRancherdesktopContainersV1alpha1ContainerCreateRequest';
 import { IoRancherdesktopContainersV1alpha1ContainerCreateRequestList } from '../models/IoRancherdesktopContainersV1alpha1ContainerCreateRequestList';
@@ -383,7 +395,8 @@ let primitives = [
                  ];
 
 let enumsMap: Set<string> = new Set<string>([
-    "IoRancherdesktopAppV1alpha1DemoStatusConditionsInnerStatusEnum",
+    "IoRancherdesktopAppV1alpha1AppSpecContainerEngineNameEnum",
+    "IoRancherdesktopAppV1alpha1AppStatusConditionsInnerStatusEnum",
     "IoRancherdesktopContainersV1alpha1ContainerStatusStatusEnum",
     "V1MatchResourcesMatchPolicyEnum",
     "V1MutatingWebhookFailurePolicyEnum",
@@ -418,11 +431,17 @@ let typeMap: {[index: string]: any} = {
     "EventsV1Event": EventsV1Event,
     "EventsV1EventList": EventsV1EventList,
     "EventsV1EventSeries": EventsV1EventSeries,
+    "IoRancherdesktopAppV1alpha1App": IoRancherdesktopAppV1alpha1App,
+    "IoRancherdesktopAppV1alpha1AppList": IoRancherdesktopAppV1alpha1AppList,
+    "IoRancherdesktopAppV1alpha1AppSpec": IoRancherdesktopAppV1alpha1AppSpec,
+    "IoRancherdesktopAppV1alpha1AppSpecContainerEngine": IoRancherdesktopAppV1alpha1AppSpecContainerEngine,
+    "IoRancherdesktopAppV1alpha1AppSpecKubernetes": IoRancherdesktopAppV1alpha1AppSpecKubernetes,
+    "IoRancherdesktopAppV1alpha1AppStatus": IoRancherdesktopAppV1alpha1AppStatus,
+    "IoRancherdesktopAppV1alpha1AppStatusConditionsInner": IoRancherdesktopAppV1alpha1AppStatusConditionsInner,
     "IoRancherdesktopAppV1alpha1Demo": IoRancherdesktopAppV1alpha1Demo,
     "IoRancherdesktopAppV1alpha1DemoList": IoRancherdesktopAppV1alpha1DemoList,
     "IoRancherdesktopAppV1alpha1DemoSpec": IoRancherdesktopAppV1alpha1DemoSpec,
     "IoRancherdesktopAppV1alpha1DemoStatus": IoRancherdesktopAppV1alpha1DemoStatus,
-    "IoRancherdesktopAppV1alpha1DemoStatusConditionsInner": IoRancherdesktopAppV1alpha1DemoStatusConditionsInner,
     "IoRancherdesktopContainersV1alpha1Container": IoRancherdesktopContainersV1alpha1Container,
     "IoRancherdesktopContainersV1alpha1ContainerCreateRequest": IoRancherdesktopContainersV1alpha1ContainerCreateRequest,
     "IoRancherdesktopContainersV1alpha1ContainerCreateRequestList": IoRancherdesktopContainersV1alpha1ContainerCreateRequestList,

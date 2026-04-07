@@ -14,21 +14,13 @@ import { IoRancherdesktopAppV1alpha1AppStatusConditionsInner } from '../models/I
 import { HttpFile } from '../http/http';
 
 /**
-* DemoStatus defines the observed state of Demo.
+* AppStatus defines the observed state of App.
 */
-export class IoRancherdesktopAppV1alpha1DemoStatus {
+export class IoRancherdesktopAppV1alpha1AppStatus {
     /**
-    * Conditions represent the latest available observations of the demo\'s current state
+    * conditions represent the current state of the App resource.
     */
     'conditions'?: Array<IoRancherdesktopAppV1alpha1AppStatusConditionsInner>;
-    /**
-    * LastProcessed is the timestamp when the message was last processed
-    */
-    'lastProcessed'?: string;
-    /**
-    * ProcessedCount is the number of times the message has been processed
-    */
-    'processedCount'?: number;
 
     static readonly discriminator: string | undefined = undefined;
 
@@ -40,22 +32,10 @@ export class IoRancherdesktopAppV1alpha1DemoStatus {
             "baseName": "conditions",
             "type": "Array<IoRancherdesktopAppV1alpha1AppStatusConditionsInner>",
             "format": ""
-        },
-        {
-            "name": "lastProcessed",
-            "baseName": "lastProcessed",
-            "type": "string",
-            "format": ""
-        },
-        {
-            "name": "processedCount",
-            "baseName": "processedCount",
-            "type": "number",
-            "format": "int32"
         }    ];
 
     static getAttributeTypeMap() {
-        return IoRancherdesktopAppV1alpha1DemoStatus.attributeTypeMap;
+        return IoRancherdesktopAppV1alpha1AppStatus.attributeTypeMap;
     }
 
     public constructor() {

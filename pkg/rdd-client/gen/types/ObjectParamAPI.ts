@@ -13,11 +13,17 @@ import { CoreV1EventSeries } from '../models/CoreV1EventSeries';
 import { EventsV1Event } from '../models/EventsV1Event';
 import { EventsV1EventList } from '../models/EventsV1EventList';
 import { EventsV1EventSeries } from '../models/EventsV1EventSeries';
+import { IoRancherdesktopAppV1alpha1App } from '../models/IoRancherdesktopAppV1alpha1App';
+import { IoRancherdesktopAppV1alpha1AppList } from '../models/IoRancherdesktopAppV1alpha1AppList';
+import { IoRancherdesktopAppV1alpha1AppSpec } from '../models/IoRancherdesktopAppV1alpha1AppSpec';
+import { IoRancherdesktopAppV1alpha1AppSpecContainerEngine } from '../models/IoRancherdesktopAppV1alpha1AppSpecContainerEngine';
+import { IoRancherdesktopAppV1alpha1AppSpecKubernetes } from '../models/IoRancherdesktopAppV1alpha1AppSpecKubernetes';
+import { IoRancherdesktopAppV1alpha1AppStatus } from '../models/IoRancherdesktopAppV1alpha1AppStatus';
+import { IoRancherdesktopAppV1alpha1AppStatusConditionsInner } from '../models/IoRancherdesktopAppV1alpha1AppStatusConditionsInner';
 import { IoRancherdesktopAppV1alpha1Demo } from '../models/IoRancherdesktopAppV1alpha1Demo';
 import { IoRancherdesktopAppV1alpha1DemoList } from '../models/IoRancherdesktopAppV1alpha1DemoList';
 import { IoRancherdesktopAppV1alpha1DemoSpec } from '../models/IoRancherdesktopAppV1alpha1DemoSpec';
 import { IoRancherdesktopAppV1alpha1DemoStatus } from '../models/IoRancherdesktopAppV1alpha1DemoStatus';
-import { IoRancherdesktopAppV1alpha1DemoStatusConditionsInner } from '../models/IoRancherdesktopAppV1alpha1DemoStatusConditionsInner';
 import { IoRancherdesktopContainersV1alpha1Container } from '../models/IoRancherdesktopContainersV1alpha1Container';
 import { IoRancherdesktopContainersV1alpha1ContainerCreateRequest } from '../models/IoRancherdesktopContainersV1alpha1ContainerCreateRequest';
 import { IoRancherdesktopContainersV1alpha1ContainerCreateRequestList } from '../models/IoRancherdesktopContainersV1alpha1ContainerCreateRequestList';
@@ -3924,6 +3930,43 @@ export class ObjectApisApi {
 import { ObservableAppRancherdesktopIoV1alpha1Api } from "./ObservableAPI";
 import { AppRancherdesktopIoV1alpha1ApiRequestFactory, AppRancherdesktopIoV1alpha1ApiResponseProcessor} from "../apis/AppRancherdesktopIoV1alpha1Api";
 
+export interface AppRancherdesktopIoV1alpha1ApiCreateAppRequest {
+    /**
+     * 
+     * @type IoRancherdesktopAppV1alpha1App
+     * @memberof AppRancherdesktopIoV1alpha1ApicreateApp
+     */
+    body: IoRancherdesktopAppV1alpha1App
+    /**
+     * If \&#39;true\&#39;, then the output is pretty printed. Defaults to \&#39;false\&#39; unless the user-agent indicates a browser or command-line HTTP tool (curl and wget).
+     * Defaults to: undefined
+     * @type string
+     * @memberof AppRancherdesktopIoV1alpha1ApicreateApp
+     */
+    pretty?: string
+    /**
+     * When present, indicates that modifications should not be persisted. An invalid or unrecognized dryRun directive will result in an error response and no further processing of the request. Valid values are: - All: all dry run stages will be processed
+     * Defaults to: undefined
+     * @type string
+     * @memberof AppRancherdesktopIoV1alpha1ApicreateApp
+     */
+    dryRun?: string
+    /**
+     * fieldManager is a name associated with the actor or entity that is making these changes. The value must be less than or 128 characters long, and only contain printable characters, as defined by https://golang.org/pkg/unicode/#IsPrint.
+     * Defaults to: undefined
+     * @type string
+     * @memberof AppRancherdesktopIoV1alpha1ApicreateApp
+     */
+    fieldManager?: string
+    /**
+     * fieldValidation instructs the server on how to handle objects in the request (POST/PUT/PATCH) containing unknown or duplicate fields. Valid values are: - Ignore: This will ignore any unknown fields that are silently dropped from the object, and will ignore all but the last duplicate field that the decoder encounters. This is the default behavior prior to v1.23. - Warn: This will send a warning via the standard warning response header for each unknown field that is dropped from the object, and for each duplicate field that is encountered. The request will still succeed if there are no other errors, and will only persist the last of any duplicate fields. This is the default in v1.23+ - Strict: This will fail the request with a BadRequest error if any unknown fields would be dropped from the object, or if any duplicate fields are present. The error returned from the server will contain all unknown and duplicate fields encountered.
+     * Defaults to: undefined
+     * @type string
+     * @memberof AppRancherdesktopIoV1alpha1ApicreateApp
+     */
+    fieldValidation?: string
+}
+
 export interface AppRancherdesktopIoV1alpha1ApiCreateDemoRequest {
     /**
      * 
@@ -3959,6 +4002,130 @@ export interface AppRancherdesktopIoV1alpha1ApiCreateDemoRequest {
      * @memberof AppRancherdesktopIoV1alpha1ApicreateDemo
      */
     fieldValidation?: string
+}
+
+export interface AppRancherdesktopIoV1alpha1ApiDeleteAppRequest {
+    /**
+     * name of the App
+     * Defaults to: undefined
+     * @type string
+     * @memberof AppRancherdesktopIoV1alpha1ApideleteApp
+     */
+    name: string
+    /**
+     * If \&#39;true\&#39;, then the output is pretty printed. Defaults to \&#39;false\&#39; unless the user-agent indicates a browser or command-line HTTP tool (curl and wget).
+     * Defaults to: undefined
+     * @type string
+     * @memberof AppRancherdesktopIoV1alpha1ApideleteApp
+     */
+    pretty?: string
+    /**
+     * When present, indicates that modifications should not be persisted. An invalid or unrecognized dryRun directive will result in an error response and no further processing of the request. Valid values are: - All: all dry run stages will be processed
+     * Defaults to: undefined
+     * @type string
+     * @memberof AppRancherdesktopIoV1alpha1ApideleteApp
+     */
+    dryRun?: string
+    /**
+     * The duration in seconds before the object should be deleted. Value must be non-negative integer. The value zero indicates delete immediately. If this value is nil, the default grace period for the specified type will be used. Defaults to a per object value if not specified. zero means delete immediately.
+     * Defaults to: undefined
+     * @type number
+     * @memberof AppRancherdesktopIoV1alpha1ApideleteApp
+     */
+    gracePeriodSeconds?: number
+    /**
+     * if set to true, it will trigger an unsafe deletion of the resource in case the normal deletion flow fails with a corrupt object error. A resource is considered corrupt if it can not be retrieved from the underlying storage successfully because of a) its data can not be transformed e.g. decryption failure, or b) it fails to decode into an object. NOTE: unsafe deletion ignores finalizer constraints, skips precondition checks, and removes the object from the storage. WARNING: This may potentially break the cluster if the workload associated with the resource being unsafe-deleted relies on normal deletion flow. Use only if you REALLY know what you are doing. The default value is false, and the user must opt in to enable it
+     * Defaults to: undefined
+     * @type boolean
+     * @memberof AppRancherdesktopIoV1alpha1ApideleteApp
+     */
+    ignoreStoreReadErrorWithClusterBreakingPotential?: boolean
+    /**
+     * Deprecated: please use the PropagationPolicy, this field will be deprecated in 1.7. Should the dependent objects be orphaned. If true/false, the \&quot;orphan\&quot; finalizer will be added to/removed from the object\&#39;s finalizers list. Either this field or PropagationPolicy may be set, but not both.
+     * Defaults to: undefined
+     * @type boolean
+     * @memberof AppRancherdesktopIoV1alpha1ApideleteApp
+     */
+    orphanDependents?: boolean
+    /**
+     * Whether and how garbage collection will be performed. Either this field or OrphanDependents may be set, but not both. The default policy is decided by the existing finalizer set in the metadata.finalizers and the resource-specific default policy. Acceptable values are: \&#39;Orphan\&#39; - orphan the dependents; \&#39;Background\&#39; - allow the garbage collector to delete the dependents in the background; \&#39;Foreground\&#39; - a cascading policy that deletes all dependents in the foreground.
+     * Defaults to: undefined
+     * @type string
+     * @memberof AppRancherdesktopIoV1alpha1ApideleteApp
+     */
+    propagationPolicy?: string
+    /**
+     * 
+     * @type V1DeleteOptions
+     * @memberof AppRancherdesktopIoV1alpha1ApideleteApp
+     */
+    body?: V1DeleteOptions
+}
+
+export interface AppRancherdesktopIoV1alpha1ApiDeleteCollectionAppRequest {
+    /**
+     * If \&#39;true\&#39;, then the output is pretty printed. Defaults to \&#39;false\&#39; unless the user-agent indicates a browser or command-line HTTP tool (curl and wget).
+     * Defaults to: undefined
+     * @type string
+     * @memberof AppRancherdesktopIoV1alpha1ApideleteCollectionApp
+     */
+    pretty?: string
+    /**
+     * The continue option should be set when retrieving more results from the server. Since this value is server defined, clients may only use the continue value from a previous query result with identical query parameters (except for the value of continue) and the server may reject a continue value it does not recognize. If the specified continue value is no longer valid whether due to expiration (generally five to fifteen minutes) or a configuration change on the server, the server will respond with a 410 ResourceExpired error together with a continue token. If the client needs a consistent list, it must restart their list without the continue field. Otherwise, the client may send another list request with the token received with the 410 error, the server will respond with a list starting from the next key, but from the latest snapshot, which is inconsistent from the previous list results - objects that are created, modified, or deleted after the first list request will be included in the response, as long as their keys are after the \&quot;next key\&quot;.  This field is not supported when watch is true. Clients may start a watch from the last resourceVersion value returned by the server and not miss any modifications.
+     * Defaults to: undefined
+     * @type string
+     * @memberof AppRancherdesktopIoV1alpha1ApideleteCollectionApp
+     */
+    _continue?: string
+    /**
+     * A selector to restrict the list of returned objects by their fields. Defaults to everything.
+     * Defaults to: undefined
+     * @type string
+     * @memberof AppRancherdesktopIoV1alpha1ApideleteCollectionApp
+     */
+    fieldSelector?: string
+    /**
+     * A selector to restrict the list of returned objects by their labels. Defaults to everything.
+     * Defaults to: undefined
+     * @type string
+     * @memberof AppRancherdesktopIoV1alpha1ApideleteCollectionApp
+     */
+    labelSelector?: string
+    /**
+     * limit is a maximum number of responses to return for a list call. If more items exist, the server will set the &#x60;continue&#x60; field on the list metadata to a value that can be used with the same initial query to retrieve the next set of results. Setting a limit may return fewer than the requested amount of items (up to zero items) in the event all requested objects are filtered out and clients should only use the presence of the continue field to determine whether more results are available. Servers may choose not to support the limit argument and will return all of the available results. If limit is specified and the continue field is empty, clients may assume that no more results are available. This field is not supported if watch is true.  The server guarantees that the objects returned when using continue will be identical to issuing a single list call without a limit - that is, no objects created, modified, or deleted after the first request is issued will be included in any subsequent continued requests. This is sometimes referred to as a consistent snapshot, and ensures that a client that is using limit to receive smaller chunks of a very large result can ensure they see all possible objects. If objects are updated during a chunked list the version of the object that was present at the time the first list result was calculated is returned.
+     * Defaults to: undefined
+     * @type number
+     * @memberof AppRancherdesktopIoV1alpha1ApideleteCollectionApp
+     */
+    limit?: number
+    /**
+     * resourceVersion sets a constraint on what resource versions a request may be served from. See https://kubernetes.io/docs/reference/using-api/api-concepts/#resource-versions for details.  Defaults to unset
+     * Defaults to: undefined
+     * @type string
+     * @memberof AppRancherdesktopIoV1alpha1ApideleteCollectionApp
+     */
+    resourceVersion?: string
+    /**
+     * resourceVersionMatch determines how resourceVersion is applied to list calls. It is highly recommended that resourceVersionMatch be set for list calls where resourceVersion is set See https://kubernetes.io/docs/reference/using-api/api-concepts/#resource-versions for details.  Defaults to unset
+     * Defaults to: undefined
+     * @type string
+     * @memberof AppRancherdesktopIoV1alpha1ApideleteCollectionApp
+     */
+    resourceVersionMatch?: string
+    /**
+     * &#x60;sendInitialEvents&#x3D;true&#x60; may be set together with &#x60;watch&#x3D;true&#x60;. In that case, the watch stream will begin with synthetic events to produce the current state of objects in the collection. Once all such events have been sent, a synthetic \&quot;Bookmark\&quot; event  will be sent. The bookmark will report the ResourceVersion (RV) corresponding to the set of objects, and be marked with &#x60;\&quot;k8s.io/initial-events-end\&quot;: \&quot;true\&quot;&#x60; annotation. Afterwards, the watch stream will proceed as usual, sending watch events corresponding to changes (subsequent to the RV) to objects watched.  When &#x60;sendInitialEvents&#x60; option is set, we require &#x60;resourceVersionMatch&#x60; option to also be set. The semantic of the watch request is as following: - &#x60;resourceVersionMatch&#x60; &#x3D; NotOlderThan   is interpreted as \&quot;data at least as new as the provided &#x60;resourceVersion&#x60;\&quot;   and the bookmark event is send when the state is synced   to a &#x60;resourceVersion&#x60; at least as fresh as the one provided by the ListOptions.   If &#x60;resourceVersion&#x60; is unset, this is interpreted as \&quot;consistent read\&quot; and the   bookmark event is send when the state is synced at least to the moment   when request started being processed. - &#x60;resourceVersionMatch&#x60; set to any other value or unset   Invalid error is returned.  Defaults to true if &#x60;resourceVersion&#x3D;\&quot;\&quot;&#x60; or &#x60;resourceVersion&#x3D;\&quot;0\&quot;&#x60; (for backward compatibility reasons) and to false otherwise.
+     * Defaults to: undefined
+     * @type boolean
+     * @memberof AppRancherdesktopIoV1alpha1ApideleteCollectionApp
+     */
+    sendInitialEvents?: boolean
+    /**
+     * Timeout for the list/watch call. This limits the duration of the call, regardless of any activity or inactivity.
+     * Defaults to: undefined
+     * @type number
+     * @memberof AppRancherdesktopIoV1alpha1ApideleteCollectionApp
+     */
+    timeoutSeconds?: number
 }
 
 export interface AppRancherdesktopIoV1alpha1ApiDeleteCollectionDemoRequest {
@@ -4085,6 +4252,86 @@ export interface AppRancherdesktopIoV1alpha1ApiDeleteDemoRequest {
     body?: V1DeleteOptions
 }
 
+export interface AppRancherdesktopIoV1alpha1ApiListAppRequest {
+    /**
+     * If \&#39;true\&#39;, then the output is pretty printed. Defaults to \&#39;false\&#39; unless the user-agent indicates a browser or command-line HTTP tool (curl and wget).
+     * Defaults to: undefined
+     * @type string
+     * @memberof AppRancherdesktopIoV1alpha1ApilistApp
+     */
+    pretty?: string
+    /**
+     * allowWatchBookmarks requests watch events with type \&quot;BOOKMARK\&quot;. Servers that do not implement bookmarks may ignore this flag and bookmarks are sent at the server\&#39;s discretion. Clients should not assume bookmarks are returned at any specific interval, nor may they assume the server will send any BOOKMARK event during a session. If this is not a watch, this field is ignored.
+     * Defaults to: undefined
+     * @type boolean
+     * @memberof AppRancherdesktopIoV1alpha1ApilistApp
+     */
+    allowWatchBookmarks?: boolean
+    /**
+     * The continue option should be set when retrieving more results from the server. Since this value is server defined, clients may only use the continue value from a previous query result with identical query parameters (except for the value of continue) and the server may reject a continue value it does not recognize. If the specified continue value is no longer valid whether due to expiration (generally five to fifteen minutes) or a configuration change on the server, the server will respond with a 410 ResourceExpired error together with a continue token. If the client needs a consistent list, it must restart their list without the continue field. Otherwise, the client may send another list request with the token received with the 410 error, the server will respond with a list starting from the next key, but from the latest snapshot, which is inconsistent from the previous list results - objects that are created, modified, or deleted after the first list request will be included in the response, as long as their keys are after the \&quot;next key\&quot;.  This field is not supported when watch is true. Clients may start a watch from the last resourceVersion value returned by the server and not miss any modifications.
+     * Defaults to: undefined
+     * @type string
+     * @memberof AppRancherdesktopIoV1alpha1ApilistApp
+     */
+    _continue?: string
+    /**
+     * A selector to restrict the list of returned objects by their fields. Defaults to everything.
+     * Defaults to: undefined
+     * @type string
+     * @memberof AppRancherdesktopIoV1alpha1ApilistApp
+     */
+    fieldSelector?: string
+    /**
+     * A selector to restrict the list of returned objects by their labels. Defaults to everything.
+     * Defaults to: undefined
+     * @type string
+     * @memberof AppRancherdesktopIoV1alpha1ApilistApp
+     */
+    labelSelector?: string
+    /**
+     * limit is a maximum number of responses to return for a list call. If more items exist, the server will set the &#x60;continue&#x60; field on the list metadata to a value that can be used with the same initial query to retrieve the next set of results. Setting a limit may return fewer than the requested amount of items (up to zero items) in the event all requested objects are filtered out and clients should only use the presence of the continue field to determine whether more results are available. Servers may choose not to support the limit argument and will return all of the available results. If limit is specified and the continue field is empty, clients may assume that no more results are available. This field is not supported if watch is true.  The server guarantees that the objects returned when using continue will be identical to issuing a single list call without a limit - that is, no objects created, modified, or deleted after the first request is issued will be included in any subsequent continued requests. This is sometimes referred to as a consistent snapshot, and ensures that a client that is using limit to receive smaller chunks of a very large result can ensure they see all possible objects. If objects are updated during a chunked list the version of the object that was present at the time the first list result was calculated is returned.
+     * Defaults to: undefined
+     * @type number
+     * @memberof AppRancherdesktopIoV1alpha1ApilistApp
+     */
+    limit?: number
+    /**
+     * resourceVersion sets a constraint on what resource versions a request may be served from. See https://kubernetes.io/docs/reference/using-api/api-concepts/#resource-versions for details.  Defaults to unset
+     * Defaults to: undefined
+     * @type string
+     * @memberof AppRancherdesktopIoV1alpha1ApilistApp
+     */
+    resourceVersion?: string
+    /**
+     * resourceVersionMatch determines how resourceVersion is applied to list calls. It is highly recommended that resourceVersionMatch be set for list calls where resourceVersion is set See https://kubernetes.io/docs/reference/using-api/api-concepts/#resource-versions for details.  Defaults to unset
+     * Defaults to: undefined
+     * @type string
+     * @memberof AppRancherdesktopIoV1alpha1ApilistApp
+     */
+    resourceVersionMatch?: string
+    /**
+     * &#x60;sendInitialEvents&#x3D;true&#x60; may be set together with &#x60;watch&#x3D;true&#x60;. In that case, the watch stream will begin with synthetic events to produce the current state of objects in the collection. Once all such events have been sent, a synthetic \&quot;Bookmark\&quot; event  will be sent. The bookmark will report the ResourceVersion (RV) corresponding to the set of objects, and be marked with &#x60;\&quot;k8s.io/initial-events-end\&quot;: \&quot;true\&quot;&#x60; annotation. Afterwards, the watch stream will proceed as usual, sending watch events corresponding to changes (subsequent to the RV) to objects watched.  When &#x60;sendInitialEvents&#x60; option is set, we require &#x60;resourceVersionMatch&#x60; option to also be set. The semantic of the watch request is as following: - &#x60;resourceVersionMatch&#x60; &#x3D; NotOlderThan   is interpreted as \&quot;data at least as new as the provided &#x60;resourceVersion&#x60;\&quot;   and the bookmark event is send when the state is synced   to a &#x60;resourceVersion&#x60; at least as fresh as the one provided by the ListOptions.   If &#x60;resourceVersion&#x60; is unset, this is interpreted as \&quot;consistent read\&quot; and the   bookmark event is send when the state is synced at least to the moment   when request started being processed. - &#x60;resourceVersionMatch&#x60; set to any other value or unset   Invalid error is returned.  Defaults to true if &#x60;resourceVersion&#x3D;\&quot;\&quot;&#x60; or &#x60;resourceVersion&#x3D;\&quot;0\&quot;&#x60; (for backward compatibility reasons) and to false otherwise.
+     * Defaults to: undefined
+     * @type boolean
+     * @memberof AppRancherdesktopIoV1alpha1ApilistApp
+     */
+    sendInitialEvents?: boolean
+    /**
+     * Timeout for the list/watch call. This limits the duration of the call, regardless of any activity or inactivity.
+     * Defaults to: undefined
+     * @type number
+     * @memberof AppRancherdesktopIoV1alpha1ApilistApp
+     */
+    timeoutSeconds?: number
+    /**
+     * Watch for changes to the described resources and return them as a stream of add, update, and remove notifications. Specify resourceVersion.
+     * Defaults to: undefined
+     * @type boolean
+     * @memberof AppRancherdesktopIoV1alpha1ApilistApp
+     */
+    watch?: boolean
+}
+
 export interface AppRancherdesktopIoV1alpha1ApiListDemoRequest {
     /**
      * If \&#39;true\&#39;, then the output is pretty printed. Defaults to \&#39;false\&#39; unless the user-agent indicates a browser or command-line HTTP tool (curl and wget).
@@ -4163,6 +4410,108 @@ export interface AppRancherdesktopIoV1alpha1ApiListDemoRequest {
      * @memberof AppRancherdesktopIoV1alpha1ApilistDemo
      */
     watch?: boolean
+}
+
+export interface AppRancherdesktopIoV1alpha1ApiPatchAppRequest {
+    /**
+     * name of the App
+     * Defaults to: undefined
+     * @type string
+     * @memberof AppRancherdesktopIoV1alpha1ApipatchApp
+     */
+    name: string
+    /**
+     * 
+     * @type any
+     * @memberof AppRancherdesktopIoV1alpha1ApipatchApp
+     */
+    body: any
+    /**
+     * If \&#39;true\&#39;, then the output is pretty printed. Defaults to \&#39;false\&#39; unless the user-agent indicates a browser or command-line HTTP tool (curl and wget).
+     * Defaults to: undefined
+     * @type string
+     * @memberof AppRancherdesktopIoV1alpha1ApipatchApp
+     */
+    pretty?: string
+    /**
+     * When present, indicates that modifications should not be persisted. An invalid or unrecognized dryRun directive will result in an error response and no further processing of the request. Valid values are: - All: all dry run stages will be processed
+     * Defaults to: undefined
+     * @type string
+     * @memberof AppRancherdesktopIoV1alpha1ApipatchApp
+     */
+    dryRun?: string
+    /**
+     * fieldManager is a name associated with the actor or entity that is making these changes. The value must be less than or 128 characters long, and only contain printable characters, as defined by https://golang.org/pkg/unicode/#IsPrint. This field is required for apply requests (application/apply-patch) but optional for non-apply patch types (JsonPatch, MergePatch, StrategicMergePatch).
+     * Defaults to: undefined
+     * @type string
+     * @memberof AppRancherdesktopIoV1alpha1ApipatchApp
+     */
+    fieldManager?: string
+    /**
+     * fieldValidation instructs the server on how to handle objects in the request (POST/PUT/PATCH) containing unknown or duplicate fields. Valid values are: - Ignore: This will ignore any unknown fields that are silently dropped from the object, and will ignore all but the last duplicate field that the decoder encounters. This is the default behavior prior to v1.23. - Warn: This will send a warning via the standard warning response header for each unknown field that is dropped from the object, and for each duplicate field that is encountered. The request will still succeed if there are no other errors, and will only persist the last of any duplicate fields. This is the default in v1.23+ - Strict: This will fail the request with a BadRequest error if any unknown fields would be dropped from the object, or if any duplicate fields are present. The error returned from the server will contain all unknown and duplicate fields encountered.
+     * Defaults to: undefined
+     * @type string
+     * @memberof AppRancherdesktopIoV1alpha1ApipatchApp
+     */
+    fieldValidation?: string
+    /**
+     * Force is going to \&quot;force\&quot; Apply requests. It means user will re-acquire conflicting fields owned by other people. Force flag must be unset for non-apply patch requests.
+     * Defaults to: undefined
+     * @type boolean
+     * @memberof AppRancherdesktopIoV1alpha1ApipatchApp
+     */
+    force?: boolean
+}
+
+export interface AppRancherdesktopIoV1alpha1ApiPatchAppStatusRequest {
+    /**
+     * name of the App
+     * Defaults to: undefined
+     * @type string
+     * @memberof AppRancherdesktopIoV1alpha1ApipatchAppStatus
+     */
+    name: string
+    /**
+     * 
+     * @type any
+     * @memberof AppRancherdesktopIoV1alpha1ApipatchAppStatus
+     */
+    body: any
+    /**
+     * If \&#39;true\&#39;, then the output is pretty printed. Defaults to \&#39;false\&#39; unless the user-agent indicates a browser or command-line HTTP tool (curl and wget).
+     * Defaults to: undefined
+     * @type string
+     * @memberof AppRancherdesktopIoV1alpha1ApipatchAppStatus
+     */
+    pretty?: string
+    /**
+     * When present, indicates that modifications should not be persisted. An invalid or unrecognized dryRun directive will result in an error response and no further processing of the request. Valid values are: - All: all dry run stages will be processed
+     * Defaults to: undefined
+     * @type string
+     * @memberof AppRancherdesktopIoV1alpha1ApipatchAppStatus
+     */
+    dryRun?: string
+    /**
+     * fieldManager is a name associated with the actor or entity that is making these changes. The value must be less than or 128 characters long, and only contain printable characters, as defined by https://golang.org/pkg/unicode/#IsPrint. This field is required for apply requests (application/apply-patch) but optional for non-apply patch types (JsonPatch, MergePatch, StrategicMergePatch).
+     * Defaults to: undefined
+     * @type string
+     * @memberof AppRancherdesktopIoV1alpha1ApipatchAppStatus
+     */
+    fieldManager?: string
+    /**
+     * fieldValidation instructs the server on how to handle objects in the request (POST/PUT/PATCH) containing unknown or duplicate fields. Valid values are: - Ignore: This will ignore any unknown fields that are silently dropped from the object, and will ignore all but the last duplicate field that the decoder encounters. This is the default behavior prior to v1.23. - Warn: This will send a warning via the standard warning response header for each unknown field that is dropped from the object, and for each duplicate field that is encountered. The request will still succeed if there are no other errors, and will only persist the last of any duplicate fields. This is the default in v1.23+ - Strict: This will fail the request with a BadRequest error if any unknown fields would be dropped from the object, or if any duplicate fields are present. The error returned from the server will contain all unknown and duplicate fields encountered.
+     * Defaults to: undefined
+     * @type string
+     * @memberof AppRancherdesktopIoV1alpha1ApipatchAppStatus
+     */
+    fieldValidation?: string
+    /**
+     * Force is going to \&quot;force\&quot; Apply requests. It means user will re-acquire conflicting fields owned by other people. Force flag must be unset for non-apply patch requests.
+     * Defaults to: undefined
+     * @type boolean
+     * @memberof AppRancherdesktopIoV1alpha1ApipatchAppStatus
+     */
+    force?: boolean
 }
 
 export interface AppRancherdesktopIoV1alpha1ApiPatchDemoRequest {
@@ -4267,6 +4616,54 @@ export interface AppRancherdesktopIoV1alpha1ApiPatchDemoStatusRequest {
     force?: boolean
 }
 
+export interface AppRancherdesktopIoV1alpha1ApiReadAppRequest {
+    /**
+     * name of the App
+     * Defaults to: undefined
+     * @type string
+     * @memberof AppRancherdesktopIoV1alpha1ApireadApp
+     */
+    name: string
+    /**
+     * If \&#39;true\&#39;, then the output is pretty printed. Defaults to \&#39;false\&#39; unless the user-agent indicates a browser or command-line HTTP tool (curl and wget).
+     * Defaults to: undefined
+     * @type string
+     * @memberof AppRancherdesktopIoV1alpha1ApireadApp
+     */
+    pretty?: string
+    /**
+     * resourceVersion sets a constraint on what resource versions a request may be served from. See https://kubernetes.io/docs/reference/using-api/api-concepts/#resource-versions for details.  Defaults to unset
+     * Defaults to: undefined
+     * @type string
+     * @memberof AppRancherdesktopIoV1alpha1ApireadApp
+     */
+    resourceVersion?: string
+}
+
+export interface AppRancherdesktopIoV1alpha1ApiReadAppStatusRequest {
+    /**
+     * name of the App
+     * Defaults to: undefined
+     * @type string
+     * @memberof AppRancherdesktopIoV1alpha1ApireadAppStatus
+     */
+    name: string
+    /**
+     * If \&#39;true\&#39;, then the output is pretty printed. Defaults to \&#39;false\&#39; unless the user-agent indicates a browser or command-line HTTP tool (curl and wget).
+     * Defaults to: undefined
+     * @type string
+     * @memberof AppRancherdesktopIoV1alpha1ApireadAppStatus
+     */
+    pretty?: string
+    /**
+     * resourceVersion sets a constraint on what resource versions a request may be served from. See https://kubernetes.io/docs/reference/using-api/api-concepts/#resource-versions for details.  Defaults to unset
+     * Defaults to: undefined
+     * @type string
+     * @memberof AppRancherdesktopIoV1alpha1ApireadAppStatus
+     */
+    resourceVersion?: string
+}
+
 export interface AppRancherdesktopIoV1alpha1ApiReadDemoRequest {
     /**
      * name of the Demo
@@ -4313,6 +4710,94 @@ export interface AppRancherdesktopIoV1alpha1ApiReadDemoStatusRequest {
      * @memberof AppRancherdesktopIoV1alpha1ApireadDemoStatus
      */
     resourceVersion?: string
+}
+
+export interface AppRancherdesktopIoV1alpha1ApiReplaceAppRequest {
+    /**
+     * name of the App
+     * Defaults to: undefined
+     * @type string
+     * @memberof AppRancherdesktopIoV1alpha1ApireplaceApp
+     */
+    name: string
+    /**
+     * 
+     * @type IoRancherdesktopAppV1alpha1App
+     * @memberof AppRancherdesktopIoV1alpha1ApireplaceApp
+     */
+    body: IoRancherdesktopAppV1alpha1App
+    /**
+     * If \&#39;true\&#39;, then the output is pretty printed. Defaults to \&#39;false\&#39; unless the user-agent indicates a browser or command-line HTTP tool (curl and wget).
+     * Defaults to: undefined
+     * @type string
+     * @memberof AppRancherdesktopIoV1alpha1ApireplaceApp
+     */
+    pretty?: string
+    /**
+     * When present, indicates that modifications should not be persisted. An invalid or unrecognized dryRun directive will result in an error response and no further processing of the request. Valid values are: - All: all dry run stages will be processed
+     * Defaults to: undefined
+     * @type string
+     * @memberof AppRancherdesktopIoV1alpha1ApireplaceApp
+     */
+    dryRun?: string
+    /**
+     * fieldManager is a name associated with the actor or entity that is making these changes. The value must be less than or 128 characters long, and only contain printable characters, as defined by https://golang.org/pkg/unicode/#IsPrint.
+     * Defaults to: undefined
+     * @type string
+     * @memberof AppRancherdesktopIoV1alpha1ApireplaceApp
+     */
+    fieldManager?: string
+    /**
+     * fieldValidation instructs the server on how to handle objects in the request (POST/PUT/PATCH) containing unknown or duplicate fields. Valid values are: - Ignore: This will ignore any unknown fields that are silently dropped from the object, and will ignore all but the last duplicate field that the decoder encounters. This is the default behavior prior to v1.23. - Warn: This will send a warning via the standard warning response header for each unknown field that is dropped from the object, and for each duplicate field that is encountered. The request will still succeed if there are no other errors, and will only persist the last of any duplicate fields. This is the default in v1.23+ - Strict: This will fail the request with a BadRequest error if any unknown fields would be dropped from the object, or if any duplicate fields are present. The error returned from the server will contain all unknown and duplicate fields encountered.
+     * Defaults to: undefined
+     * @type string
+     * @memberof AppRancherdesktopIoV1alpha1ApireplaceApp
+     */
+    fieldValidation?: string
+}
+
+export interface AppRancherdesktopIoV1alpha1ApiReplaceAppStatusRequest {
+    /**
+     * name of the App
+     * Defaults to: undefined
+     * @type string
+     * @memberof AppRancherdesktopIoV1alpha1ApireplaceAppStatus
+     */
+    name: string
+    /**
+     * 
+     * @type IoRancherdesktopAppV1alpha1App
+     * @memberof AppRancherdesktopIoV1alpha1ApireplaceAppStatus
+     */
+    body: IoRancherdesktopAppV1alpha1App
+    /**
+     * If \&#39;true\&#39;, then the output is pretty printed. Defaults to \&#39;false\&#39; unless the user-agent indicates a browser or command-line HTTP tool (curl and wget).
+     * Defaults to: undefined
+     * @type string
+     * @memberof AppRancherdesktopIoV1alpha1ApireplaceAppStatus
+     */
+    pretty?: string
+    /**
+     * When present, indicates that modifications should not be persisted. An invalid or unrecognized dryRun directive will result in an error response and no further processing of the request. Valid values are: - All: all dry run stages will be processed
+     * Defaults to: undefined
+     * @type string
+     * @memberof AppRancherdesktopIoV1alpha1ApireplaceAppStatus
+     */
+    dryRun?: string
+    /**
+     * fieldManager is a name associated with the actor or entity that is making these changes. The value must be less than or 128 characters long, and only contain printable characters, as defined by https://golang.org/pkg/unicode/#IsPrint.
+     * Defaults to: undefined
+     * @type string
+     * @memberof AppRancherdesktopIoV1alpha1ApireplaceAppStatus
+     */
+    fieldManager?: string
+    /**
+     * fieldValidation instructs the server on how to handle objects in the request (POST/PUT/PATCH) containing unknown or duplicate fields. Valid values are: - Ignore: This will ignore any unknown fields that are silently dropped from the object, and will ignore all but the last duplicate field that the decoder encounters. This is the default behavior prior to v1.23. - Warn: This will send a warning via the standard warning response header for each unknown field that is dropped from the object, and for each duplicate field that is encountered. The request will still succeed if there are no other errors, and will only persist the last of any duplicate fields. This is the default in v1.23+ - Strict: This will fail the request with a BadRequest error if any unknown fields would be dropped from the object, or if any duplicate fields are present. The error returned from the server will contain all unknown and duplicate fields encountered.
+     * Defaults to: undefined
+     * @type string
+     * @memberof AppRancherdesktopIoV1alpha1ApireplaceAppStatus
+     */
+    fieldValidation?: string
 }
 
 export interface AppRancherdesktopIoV1alpha1ApiReplaceDemoRequest {
@@ -4411,6 +4896,22 @@ export class ObjectAppRancherdesktopIoV1alpha1Api {
     }
 
     /**
+     * create an App
+     * @param param the request object
+     */
+    public createAppWithHttpInfo(param: AppRancherdesktopIoV1alpha1ApiCreateAppRequest, options?: ConfigurationOptions): Promise<HttpInfo<IoRancherdesktopAppV1alpha1App>> {
+        return this.api.createAppWithHttpInfo(param.body, param.pretty, param.dryRun, param.fieldManager, param.fieldValidation,  options).toPromise();
+    }
+
+    /**
+     * create an App
+     * @param param the request object
+     */
+    public createApp(param: AppRancherdesktopIoV1alpha1ApiCreateAppRequest, options?: ConfigurationOptions): Promise<IoRancherdesktopAppV1alpha1App> {
+        return this.api.createApp(param.body, param.pretty, param.dryRun, param.fieldManager, param.fieldValidation,  options).toPromise();
+    }
+
+    /**
      * create a Demo
      * @param param the request object
      */
@@ -4424,6 +4925,38 @@ export class ObjectAppRancherdesktopIoV1alpha1Api {
      */
     public createDemo(param: AppRancherdesktopIoV1alpha1ApiCreateDemoRequest, options?: ConfigurationOptions): Promise<IoRancherdesktopAppV1alpha1Demo> {
         return this.api.createDemo(param.body, param.pretty, param.dryRun, param.fieldManager, param.fieldValidation,  options).toPromise();
+    }
+
+    /**
+     * delete an App
+     * @param param the request object
+     */
+    public deleteAppWithHttpInfo(param: AppRancherdesktopIoV1alpha1ApiDeleteAppRequest, options?: ConfigurationOptions): Promise<HttpInfo<V1Status>> {
+        return this.api.deleteAppWithHttpInfo(param.name, param.pretty, param.dryRun, param.gracePeriodSeconds, param.ignoreStoreReadErrorWithClusterBreakingPotential, param.orphanDependents, param.propagationPolicy, param.body,  options).toPromise();
+    }
+
+    /**
+     * delete an App
+     * @param param the request object
+     */
+    public deleteApp(param: AppRancherdesktopIoV1alpha1ApiDeleteAppRequest, options?: ConfigurationOptions): Promise<V1Status> {
+        return this.api.deleteApp(param.name, param.pretty, param.dryRun, param.gracePeriodSeconds, param.ignoreStoreReadErrorWithClusterBreakingPotential, param.orphanDependents, param.propagationPolicy, param.body,  options).toPromise();
+    }
+
+    /**
+     * delete collection of App
+     * @param param the request object
+     */
+    public deleteCollectionAppWithHttpInfo(param: AppRancherdesktopIoV1alpha1ApiDeleteCollectionAppRequest = {}, options?: ConfigurationOptions): Promise<HttpInfo<V1Status>> {
+        return this.api.deleteCollectionAppWithHttpInfo(param.pretty, param._continue, param.fieldSelector, param.labelSelector, param.limit, param.resourceVersion, param.resourceVersionMatch, param.sendInitialEvents, param.timeoutSeconds,  options).toPromise();
+    }
+
+    /**
+     * delete collection of App
+     * @param param the request object
+     */
+    public deleteCollectionApp(param: AppRancherdesktopIoV1alpha1ApiDeleteCollectionAppRequest = {}, options?: ConfigurationOptions): Promise<V1Status> {
+        return this.api.deleteCollectionApp(param.pretty, param._continue, param.fieldSelector, param.labelSelector, param.limit, param.resourceVersion, param.resourceVersionMatch, param.sendInitialEvents, param.timeoutSeconds,  options).toPromise();
     }
 
     /**
@@ -4459,6 +4992,22 @@ export class ObjectAppRancherdesktopIoV1alpha1Api {
     }
 
     /**
+     * list objects of kind App
+     * @param param the request object
+     */
+    public listAppWithHttpInfo(param: AppRancherdesktopIoV1alpha1ApiListAppRequest = {}, options?: ConfigurationOptions): Promise<HttpInfo<IoRancherdesktopAppV1alpha1AppList>> {
+        return this.api.listAppWithHttpInfo(param.pretty, param.allowWatchBookmarks, param._continue, param.fieldSelector, param.labelSelector, param.limit, param.resourceVersion, param.resourceVersionMatch, param.sendInitialEvents, param.timeoutSeconds, param.watch,  options).toPromise();
+    }
+
+    /**
+     * list objects of kind App
+     * @param param the request object
+     */
+    public listApp(param: AppRancherdesktopIoV1alpha1ApiListAppRequest = {}, options?: ConfigurationOptions): Promise<IoRancherdesktopAppV1alpha1AppList> {
+        return this.api.listApp(param.pretty, param.allowWatchBookmarks, param._continue, param.fieldSelector, param.labelSelector, param.limit, param.resourceVersion, param.resourceVersionMatch, param.sendInitialEvents, param.timeoutSeconds, param.watch,  options).toPromise();
+    }
+
+    /**
      * list objects of kind Demo
      * @param param the request object
      */
@@ -4472,6 +5021,38 @@ export class ObjectAppRancherdesktopIoV1alpha1Api {
      */
     public listDemo(param: AppRancherdesktopIoV1alpha1ApiListDemoRequest = {}, options?: ConfigurationOptions): Promise<IoRancherdesktopAppV1alpha1DemoList> {
         return this.api.listDemo(param.pretty, param.allowWatchBookmarks, param._continue, param.fieldSelector, param.labelSelector, param.limit, param.resourceVersion, param.resourceVersionMatch, param.sendInitialEvents, param.timeoutSeconds, param.watch,  options).toPromise();
+    }
+
+    /**
+     * partially update the specified App
+     * @param param the request object
+     */
+    public patchAppWithHttpInfo(param: AppRancherdesktopIoV1alpha1ApiPatchAppRequest, options?: ConfigurationOptions): Promise<HttpInfo<IoRancherdesktopAppV1alpha1App>> {
+        return this.api.patchAppWithHttpInfo(param.name, param.body, param.pretty, param.dryRun, param.fieldManager, param.fieldValidation, param.force,  options).toPromise();
+    }
+
+    /**
+     * partially update the specified App
+     * @param param the request object
+     */
+    public patchApp(param: AppRancherdesktopIoV1alpha1ApiPatchAppRequest, options?: ConfigurationOptions): Promise<IoRancherdesktopAppV1alpha1App> {
+        return this.api.patchApp(param.name, param.body, param.pretty, param.dryRun, param.fieldManager, param.fieldValidation, param.force,  options).toPromise();
+    }
+
+    /**
+     * partially update status of the specified App
+     * @param param the request object
+     */
+    public patchAppStatusWithHttpInfo(param: AppRancherdesktopIoV1alpha1ApiPatchAppStatusRequest, options?: ConfigurationOptions): Promise<HttpInfo<IoRancherdesktopAppV1alpha1App>> {
+        return this.api.patchAppStatusWithHttpInfo(param.name, param.body, param.pretty, param.dryRun, param.fieldManager, param.fieldValidation, param.force,  options).toPromise();
+    }
+
+    /**
+     * partially update status of the specified App
+     * @param param the request object
+     */
+    public patchAppStatus(param: AppRancherdesktopIoV1alpha1ApiPatchAppStatusRequest, options?: ConfigurationOptions): Promise<IoRancherdesktopAppV1alpha1App> {
+        return this.api.patchAppStatus(param.name, param.body, param.pretty, param.dryRun, param.fieldManager, param.fieldValidation, param.force,  options).toPromise();
     }
 
     /**
@@ -4507,6 +5088,38 @@ export class ObjectAppRancherdesktopIoV1alpha1Api {
     }
 
     /**
+     * read the specified App
+     * @param param the request object
+     */
+    public readAppWithHttpInfo(param: AppRancherdesktopIoV1alpha1ApiReadAppRequest, options?: ConfigurationOptions): Promise<HttpInfo<IoRancherdesktopAppV1alpha1App>> {
+        return this.api.readAppWithHttpInfo(param.name, param.pretty, param.resourceVersion,  options).toPromise();
+    }
+
+    /**
+     * read the specified App
+     * @param param the request object
+     */
+    public readApp(param: AppRancherdesktopIoV1alpha1ApiReadAppRequest, options?: ConfigurationOptions): Promise<IoRancherdesktopAppV1alpha1App> {
+        return this.api.readApp(param.name, param.pretty, param.resourceVersion,  options).toPromise();
+    }
+
+    /**
+     * read status of the specified App
+     * @param param the request object
+     */
+    public readAppStatusWithHttpInfo(param: AppRancherdesktopIoV1alpha1ApiReadAppStatusRequest, options?: ConfigurationOptions): Promise<HttpInfo<IoRancherdesktopAppV1alpha1App>> {
+        return this.api.readAppStatusWithHttpInfo(param.name, param.pretty, param.resourceVersion,  options).toPromise();
+    }
+
+    /**
+     * read status of the specified App
+     * @param param the request object
+     */
+    public readAppStatus(param: AppRancherdesktopIoV1alpha1ApiReadAppStatusRequest, options?: ConfigurationOptions): Promise<IoRancherdesktopAppV1alpha1App> {
+        return this.api.readAppStatus(param.name, param.pretty, param.resourceVersion,  options).toPromise();
+    }
+
+    /**
      * read the specified Demo
      * @param param the request object
      */
@@ -4536,6 +5149,38 @@ export class ObjectAppRancherdesktopIoV1alpha1Api {
      */
     public readDemoStatus(param: AppRancherdesktopIoV1alpha1ApiReadDemoStatusRequest, options?: ConfigurationOptions): Promise<IoRancherdesktopAppV1alpha1Demo> {
         return this.api.readDemoStatus(param.name, param.pretty, param.resourceVersion,  options).toPromise();
+    }
+
+    /**
+     * replace the specified App
+     * @param param the request object
+     */
+    public replaceAppWithHttpInfo(param: AppRancherdesktopIoV1alpha1ApiReplaceAppRequest, options?: ConfigurationOptions): Promise<HttpInfo<IoRancherdesktopAppV1alpha1App>> {
+        return this.api.replaceAppWithHttpInfo(param.name, param.body, param.pretty, param.dryRun, param.fieldManager, param.fieldValidation,  options).toPromise();
+    }
+
+    /**
+     * replace the specified App
+     * @param param the request object
+     */
+    public replaceApp(param: AppRancherdesktopIoV1alpha1ApiReplaceAppRequest, options?: ConfigurationOptions): Promise<IoRancherdesktopAppV1alpha1App> {
+        return this.api.replaceApp(param.name, param.body, param.pretty, param.dryRun, param.fieldManager, param.fieldValidation,  options).toPromise();
+    }
+
+    /**
+     * replace status of the specified App
+     * @param param the request object
+     */
+    public replaceAppStatusWithHttpInfo(param: AppRancherdesktopIoV1alpha1ApiReplaceAppStatusRequest, options?: ConfigurationOptions): Promise<HttpInfo<IoRancherdesktopAppV1alpha1App>> {
+        return this.api.replaceAppStatusWithHttpInfo(param.name, param.body, param.pretty, param.dryRun, param.fieldManager, param.fieldValidation,  options).toPromise();
+    }
+
+    /**
+     * replace status of the specified App
+     * @param param the request object
+     */
+    public replaceAppStatus(param: AppRancherdesktopIoV1alpha1ApiReplaceAppStatusRequest, options?: ConfigurationOptions): Promise<IoRancherdesktopAppV1alpha1App> {
+        return this.api.replaceAppStatus(param.name, param.body, param.pretty, param.dryRun, param.fieldManager, param.fieldValidation,  options).toPromise();
     }
 
     /**

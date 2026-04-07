@@ -10,7 +10,7 @@
  * Do not edit the class manually.
  */
 
-import { IoRancherdesktopAppV1alpha1DemoStatusConditionsInner } from '../models/IoRancherdesktopAppV1alpha1DemoStatusConditionsInner';
+import { IoRancherdesktopAppV1alpha1AppStatusConditionsInner } from '../models/IoRancherdesktopAppV1alpha1AppStatusConditionsInner';
 import { HttpFile } from '../http/http';
 
 /**
@@ -20,7 +20,19 @@ export class IoRancherdesktopLimaV1alpha1LimaVMStatus {
     /**
     * conditions represent the current state of the LimaVM resource. Each condition has a unique type and reflects the status of a specific aspect of the resource.  Standard condition types include: - \"Available\": the resource is fully functional - \"Progressing\": the resource is being created or updated - \"Degraded\": the resource failed to reach or maintain its desired state  The status of each condition is one of True, False, or Unknown.
     */
-    'conditions'?: Array<IoRancherdesktopAppV1alpha1DemoStatusConditionsInner>;
+    'conditions'?: Array<IoRancherdesktopAppV1alpha1AppStatusConditionsInner>;
+    /**
+    * observedTemplateResourceVersion tracks the resourceVersion of the template ConfigMap last applied to the instance. For stopped instances, this is updated after writing lima.yaml to disk. For running instances, it is deferred until the restart completes. When this differs from the ConfigMap\'s current resourceVersion, the reconciler checks for template changes.
+    */
+    'observedTemplateResourceVersion'?: string;
+    /**
+    * restartCount tracks how many times the instance has reached the Running state. Incremented each time the controller sets Running=True/Started.
+    */
+    'restartCount'?: number;
+    /**
+    * restartNeeded indicates a restart has been requested but not yet executed. Set by the reconciler when it processes a restartRequested annotation or detects a template change on a running instance. Cleared when the instance stops (before the restart starts) or immediately if already stopped.
+    */
+    'restartNeeded'?: boolean;
     /**
     * templateConfigMap is the name of the ConfigMap containing the validated template. This ConfigMap is created and managed by the controller and is owned by this LimaVM resource. An admission controller validates any updates to the ConfigMap. This field is informational - internal code should use GetTemplateConfigMapName() instead.
     */
@@ -34,7 +46,25 @@ export class IoRancherdesktopLimaV1alpha1LimaVMStatus {
         {
             "name": "conditions",
             "baseName": "conditions",
-            "type": "Array<IoRancherdesktopAppV1alpha1DemoStatusConditionsInner>",
+            "type": "Array<IoRancherdesktopAppV1alpha1AppStatusConditionsInner>",
+            "format": ""
+        },
+        {
+            "name": "observedTemplateResourceVersion",
+            "baseName": "observedTemplateResourceVersion",
+            "type": "string",
+            "format": ""
+        },
+        {
+            "name": "restartCount",
+            "baseName": "restartCount",
+            "type": "number",
+            "format": "int32"
+        },
+        {
+            "name": "restartNeeded",
+            "baseName": "restartNeeded",
+            "type": "boolean",
             "format": ""
         },
         {
