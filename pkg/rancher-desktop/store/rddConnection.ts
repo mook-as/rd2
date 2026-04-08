@@ -18,6 +18,7 @@ export interface RDDConnectionState {
   config:              RDDClient.KubeConfig;
   error:               any;
   watch:               RDDClient.Watch;
+  /** The key should be of the form `module/resource`. */
   disconnectCallbacks: Record<string, () => void>;
   /** Kubernetes namespace RDD objects live in; must not be empty. */
   namespace:           string;
@@ -49,24 +50,41 @@ export const mutations = {
   },
 } satisfies MutationsType<RDDConnectionState>;
 
+/**
+ * fetchConfigPromise is used to ensure that multiple concurrent calls to
+ * `fetchConfig` only runs once; this is so that we do not trigger multiple
+ * `notifyDisconnected` calls on disconnect.
+ */
+let fetchConfigPromise: Promise<RDDClient.KubeConfig> | undefined;
+
 /** Vuex actions for managing the RDD connection. */
 export const actions = {
+  /**
+   * Fetch the Kubernetes configuration from the backend and update the state.
+   * This may be called multiple times concurrently.
+   */
   async fetchConfig({ commit, dispatch }) {
-    try {
-      const config = await ipcRenderer.invoke('rdd/kube-config');
-      const kubeConfig = new RDDClient.KubeConfig();
+    if (!fetchConfigPromise) {
+      fetchConfigPromise = (async() => {
+        try {
+          const config = await ipcRenderer.invoke('rdd/kube-config');
+          const kubeConfig = new RDDClient.KubeConfig();
 
-      kubeConfig.loadFromString(config);
-      commit('SET_CONFIG', kubeConfig);
-      await dispatch('notifyDisconnected');
-      commit('SET_DISCONNECT_CALLBACKS', {});
-      commit('SET_ERROR', undefined);
+          kubeConfig.loadFromString(config);
+          commit('SET_CONFIG', kubeConfig);
+          await dispatch('notifyDisconnected');
+          commit('SET_ERROR', undefined);
 
-      return kubeConfig;
-    } catch (ex) {
-      commit('SET_ERROR', ex);
-      throw ex;
+          return kubeConfig;
+        } catch (ex) {
+          commit('SET_ERROR', ex);
+          throw ex;
+        } finally {
+          fetchConfigPromise = undefined;
+        }
+      })();
     }
+    return fetchConfigPromise;
   },
   registerDisconnectCallback({ state, commit }, { key, callback }: { key: string, callback?: () => void }) {
     const callbacks = { ...state.disconnectCallbacks };
@@ -339,7 +357,7 @@ interface ResourceWatchActionsReturn<T extends readonly ResourceTypeLike[]> {
  * resourceWatchActions is a helper function to define the actions object.
  * @param resources Array of literals that satisfy ResourceType<T>.
  */
-export function resourceWatchActions<const T extends readonly ResourceTypeLike[]>(resources: T):
+export function resourceWatchActions<const T extends readonly ResourceTypeLike[]>(module: string, resources: T):
 ResourceWatchActionsReturn<T> {
   type State = ResourceStateReturn<T[number]>;
 
@@ -369,6 +387,7 @@ ResourceWatchActionsReturn<T> {
         // can wait on it again.
         state._watchersInitialized.reset();
         for (const r of resources) {
+          const resourceOptions = Object.assign({}, state._watchers[r.name]?.options, options ?? {});
           state._watchers[r.name]?.watcher?.close();
           const client = r.makeClient(rddState.config);
           const watcher = new Watcher(
@@ -391,7 +410,7 @@ ResourceWatchActionsReturn<T> {
               commit('rdd-connection/SET_ERROR', error, { root: true });
               await dispatch('rdd-connection/notifyDisconnected', null, { root: true });
               if (error) {
-                options?.callback?.(error, r.name as ResourceNames<T>);
+                resourceOptions.callback?.(error, r.name as ResourceNames<T>);
                 console.error(`${ r.name }:`, error);
               } else {
                 console.error(`${ r.name }: Closing connection without error`);
@@ -421,25 +440,27 @@ ResourceWatchActionsReturn<T> {
           const refCount = state._watchers[r.name]?.refCount ?? 0;
           commit('SET__WATCHERS', {
             ...state._watchers,
-            [r.name]: { watcher, options, refCount },
+            [r.name]: { watcher, options: resourceOptions, refCount },
           } as any);
           if (refCount > 0) {
           // If the existing refcount is set (i.e. a reconnect), start watching
           // automatically.
             watcher.start();
           }
+          const key = `${ module }/${ r.name }`;
           await dispatch('rdd-connection/registerDisconnectCallback',
             {
-              key:      r.name,
+              key,
               callback: () => {
                 watcher.close();
-                dispatch('rdd-connection/registerDisconnectCallback', { key: r.name }, { root: true });
+                dispatch('rdd-connection/registerDisconnectCallback', { key }, { root: true });
               },
             }, { root: true });
         }
         state._watchersInitialized.resolve();
       } catch (error) {
         state._watchersInitialized.reject(error);
+        throw error;
       }
     },
     async watchResources(actionContext: ActionContext<State>, resources: ResourceNames<T>[]) {

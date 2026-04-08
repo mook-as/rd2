@@ -82,7 +82,7 @@ export const mutations = {
 } satisfies MutationsType<ContainerEngineState>;
 
 export const actions = {
-  ...resourceWatchActions(resources),
+  ...resourceWatchActions('container-engine', resources),
   async setCurrentNamespace({ commit, getters, state, dispatch }, { namespace }: { namespace: string | undefined }) {
     if (namespace === state.currentNamespace) {
       return;
@@ -98,11 +98,12 @@ export const actions = {
     } else {
       commit('SET_CURRENT_NAMESPACE', namespace);
       // Refresh all resources to update the namespace filter.
-      await dispatch('setupResourceWatch', {
-        callback: (error: Error, source: resourceNames) => {
-          commit('SET_ERROR', { error, source });
-        },
-      });
+      try {
+        await dispatch('setupResourceWatch');
+      } catch (error) {
+        commit('SET_ERROR', { error: error as Error, source: 'containers' });
+        console.error('Error setting up resource watch:', error);
+      }
     }
   },
   /** Request the given container to transition to the provided state. */
@@ -122,7 +123,9 @@ export const actions = {
         namespace:       container.metadata!.namespace!,
         body:            { spec: { state } },
         fieldValidation: 'Strict',
-      }).catch((err: Error) => {
+      },
+      RDDClient.setHeaderOptions('Content-Type', RDDClient.PatchStrategy.MergePatch),
+    ).catch((err: Error) => {
       commit('SET_ERROR', { error: err, source: 'containers' });
     });
   },

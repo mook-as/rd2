@@ -3,7 +3,6 @@ import { Plugin } from 'vuex';
 import type { RootState } from '@pkg/entry/store';
 import { defineResource, listNamespacedResource, resourceMutations, resourceState, resourceWatchActions } from '@pkg/store/rddConnection';
 import { ActionTree, GetterTree, MutationsType } from '@pkg/store/ts-helpers';
-import { PatchStrategy } from '@rdd-client';
 import * as RDDClient from '@rdd-client';
 
 type RDDState = ReturnType<typeof state>;
@@ -68,7 +67,7 @@ export const mutations = {
 } satisfies MutationsType<RDDState>;
 
 export const actions = {
-  ...resourceWatchActions(resources),
+  ...resourceWatchActions('rdd', resources),
 
   /** Ensure that the application is started. */
   async ensureAppStarted({ dispatch, getters, rootState, commit }) {
@@ -125,7 +124,7 @@ export const actions = {
     // Start the app.
     await client.patchApp(
       { name: app.metadata.name, body: { spec: { running: true } } },
-      RDDClient.setHeaderOptions('Content-Type', PatchStrategy.MergePatch),
+      RDDClient.setHeaderOptions('Content-Type', RDDClient.PatchStrategy.MergePatch),
     ).catch((err: Error) => {
       console.error(err);
       commit('SET_ERROR', err);
