@@ -128,8 +128,9 @@ local_setup_file() {
 }
 
 @test "wait for LimaVM Created condition to be set" {
+    # 150s allows time for the opensuse distro image download (~350MB).
     rdd ctl wait --for=condition=Created \
-        limavm/"${VM_NAME}" --namespace "${RDD_NAMESPACE}" --timeout=60s
+        limavm/"${VM_NAME}" --namespace "${RDD_NAMESPACE}" --timeout=150s
 }
 
 @test "verify App status mirrors LimaVM Created condition" {

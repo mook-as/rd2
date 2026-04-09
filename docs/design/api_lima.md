@@ -323,3 +323,5 @@ While a `LimaVM` object is specific to an OS, a `LimaDisk` object is just an `ex
 ## LimaNetwork
 
 TBD
+
+See [WSL2 Networking](networking.md) for how the opensuse distro gets network connectivity on Windows via a virtual L2 network over AF_VSOCK.

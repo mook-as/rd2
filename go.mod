@@ -5,12 +5,15 @@ go 1.25.0
 require (
 	al.essio.dev/pkg/shellescape v1.6.0
 	github.com/MakeNowJust/heredoc v1.0.0
+	github.com/Microsoft/go-winio v0.6.2
+	github.com/containers/gvisor-tap-vsock v0.8.8
 	github.com/coreos/go-semver v0.3.1
 	github.com/go-logr/logr v1.4.3
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674
 	github.com/k3s-io/kine v1.14.2
 	github.com/lima-vm/lima/v2 v2.1.0
+	github.com/linuxkit/virtsock v0.0.0-20220523201153-1a23e78aa7a2
 	github.com/mattn/go-isatty v0.0.20
 	github.com/mikefarah/yq/v4 v4.52.5
 	github.com/moby/moby/api v1.54.0
@@ -64,7 +67,6 @@ require (
 	github.com/Code-Hex/vz/v3 v3.7.1 // indirect
 	github.com/Djarvur/go-err113 v0.1.1 // indirect
 	github.com/Masterminds/semver/v3 v3.4.0 // indirect
-	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/MirrexOne/unqueryvet v1.3.0 // indirect
 	github.com/NYTimes/gziphandler v1.1.1 // indirect
 	github.com/OpenPeeDeeP/depguard/v2 v2.2.1 // indirect
@@ -115,7 +117,6 @@ require (
 	github.com/containerd/continuity v0.4.5 // indirect
 	github.com/containerd/log v0.1.0 // indirect
 	github.com/containerd/ltag v0.3.0 // indirect
-	github.com/containers/gvisor-tap-vsock v0.8.8 // indirect
 	github.com/coreos/go-oidc v2.3.0+incompatible // indirect
 	github.com/coreos/go-systemd/v22 v22.7.0 // indirect
 	github.com/curioswitch/go-reassign v0.3.0 // indirect
@@ -249,7 +250,6 @@ require (
 	github.com/liggitt/tabwriter v0.0.0-20181228230101-89fcab3d43de // indirect
 	github.com/lima-vm/go-qcow2reader v0.7.1 // indirect
 	github.com/lima-vm/sshocker v0.3.9 // indirect
-	github.com/linuxkit/virtsock v0.0.0-20220523201153-1a23e78aa7a2 // indirect
 	github.com/lithammer/dedent v1.1.0 // indirect
 	github.com/lucasb-eyer/go-colorful v1.2.0 // indirect
 	github.com/macabu/inamedparam v0.2.0 // indirect

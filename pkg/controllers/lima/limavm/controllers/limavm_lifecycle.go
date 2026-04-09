@@ -37,6 +37,7 @@ func (r *LimaVMReconciler) handleDeletion(ctx context.Context, limaVM *v1alpha1.
 	logger := log.FromContext(ctx)
 
 	r.stopWatcher(limaVM.Name)
+	r.stopHostSwitch(limaVM.Name)
 
 	// Stop and delete the Lima instance.
 	// Inspect may fail if the instance doesn't exist, which is fine during
@@ -209,6 +210,7 @@ func (r *LimaVMReconciler) handleWatchedState(ctx context.Context, limaVM *v1alp
 		// Hostagent exited while it should be running (crash or failed start).
 		// Clean up the dead watcher and start fresh.
 		r.stopWatcher(limaVM.Name)
+		r.stopHostSwitch(limaVM.Name)
 		inst, err := store.Inspect(ctx, limaVM.Name)
 		if err != nil {
 			logger.Error(err, "Failed to inspect Lima instance")
@@ -263,6 +265,7 @@ func (r *LimaVMReconciler) handleWatchedState(ctx context.Context, limaVM *v1alp
 	default:
 		// phase == phaseStopped && !shouldRun
 		r.stopWatcher(limaVM.Name)
+		r.stopHostSwitch(limaVM.Name)
 		if !base.HasConditionWithReason(limaVM.Status.Conditions, ConditionRunning, metav1.ConditionFalse, ReasonStopped) {
 			if err := r.updateCondition(ctx, limaVM, ConditionRunning, metav1.ConditionFalse, ReasonStopped, "Lima instance is stopped"); err != nil {
 				logger.Error(err, "Failed to update stopped condition")
@@ -328,6 +331,7 @@ func (r *LimaVMReconciler) handleRestartNeeded(ctx context.Context, limaVM *v1al
 		logger.Info("Restart needed: stopping running instance")
 		r.shutdownHostagent(ctx, limaVM.Name, nil)
 		r.stopWatcher(limaVM.Name)
+		r.stopHostSwitch(limaVM.Name)
 
 		// Clear restartNeeded and set Stopped condition in one write.
 		// This is inlined (rather than calling stopInstance) so both changes
@@ -438,6 +442,11 @@ func (r *LimaVMReconciler) startInstance(ctx context.Context, limaVM *v1alpha1.L
 
 	begin := time.Now()
 
+	// Start the host-switch virtual network for WSL2 instances. This must
+	// happen before the hostagent starts, because the guest's
+	// network-setup.service performs a vsock handshake during early boot.
+	r.startHostSwitch(ctx, limaVM.Name, inst)
+
 	// Start hostagent in background.
 	haCmd := exec.CommandContext(ctx, rddPath, args...)
 	process.SetGroup(haCmd)
@@ -446,6 +455,7 @@ func (r *LimaVMReconciler) startInstance(ctx context.Context, limaVM *v1alpha1.L
 
 	if err := haCmd.Start(); err != nil {
 		logger.Error(err, "Failed to start hostagent")
+		r.stopHostSwitch(limaVM.Name)
 		if updateErr := r.updateCondition(ctx, limaVM, ConditionRunning, metav1.ConditionFalse, ReasonStartFailed, err.Error()); updateErr != nil {
 			logger.Error(updateErr, "Failed to update status after hostagent start failure")
 		}
@@ -455,6 +465,7 @@ func (r *LimaVMReconciler) startInstance(ctx context.Context, limaVM *v1alpha1.L
 	// Wait for PID file to be created (indicates hostagent has started)
 	if err := r.waitForPIDFile(haPIDPath, haStderrPath); err != nil {
 		logger.Error(err, "Hostagent did not start")
+		r.stopHostSwitch(limaVM.Name)
 		if updateErr := r.updateCondition(ctx, limaVM, ConditionRunning, metav1.ConditionFalse, ReasonStartFailed, err.Error()); updateErr != nil {
 			logger.Error(updateErr, "Failed to update status after hostagent startup failure")
 		}
@@ -492,6 +503,7 @@ func (r *LimaVMReconciler) stopInstance(ctx context.Context, limaVM *v1alpha1.Li
 
 	r.shutdownHostagent(ctx, limaVM.Name, inst)
 	r.stopWatcher(limaVM.Name)
+	r.stopHostSwitch(limaVM.Name)
 
 	// Verify the instance stopped
 	inst, err := store.Inspect(ctx, limaVM.Name)
