@@ -1,8 +1,9 @@
 name: Windows Typeperf Sampler
 description: >-
-  Low-overhead perf counter collection using typeperf. Writes a TSV file
-  with system and per-process counters every second, then summarizes the
-  top processes by CPU and working set when stopped.
+  Low-overhead perf counter collection using typeperf. Collects into a
+  BLG (binary log) which captures processes that start mid-run. On stop,
+  converts to TSV via relog and summarizes top processes by CPU and
+  working set.
 
 inputs:
   command:
@@ -24,11 +25,11 @@ runs:
         New-Item -ItemType Directory -Force -Path $outputDir | Out-Null
       }
       $counterFile = "${{ github.action_path }}/typeperf-counters.txt"
-      $tsvFile = "$outputDir/typeperf.tsv"
+      $blgFile = "$outputDir/typeperf.blg"
       $proc = Start-Process -PassThru -WindowStyle Hidden -FilePath typeperf `
-        -ArgumentList "-cf", $counterFile, "-f", "TSV", "-o", $tsvFile, "-si", "1"
+        -ArgumentList "-cf", $counterFile, "-f", "BIN", "-o", $blgFile, "-si", "1", "-y"
       $proc.Id | Set-Content -Path "$outputDir/typeperf.pid"
-      Write-Output "typeperf started, pid=$($proc.Id), output=$tsvFile"
+      Write-Output "typeperf started, pid=$($proc.Id), output=$blgFile"
 
   - name: Stop typeperf and summarize
     if: runner.os == 'Windows' && inputs.command == 'stop'
@@ -43,14 +44,26 @@ runs:
         Remove-Item $pidFile -Force -ErrorAction SilentlyContinue
         Write-Output "stopped typeperf pid=$typeperfPid"
       }
+      $blgFile = "$outputDir/typeperf.blg"
       $tsvFile = "$outputDir/typeperf.tsv"
-      if (Test-Path $tsvFile) {
-        $size = (Get-Item $tsvFile).Length / 1MB
+      if (Test-Path $blgFile) {
+        $size = (Get-Item $blgFile).Length / 1MB
+        Write-Output ("typeperf.blg: {0:N1} MB" -f $size)
+        relog $blgFile -f TSV -o $tsvFile -y
+        if ($LASTEXITCODE -ne 0 -or -not (Test-Path $tsvFile)) {
+          Write-Warning "relog failed; preserving $blgFile for inspection"
+          exit 1
+        }
         $lines = (Get-Content $tsvFile | Measure-Object -Line).Lines
-        Write-Output ("typeperf.tsv: {0:N1} MB, {1} lines" -f $size, $lines)
+        Write-Output ("typeperf.tsv: {0:N1} MB, {1} lines" -f ((Get-Item $tsvFile).Length / 1MB), $lines)
         go run "${{ github.action_path }}/summarize-typeperf.go" `
           $tsvFile 10 > "$outputDir/typeperf-summary.txt"
+        if ($LASTEXITCODE -ne 0) {
+          Write-Warning "summarize-typeperf.go failed; preserving $blgFile for inspection"
+          exit 1
+        }
+        Remove-Item $blgFile -Force
         Write-Output "summary written to $outputDir/typeperf-summary.txt"
       } else {
-        Write-Output "typeperf.tsv not found, skipping summary"
+        Write-Output "typeperf.blg not found, skipping summary"
       }
