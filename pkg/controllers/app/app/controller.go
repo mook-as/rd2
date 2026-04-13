@@ -11,6 +11,7 @@ import (
 	_ "embed"
 	"runtime"
 
+	admissionregistrationv1 "k8s.io/api/admissionregistration/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	"github.com/rancher-sandbox/rancher-desktop-daemon/pkg/apis/app/v1alpha1"
@@ -31,6 +32,9 @@ var limaImagesWSL2 string
 
 //go:embed lima-template.yaml
 var limaTemplate string
+
+//go:embed k3s-versions.json
+var k3sVersionsData string
 
 func limaTemplateData() string {
 	images := limaImagesUnix
@@ -53,8 +57,21 @@ const APIGroup = "app"
 //go:embed crd.yaml
 var appCRD string
 
+const (
+	// appValidatorWebhookName is the name used for the App validating webhook.
+	appValidatorWebhookName = "app-validator.app.rancherdesktop.io"
+	// appValidatorConfigName is the name of the App ValidatingWebhookConfiguration.
+	appValidatorConfigName = "app-validator"
+)
+
 // controller implements the base.Controller interface for app.
-type controller struct{}
+type controller struct {
+	webhookPort     int
+	webhookManagers []base.WebhookManager
+}
+
+// Verify that controller implements base.WebhookController interface.
+var _ base.WebhookController = &controller{}
 
 func newController() base.Controller {
 	return &controller{}
@@ -78,6 +95,42 @@ func (c *controller) GetCRDData() string {
 	return appCRD
 }
 
+// SetWebhookPort sets the webhook port allocated by SharedControllerManager.
+func (c *controller) SetWebhookPort(port int) {
+	c.webhookPort = port
+}
+
+// GetWebhookServiceName returns the DNS service name for webhook certificates.
+func (c *controller) GetWebhookServiceName() string {
+	return ControllerName + "-webhook"
+}
+
+// GetWebhookManagers returns all WebhookManagers for parallel setup.
+func (c *controller) GetWebhookManagers() []base.WebhookManager {
+	return c.webhookManagers
+}
+
+// setupWebhook sets up the App validating webhook.
+func (c *controller) setupWebhook(mgr ctrl.Manager) error {
+	validatingConfig := base.WebhookConfig[*v1alpha1.App]{
+		Name:        appValidatorConfigName,
+		WebhookName: appValidatorWebhookName,
+		WebhookPort: c.webhookPort,
+		Operations: []admissionregistrationv1.OperationType{
+			admissionregistrationv1.Create,
+			admissionregistrationv1.Update,
+		},
+		Validator: &controllers.AppValidator{K3sVersionsData: k3sVersionsData},
+	}
+
+	managers, err := base.SetupWebhookForResource(mgr, &v1alpha1.App{}, validatingConfig)
+	if err != nil {
+		return err
+	}
+	c.webhookManagers = append(c.webhookManagers, managers...)
+	return nil
+}
+
 // RegisterWithManager implements the complete controller registration for both embedded and external modes.
 // It registers the CRD types with the scheme and sets up the controller with the manager.
 // It also registers Lima types, which allows App controller to create and watch LimaVM resources.
@@ -89,9 +142,13 @@ func (c *controller) RegisterWithManager(mgr ctrl.Manager) error {
 		return err
 	}
 
-	return (&controllers.AppReconciler{
+	if err := (&controllers.AppReconciler{
 		Client:           mgr.GetClient(),
 		Scheme:           mgr.GetScheme(),
 		LimaTemplateData: limaTemplateData(),
-	}).SetupWithManager(mgr)
+	}).SetupWithManager(mgr); err != nil {
+		return err
+	}
+
+	return c.setupWebhook(mgr)
 }
