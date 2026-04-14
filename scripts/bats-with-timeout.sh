@@ -14,13 +14,12 @@
 # Destructive steps (SIGQUIT, SIGKILL of leaked processes) are scoped to
 # our own RDD_INSTANCE so they do not disturb sibling targets.
 #
-# Usage: bats-with-timeout.sh <seconds> <label> <command> [args...]
+# Usage: bats-with-timeout.sh <seconds> <command> [args...]
 
 set -o errexit -o nounset -o pipefail
 
 timeout_seconds=$1
-label=$2
-shift 2
+shift
 
 instance="${RDD_INSTANCE:-2}"
 
@@ -70,16 +69,18 @@ cmdline_of() {
 # Check whether a cmdline belongs to the current RDD_INSTANCE. The
 # instance name appears in any path derived from it (~/.rd<instance>/,
 # rancher-desktop-<instance>/, ...) and in sh wrapper argv as
-# `RDD_INSTANCE=<instance>`. Anchor on those exact markers rather than
-# matching any substring, so a short instance like "bats" does not
-# match every "bats-*" sibling target's processes and trigger cross-
-# target SIGKILL cleanup.
+# `RDD_INSTANCE=<instance>`. Each pattern requires a terminator after
+# the instance name (whitespace, `/`, or end of string) so a short
+# instance like "bats-cli" does not match a sibling target's
+# "bats-cli-extra" processes and trigger cross-target SIGKILL cleanup.
+# Appending a sentinel space lets the end-of-string case match the
+# whitespace-terminated patterns.
 matches_our_instance() {
-    case "$1" in
-        *"RDD_INSTANCE=${instance}"*) return 0 ;;
+    local cmdline="$1 "
+    case "$cmdline" in
+        *"RDD_INSTANCE=${instance} "*) return 0 ;;
         *"/.rd${instance}/"*) return 0 ;;
-        *"rancher-desktop-${instance}/"*) return 0 ;;
-        *"rancher-desktop-${instance} "*) return 0 ;;
+        *"rancher-desktop-${instance}/"* | *"rancher-desktop-${instance} "*) return 0 ;;
     esac
     return 1
 }
@@ -199,51 +200,31 @@ dump_memory_pressure() {
     esac
 }
 
-# Run a command with a wall-clock timeout. Used by dump_api_state so a
-# dead or hung API server cannot freeze the support bundle capture.
-# Polls at 1-second resolution, matching the main script's timeout loop,
-# and avoids a GNU coreutils `timeout` dependency (not on macOS).
-run_with_timeout() {
-    local seconds=$1
-    shift
-    "$@" &
-    local pid=$!
-    local deadline=$(($(date +%s) + seconds))
-    while kill -0 "$pid" 2>/dev/null; do
-        if [ "$(date +%s)" -ge "$deadline" ]; then
-            kill -TERM "$pid" 2>/dev/null || true
-            sleep 1
-            kill -KILL "$pid" 2>/dev/null || true
-            wait "$pid" 2>/dev/null || true
-            echo "[run_with_timeout: $* exceeded ${seconds}s, killed]"
-            return 124
-        fi
-        sleep 1
-    done
-    wait "$pid"
-}
-
 # Snapshot the current state of the rdd API server and (if wired up) the
-# forwarded Docker daemon. Runs every command under run_with_timeout so
-# a hung or dead daemon cannot block the capture — the common case for
-# the failures this bundle is meant to diagnose.
+# forwarded Docker daemon. Wraps every probe in `timeout` so a hung or
+# dead daemon cannot block the capture — the common case for the
+# failures this bundle is meant to diagnose. --kill-after=1 gives the
+# child one second to shut down after SIGTERM before SIGKILL.
 dump_api_state() {
     if [ ! -x "$rdd_bin" ]; then
         return
     fi
 
     echo "=== rdd ctl get (overview) ==="
-    run_with_timeout 10 "$rdd_bin" ctl get apps,limavms,containers,images,volumes,containernamespaces \
+    timeout --kill-after=1 10 \
+        "$rdd_bin" ctl get apps,limavms,containers,images,volumes,containernamespaces \
         --all-namespaces 2>&1 || true
 
     echo
     echo "=== rdd ctl get events (by time) ==="
-    run_with_timeout 10 "$rdd_bin" ctl get events --all-namespaces \
+    timeout --kill-after=1 10 \
+        "$rdd_bin" ctl get events --all-namespaces \
         --sort-by=.lastTimestamp 2>&1 | tail -100 || true
 
     echo
     echo "=== rdd ctl get (full YAML) ==="
-    run_with_timeout 15 "$rdd_bin" ctl get apps,limavms,containers,images,volumes,containernamespaces \
+    timeout --kill-after=1 15 \
+        "$rdd_bin" ctl get apps,limavms,containers,images,volumes,containernamespaces \
         --all-namespaces --output=yaml 2>&1 || true
 
     # Docker state: test suites that exercise the container engine
@@ -254,17 +235,17 @@ dump_api_state() {
         echo
         echo "=== docker ps -a (DOCKER_HOST=unix://${docker_sock}) ==="
         DOCKER_HOST="unix://${docker_sock}" \
-            run_with_timeout 10 docker ps --all --no-trunc 2>&1 || true
+            timeout --kill-after=1 10 docker ps --all --no-trunc 2>&1 || true
 
         echo
         echo "=== docker inspect (all containers) ==="
         local ids
         ids=$(DOCKER_HOST="unix://${docker_sock}" \
-            run_with_timeout 10 docker ps --all --quiet 2>/dev/null || true)
+            timeout --kill-after=1 10 docker ps --all --quiet 2>/dev/null || true)
         if [ -n "$ids" ]; then
             # shellcheck disable=SC2086  # intentional word splitting
             DOCKER_HOST="unix://${docker_sock}" \
-                run_with_timeout 10 docker inspect $ids 2>&1 || true
+                timeout --kill-after=1 10 docker inspect $ids 2>&1 || true
         fi
     fi
 }
@@ -273,9 +254,8 @@ dump_api_state() {
 capture_state() {
     local context=$1
     {
-        echo "=== Support bundle for ${label} (${context}) at $(date -Iseconds 2>/dev/null || date) ==="
+        echo "=== Support bundle for RDD_INSTANCE=${instance} (${context}) at $(date -Iseconds 2>/dev/null || date) ==="
         echo "uname: $(uname -a)"
-        echo "RDD_INSTANCE: ${instance}"
 
         echo
         echo "=== ps ==="
@@ -379,7 +359,7 @@ cmd_pid=$!
 deadline=$(($(date +%s) + timeout_seconds))
 while kill -0 "${cmd_pid}" 2>/dev/null; do
     if [ "$(date +%s)" -ge "${deadline}" ]; then
-        echo "bats-with-timeout: ${label} exceeded ${timeout_seconds}s, capturing support bundle" >&2
+        echo "bats-with-timeout: RDD_INSTANCE=${instance} exceeded ${timeout_seconds}s, capturing support bundle" >&2
         capture_state "timeout"
         sigquit_our_go_leaks
         echo "bats-with-timeout: sending SIGTERM to ${cmd_pid}" >&2
