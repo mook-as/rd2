@@ -10,7 +10,7 @@
  * Do not edit the class manually.
  */
 
-import { IoRancherdesktopAppV1alpha1DemoStatusConditionsInner } from '../models/IoRancherdesktopAppV1alpha1DemoStatusConditionsInner';
+import { IoRancherdesktopAppV1alpha1AppStatusConditionsInner } from '../models/IoRancherdesktopAppV1alpha1AppStatusConditionsInner';
 import { IoRancherdesktopContainersV1alpha1ContainerStatusPortsInner } from '../models/IoRancherdesktopContainersV1alpha1ContainerStatusPortsInner';
 import { HttpFile } from '../http/http';
 
@@ -25,7 +25,7 @@ export class IoRancherdesktopContainersV1alpha1ContainerStatus {
     /**
     * Conditions represent the calculated state of the container. Each condition has a unique type and reflects the status of a specific aspect of the resource.  Known condition types include: - \"Running\": the container is running; this may also be paused. - \"Paused\": the container is paused. - \"Restarting\": the container is restarting. - \"OOMKilled\": a process within this container has been killed because it ran out of memory                since the container was last started. - \"Dead\": the container is dead.  The status of each condition is one of True, False, or Unknown.
     */
-    'conditions'?: Array<IoRancherdesktopAppV1alpha1DemoStatusConditionsInner>;
+    'conditions'?: Array<IoRancherdesktopAppV1alpha1AppStatusConditionsInner>;
     /**
     * CreatedAt is the time this container was initially created.
     */
@@ -65,7 +65,7 @@ export class IoRancherdesktopContainersV1alpha1ContainerStatus {
     /**
     * Pid is the process identifier for the main process in the container.
     */
-    'pid': number;
+    'pid'?: number;
     /**
     * Ports describes the exposed ports of the container.
     */
@@ -93,7 +93,7 @@ export class IoRancherdesktopContainersV1alpha1ContainerStatus {
         {
             "name": "conditions",
             "baseName": "conditions",
-            "type": "Array<IoRancherdesktopAppV1alpha1DemoStatusConditionsInner>",
+            "type": "Array<IoRancherdesktopAppV1alpha1AppStatusConditionsInner>",
             "format": ""
         },
         {

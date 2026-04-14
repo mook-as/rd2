@@ -10,7 +10,7 @@
  * Do not edit the class manually.
  */
 
-import { IoRancherdesktopAppV1alpha1DemoStatusConditionsInner } from '../models/IoRancherdesktopAppV1alpha1DemoStatusConditionsInner';
+import { IoRancherdesktopAppV1alpha1AppStatusConditionsInner } from '../models/IoRancherdesktopAppV1alpha1AppStatusConditionsInner';
 import { HttpFile } from '../http/http';
 
 /**
@@ -24,7 +24,7 @@ export class IoRancherdesktopContainersV1alpha1ImageStatus {
     /**
     * Conditions represent the state of the image. There are currently no defined condition types.
     */
-    'conditions'?: Array<IoRancherdesktopAppV1alpha1DemoStatusConditionsInner>;
+    'conditions'?: Array<IoRancherdesktopAppV1alpha1AppStatusConditionsInner>;
     /**
     * CreatedAt is the time the image was created.
     */
@@ -72,7 +72,7 @@ export class IoRancherdesktopContainersV1alpha1ImageStatus {
         {
             "name": "conditions",
             "baseName": "conditions",
-            "type": "Array<IoRancherdesktopAppV1alpha1DemoStatusConditionsInner>",
+            "type": "Array<IoRancherdesktopAppV1alpha1AppStatusConditionsInner>",
             "format": ""
         },
         {

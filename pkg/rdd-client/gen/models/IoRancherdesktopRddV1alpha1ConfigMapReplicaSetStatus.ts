@@ -10,7 +10,7 @@
  * Do not edit the class manually.
  */
 
-import { IoRancherdesktopAppV1alpha1DemoStatusConditionsInner } from '../models/IoRancherdesktopAppV1alpha1DemoStatusConditionsInner';
+import { IoRancherdesktopAppV1alpha1AppStatusConditionsInner } from '../models/IoRancherdesktopAppV1alpha1AppStatusConditionsInner';
 import { HttpFile } from '../http/http';
 
 /**
@@ -20,7 +20,7 @@ export class IoRancherdesktopRddV1alpha1ConfigMapReplicaSetStatus {
     /**
     * Conditions represent the latest available observations of the ConfigMapReplicaSet\'s current state. This can be used to communicate detailed status information to users and other controllers.
     */
-    'conditions'?: Array<IoRancherdesktopAppV1alpha1DemoStatusConditionsInner>;
+    'conditions'?: Array<IoRancherdesktopAppV1alpha1AppStatusConditionsInner>;
     /**
     * ReadyReplicas indicates the number of ConfigMaps that have been successfully created and are currently managed by this controller.
     */
@@ -34,7 +34,7 @@ export class IoRancherdesktopRddV1alpha1ConfigMapReplicaSetStatus {
         {
             "name": "conditions",
             "baseName": "conditions",
-            "type": "Array<IoRancherdesktopAppV1alpha1DemoStatusConditionsInner>",
+            "type": "Array<IoRancherdesktopAppV1alpha1AppStatusConditionsInner>",
             "format": ""
         },
         {

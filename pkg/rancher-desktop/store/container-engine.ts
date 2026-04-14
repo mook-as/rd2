@@ -1,65 +1,61 @@
-import { defineResource, listNamespacedResource, ListResourceOptions, resourceMutations, resourceState, resourceWatchActions } from '@pkg/store/rddConnection';
-import { ActionTree, GetterTree, MutationsType } from '@pkg/store/ts-helpers';
+import { Plugin } from 'vuex';
+
+import { defineResource, listNamespacedResource, resourceMutations, resourceState, resourceWatchActions, ResourceNames } from '@pkg/store/rddConnection';
+import { ActionContext, ActionTree, GetterTree, MutationsType } from '@pkg/store/ts-helpers';
 import * as RDDClient from '@rdd-client';
 
 type ContainerEngineState = ReturnType<typeof state>;
 
-function listContainerNamespacedResource<
-  TypeName extends string,
-  C extends Record<
-    `listNamespaced${ TypeName }`,
-    (param: any, options?: RDDClient.ConfigurationOptions) => any
-  >,
->(typeName: TypeName) {
-  return (client: C, untypedOptions: ListResourceOptions<any>): ReturnType<C[`listNamespaced${ TypeName }`]> => {
-    const options: ListResourceOptions<ContainerEngineState> = untypedOptions;
-    const request: Parameters<C[`listNamespaced${ TypeName }`]>[0] = {
-      namespace: options.connectionState.namespace,
-    };
-
-    if (options.state.currentNamespace) {
-      request.fieldSelector = `status.namespace=${ options.state.currentNamespace }`;
-    }
-
-    return client[`listNamespaced${ typeName }`](request);
+function namespacedResourcePath(typePlural: string) {
+  return function(namespace: string) {
+    return `/apis/containers.rancherdesktop.io/v1alpha1/namespaces/${ namespace }/${ typePlural }`;
   };
+}
+
+function resourceFieldSelector(untypedContext: any): string | undefined {
+  const context: ActionContext<ContainerEngineState> = untypedContext;
+  const currentNamespace = context.getters.currentNamespace;
+
+  return currentNamespace ? `status.namespace=${ currentNamespace }` : undefined;
 }
 
 const resources = [
   defineResource({
-    name:       'containers',
-    path:       '/apis/containers.rancherdesktop.io/v1alpha1/containers',
-    makeClient: config => config.makeApiClient(RDDClient.ContainersRancherdesktopIoV1alpha1Api),
-    list:       listContainerNamespacedResource('Container'),
+    name:          'containers',
+    path:          namespacedResourcePath('containers'),
+    makeClient:    config => config.makeApiClient(RDDClient.ContainersRancherdesktopIoV1alpha1Api),
+    list:          listNamespacedResource('Container'),
+    fieldSelector: resourceFieldSelector,
   }),
   defineResource({
-    name:       'images',
-    path:       '/apis/containers.rancherdesktop.io/v1alpha1/images',
-    makeClient: config => config.makeApiClient(RDDClient.ContainersRancherdesktopIoV1alpha1Api),
-    list:       listContainerNamespacedResource('Image'),
+    name:          'images',
+    path:          namespacedResourcePath('images'),
+    makeClient:    config => config.makeApiClient(RDDClient.ContainersRancherdesktopIoV1alpha1Api),
+    list:          listNamespacedResource('Image'),
+    fieldSelector: resourceFieldSelector,
   }),
   defineResource({
-    name:       'namespaces',
-    type:       'containerNamespace',
-    path:       '/apis/containers.rancherdesktop.io/v1alpha1/containernamespaces',
-    makeClient: config => config.makeApiClient(RDDClient.ContainersRancherdesktopIoV1alpha1Api),
-    list:       listNamespacedResource('ContainerNamespace'),
+    name:          'namespaces',
+    type:          'containerNamespace',
+    path:          namespacedResourcePath('containernamespaces'),
+    makeClient:    config => config.makeApiClient(RDDClient.ContainersRancherdesktopIoV1alpha1Api),
+    list:          listNamespacedResource('ContainerNamespace'),
   }),
   defineResource({
-    name:       'volumes',
-    path:       '/apis/containers.rancherdesktop.io/v1alpha1/volumes',
-    makeClient: config => config.makeApiClient(RDDClient.ContainersRancherdesktopIoV1alpha1Api),
-    list:       listContainerNamespacedResource('Volume'),
+    name:          'volumes',
+    path:          namespacedResourcePath('volumes'),
+    makeClient:    config => config.makeApiClient(RDDClient.ContainersRancherdesktopIoV1alpha1Api),
+    list:          listNamespacedResource('Volume'),
+    fieldSelector: resourceFieldSelector,
   }),
 ] as const;
 
-type errorSource = 'containers' | 'images' | 'volumes' | 'namespaces';
-type resourceKeys = Exclude<keyof ReturnType<typeof resourceState<typeof resources>>, '_watchers'>;
+type resourceNames = ResourceNames<typeof resources>;
 
 export const state = () => ({
   ...resourceState(resources),
   currentNamespace: undefined as string | undefined,
-  error:            undefined as undefined | { error: Error, source: errorSource },
+  error:            undefined as undefined | { error: Error, source: resourceNames },
 });
 
 export const getters = {
@@ -86,8 +82,8 @@ export const mutations = {
 } satisfies MutationsType<ContainerEngineState>;
 
 export const actions = {
-  ...resourceWatchActions(resources),
-  setCurrentNamespace({ commit, getters, state, dispatch }, { namespace }: { namespace: string | undefined }) {
+  ...resourceWatchActions('container-engine', resources),
+  async setCurrentNamespace({ commit, getters, state, dispatch }, { namespace }: { namespace: string | undefined }) {
     if (namespace === state.currentNamespace) {
       return;
     }
@@ -102,9 +98,11 @@ export const actions = {
     } else {
       commit('SET_CURRENT_NAMESPACE', namespace);
       // Refresh all resources to update the namespace filter.
-      for (const key of Object.keys(state._watchers)) {
-        dispatch(`watch${ key.replace(/^\w/, c => c.toUpperCase()) }`,
-          state._watchers[key as resourceKeys].options);
+      try {
+        await dispatch('setupResourceWatch');
+      } catch (error) {
+        commit('SET_ERROR', { error: error as Error, source: 'containers' });
+        console.error('Error setting up resource watch:', error);
       }
     }
   },
@@ -125,7 +123,9 @@ export const actions = {
         namespace:       container.metadata!.namespace!,
         body:            { spec: { state } },
         fieldValidation: 'Strict',
-      }).catch((err: Error) => {
+      },
+      RDDClient.setHeaderOptions('Content-Type', RDDClient.PatchStrategy.MergePatch),
+    ).catch((err: Error) => {
       commit('SET_ERROR', { error: err, source: 'containers' });
     });
   },
@@ -248,3 +248,15 @@ export const actions = {
     }
   },
 } satisfies ActionTree<ContainerEngineState, any, typeof mutations>;
+
+export const plugins: Plugin<ContainerEngineState>[] = [
+  function(store) {
+    store.dispatch('container-engine/setupResourceWatch', {
+      callback: (error: Error, resourceName: string) => {
+        store.commit('container-engine/SET_ERROR', { error, source: resourceName });
+      },
+    }).catch((error: Error) => {
+      store.commit('container-engine/SET_ERROR', { error, source: 'containers' });
+    });
+  },
+];

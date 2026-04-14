@@ -183,20 +183,22 @@ export default defineComponent({
       return null;
     },
   },
+  beforeMount() {
+    this.watchResources(['volumes']).catch(error => {
+      this.SET_ERROR({ source: 'volumes', error });
+    });
+  },
   mounted() {
     this.setHeader({
       title:       this.t('volumes.title'),
       description: '',
     });
-
-    this.watchVolumes({
-      callback: error => {
-        this.SET_ERROR({ error, source: 'volumes' });
-      },
-    });
+  },
+  beforeUnmount() {
+    this.unwatchResources(['volumes']);
   },
   methods: {
-    ...mapTypedActions('container-engine', ['volumeDelete', 'watchVolumes']),
+    ...mapTypedActions('container-engine', ['volumeDelete', 'watchResources', 'unwatchResources']),
     ...mapTypedActions('page', ['setHeader']),
     ...mapTypedMutations('container-engine', ['SET_ERROR', 'SET_CURRENT_NAMESPACE']),
     checkSelectedNamespace() {

@@ -15,7 +15,7 @@ import { HttpFile } from '../http/http';
 /**
 * Condition contains details for one aspect of the current state of this API Resource.
 */
-export class IoRancherdesktopAppV1alpha1DemoStatusConditionsInner {
+export class IoRancherdesktopAppV1alpha1AppStatusConditionsInner {
     /**
     * lastTransitionTime is the last time the condition transitioned from one status to another. This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
     */
@@ -35,7 +35,7 @@ export class IoRancherdesktopAppV1alpha1DemoStatusConditionsInner {
     /**
     * status of the condition, one of True, False, Unknown.
     */
-    'status': IoRancherdesktopAppV1alpha1DemoStatusConditionsInnerStatusEnum;
+    'status': IoRancherdesktopAppV1alpha1AppStatusConditionsInnerStatusEnum;
     /**
     * type of condition in CamelCase or in foo.example.com/CamelCase.
     */
@@ -73,7 +73,7 @@ export class IoRancherdesktopAppV1alpha1DemoStatusConditionsInner {
         {
             "name": "status",
             "baseName": "status",
-            "type": "IoRancherdesktopAppV1alpha1DemoStatusConditionsInnerStatusEnum",
+            "type": "IoRancherdesktopAppV1alpha1AppStatusConditionsInnerStatusEnum",
             "format": ""
         },
         {
@@ -84,14 +84,14 @@ export class IoRancherdesktopAppV1alpha1DemoStatusConditionsInner {
         }    ];
 
     static getAttributeTypeMap() {
-        return IoRancherdesktopAppV1alpha1DemoStatusConditionsInner.attributeTypeMap;
+        return IoRancherdesktopAppV1alpha1AppStatusConditionsInner.attributeTypeMap;
     }
 
     public constructor() {
     }
 }
 
-export enum IoRancherdesktopAppV1alpha1DemoStatusConditionsInnerStatusEnum {
+export enum IoRancherdesktopAppV1alpha1AppStatusConditionsInnerStatusEnum {
     True = 'True',
     False = 'False',
     Unknown = 'Unknown'
