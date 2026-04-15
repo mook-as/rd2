@@ -16,7 +16,6 @@ import (
 	"gotest.tools/v3/assert"
 	"gotest.tools/v3/assert/cmp"
 
-	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
@@ -181,9 +180,11 @@ func TestControllerManagerDiscoveryGroup(t *testing.T) {
 	// Unregister the second controller manager.
 	assert.NilError(t, d2.UnregisterControllerManager(t.Context()), "failed to unregister second controller manager")
 
-	// Check that the config map is removed.
-	_, err = client.CoreV1().ConfigMaps(d2.namespace).Get(t.Context(), ControllerManagerConfigMapName, metav1.GetOptions{})
-	assert.Assert(t, errors.IsNotFound(err), "expected config map to be deleted after all controller managers unregistered")
+	// The control plane owns the ConfigMap; it must survive all controller
+	// managers unregistering or --since=startup breaks.
+	cm, err = client.CoreV1().ConfigMaps(d2.namespace).Get(t.Context(), ControllerManagerConfigMapName, metav1.GetOptions{})
+	assert.NilError(t, err, "expected config map to still exist after all controller managers unregistered")
+	assert.Assert(t, cmp.Len(cm.Data, 0), "expected config map to have no data entries after all controller managers unregistered")
 }
 
 func TestInitDiscoveryAndMarkReady(t *testing.T) {

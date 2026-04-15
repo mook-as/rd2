@@ -183,7 +183,9 @@ func (d *ControllerManagerDiscoveryGroup) registerControllerManagerImpl(ctx cont
 	return nil
 }
 
-// UnregisterControllerManager removes the controller manager ConfigMap.
+// UnregisterControllerManager removes this controller manager's data entry
+// from the discovery ConfigMap. The ConfigMap itself is owned by the control
+// plane; only [InitDiscovery] and [CleanupDiscovery] create or delete it.
 func (d *ControllerManagerDiscoveryGroup) UnregisterControllerManager(ctx context.Context) error {
 	patchData, err := json.Marshal(map[string]any{
 		"data": map[string]any{
@@ -194,7 +196,7 @@ func (d *ControllerManagerDiscoveryGroup) UnregisterControllerManager(ctx contex
 		return fmt.Errorf("failed to serialize controller manager patch: %w", err)
 	}
 
-	cm, err := d.client.CoreV1().ConfigMaps(d.namespace).Patch(
+	_, err = d.client.CoreV1().ConfigMaps(d.namespace).Patch(
 		ctx,
 		ControllerManagerConfigMapName,
 		types.StrategicMergePatchType,
@@ -208,34 +210,7 @@ func (d *ControllerManagerDiscoveryGroup) UnregisterControllerManager(ctx contex
 		return fmt.Errorf("failed to patch controller manager configmap: %w", err)
 	}
 
-	if len(cm.Data) == 0 {
-		// No more entries, delete the ConfigMap
-		err = d.client.CoreV1().ConfigMaps(d.namespace).Delete(
-			ctx,
-			ControllerManagerConfigMapName,
-			metav1.DeleteOptions{
-				Preconditions: &metav1.Preconditions{
-					ResourceVersion: &cm.ResourceVersion,
-				},
-			},
-		)
-
-		if err == nil {
-			klog.InfoS("Unregistered final controller manager from cluster",
-				"namespace", d.namespace,
-				"configmap", ControllerManagerConfigMapName,
-				"name", d.name)
-			return nil
-		}
-
-		// If somebody else deleted the config map or modified it, the config
-		// map should stay in the state the other controller managers left it.
-		if !errors.IsNotFound(err) && !errors.IsConflict(err) {
-			return fmt.Errorf("failed to delete controller manager configmap: %w", err)
-		}
-	}
-
-	klog.InfoS("Unregistered controller manager from cluster",
+	klog.FromContext(ctx).Info("Unregistered controller manager from cluster",
 		"namespace", d.namespace,
 		"configmap", ControllerManagerConfigMapName,
 		"name", d.name)
