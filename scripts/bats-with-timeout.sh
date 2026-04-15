@@ -210,22 +210,28 @@ dump_api_state() {
         return
     fi
 
-    echo "=== rdd ctl get (overview) ==="
-    timeout --kill-after=1 10 \
-        "$rdd_bin" ctl get apps,limavms,containers,images,volumes,containernamespaces \
-        --all-namespaces 2>&1 || true
+    if "$rdd_bin" service status 2>/dev/null | grep --quiet 'control plane has been started: true'; then
+        local resource_types
+        echo "=== rdd ctl get (overview) ==="
+        resource_types=$("$rdd_bin" ctl api-resources --output=json \
+            | jq -rc '.resources | map(select((.group // "") | test("rancherdesktop.io")) | .name) | join(",")' \
+            || echo "apps,limavms,containers,images,volumes,containernamespaces")
+        timeout --kill-after=1 10 \
+            "$rdd_bin" ctl get "$resource_types" --all-namespaces 2>&1 || true
 
-    echo
-    echo "=== rdd ctl get events (by time) ==="
-    timeout --kill-after=1 10 \
-        "$rdd_bin" ctl get events --all-namespaces \
-        --sort-by=.lastTimestamp 2>&1 | tail -100 || true
+        echo
+        echo "=== rdd ctl get events (by time) ==="
+        timeout --kill-after=1 10 \
+            "$rdd_bin" ctl get events --all-namespaces \
+            --sort-by=.lastTimestamp 2>&1 | tail -100 || true
 
-    echo
-    echo "=== rdd ctl get (full YAML) ==="
-    timeout --kill-after=1 15 \
-        "$rdd_bin" ctl get apps,limavms,containers,images,volumes,containernamespaces \
-        --all-namespaces --output=yaml 2>&1 || true
+        echo
+        echo "=== rdd ctl get (full YAML) ==="
+        timeout --kill-after=1 15 \
+            "$rdd_bin" ctl get "$resource_types" --all-namespaces --output=yaml 2>&1 || true
+    else
+        echo "=== rdd control plane is not running ==="
+    fi
 
     # Docker state: test suites that exercise the container engine
     # forward the guest Docker socket to a host path. Skip silently
