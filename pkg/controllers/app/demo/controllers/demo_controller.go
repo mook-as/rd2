@@ -76,17 +76,17 @@ func (r *DemoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 		demo.Status.LastProcessed = time.Now().Format(time.RFC3339)
 
 		// Update conditions for processing state
-		r.setCondition(&demo, appv1alpha1.DemoConditionReady, metav1.ConditionTrue, "Processing", "Demo controller is ready and processing messages")
-		r.setCondition(&demo, appv1alpha1.DemoConditionProcessing, metav1.ConditionTrue, "InProgress", "Processing demo messages")
-		r.setCondition(&demo, appv1alpha1.DemoConditionCompleted, metav1.ConditionFalse, "InProgress", "Processing is still in progress")
+		r.setCondition(ctx, &demo, appv1alpha1.DemoConditionReady, metav1.ConditionTrue, "Processing", "Demo controller is ready and processing messages")
+		r.setCondition(ctx, &demo, appv1alpha1.DemoConditionProcessing, metav1.ConditionTrue, "InProgress", "Processing demo messages")
+		r.setCondition(ctx, &demo, appv1alpha1.DemoConditionCompleted, metav1.ConditionFalse, "InProgress", "Processing is still in progress")
 
 		log.Info("Processing demo message", "message", demo.Spec.Message, "count", demo.Status.ProcessedCount)
 		r.Recorder.Eventf(&demo, nil, corev1.EventTypeNormal, "Processing", "Process", "Processed message %d of %d: %s", demo.Status.ProcessedCount, demo.Spec.Count, demo.Spec.Message)
 	} else {
 		// Update conditions for completed state
-		r.setCondition(&demo, appv1alpha1.DemoConditionReady, metav1.ConditionTrue, "Ready", "Demo controller is ready")
-		r.setCondition(&demo, appv1alpha1.DemoConditionProcessing, metav1.ConditionFalse, "Completed", "Processing has completed")
-		r.setCondition(&demo, appv1alpha1.DemoConditionCompleted, metav1.ConditionTrue, "Completed", "All messages have been processed successfully")
+		r.setCondition(ctx, &demo, appv1alpha1.DemoConditionReady, metav1.ConditionTrue, "Ready", "Demo controller is ready")
+		r.setCondition(ctx, &demo, appv1alpha1.DemoConditionProcessing, metav1.ConditionFalse, "Completed", "Processing has completed")
+		r.setCondition(ctx, &demo, appv1alpha1.DemoConditionCompleted, metav1.ConditionTrue, "Completed", "All messages have been processed successfully")
 
 		r.Recorder.Eventf(&demo, nil, corev1.EventTypeNormal, "Completed", "Process", "Demo processing completed successfully")
 	}
@@ -105,17 +105,21 @@ func (r *DemoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	return ctrl.Result{}, nil
 }
 
-// setCondition sets or updates a condition in the demo status.
-func (r *DemoReconciler) setCondition(demo *appv1alpha1.Demo, conditionType string, status metav1.ConditionStatus, reason, message string) {
+// setCondition sets or updates a condition in the demo status and logs
+// every state change.
+func (r *DemoReconciler) setCondition(ctx context.Context, demo *appv1alpha1.Demo, conditionType string, status metav1.ConditionStatus, reason, message string) {
 	changed := apimeta.SetStatusCondition(&demo.Status.Conditions, metav1.Condition{
 		Type:    conditionType,
 		Status:  status,
 		Reason:  reason,
 		Message: message,
 	})
-	if changed {
-		r.Recorder.Eventf(demo, nil, corev1.EventTypeNormal, "ConditionChanged", conditionType, message)
+	if !changed {
+		return
 	}
+	logf.FromContext(ctx).Info("Condition changed",
+		"type", conditionType, "status", status, "reason", reason, "message", message)
+	r.Recorder.Eventf(demo, nil, corev1.EventTypeNormal, "ConditionChanged", conditionType, message)
 }
 
 // SetupWithManager sets up the controller with the Manager.

@@ -83,7 +83,7 @@ jobs:
       if: runner.os == 'macOS'
       working-directory: ${{ runner.temp }}
       run: |
-        brew install bash coreutils make
+        brew install bash coreutils make docker
 
         # Disable Spotlight indexing on all volumes. On macos-15-intel CI
         # runners, mds/mds_stores/mdworker_shared collectively consumed

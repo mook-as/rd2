@@ -60,6 +60,12 @@ func RunControllers(apiGroupName string) int {
 	var controllersToStart []base.Controller
 
 	for _, controller := range base.GetAllControllers() {
+		// A mistaken blank import can pull a foreign-group controller into this
+		// registry. Panic so the build-time bug surfaces immediately.
+		if group := controller.GetAPIGroup(); group != apiGroupName {
+			panic(fmt.Sprintf("controller %q registered in API group %q, expected %q",
+				controller.GetName(), group, apiGroupName))
+		}
 		shouldStart, err := shouldStartController(ctx, config, controller.GetName(), setupLog)
 		if err != nil {
 			setupLog.Error(err, "Failed to check for running controller, starting anyway", "controller", controller.GetName())

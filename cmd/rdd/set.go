@@ -10,9 +10,11 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
@@ -25,17 +27,27 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/cache"
+	watchtools "k8s.io/client-go/tools/watch"
 	"k8s.io/component-base/term"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	appv1alpha1 "github.com/rancher-sandbox/rancher-desktop-daemon/pkg/apis/app/v1alpha1"
 	"github.com/rancher-sandbox/rancher-desktop-daemon/pkg/cli/help"
 	service "github.com/rancher-sandbox/rancher-desktop-daemon/pkg/service/cmd"
+	"github.com/rancher-sandbox/rancher-desktop-daemon/pkg/service/controllers"
 )
 
-const appCRDName = "apps.app.rancherdesktop.io"
+const (
+	appCRDName = "apps.app.rancherdesktop.io"
+
+	// engineControllerName mirrors the unexported controllerName in
+	// pkg/controllers/app/engine/controller.go.
+	engineControllerName = "engine"
+)
 
 var appGVR = schema.GroupVersionResource{
 	Group:    appv1alpha1.GroupVersion.Group,
@@ -44,7 +56,10 @@ var appGVR = schema.GroupVersionResource{
 }
 
 func newSetCommand() *cobra.Command {
-	var dryRun bool
+	var (
+		dryRun  bool
+		timeout time.Duration
+	)
 	command := &cobra.Command{
 		Use:   "set PROPERTY=VALUE [PROPERTY=VALUE ...]",
 		Short: "Set App configuration properties",
@@ -58,19 +73,27 @@ func newSetCommand() *cobra.Command {
 			runtime. If the App resource does not exist, it is created with
 			default settings before applying the specified values.
 
+			By default, rdd set waits for the desired state: when running=true
+			is set, it waits for the container engine to be ready; when
+			running=false, it waits for the VM to stop. Use --timeout=0 to
+			skip waiting.
+
 			Examples:
 			  rdd set running=true
 			  rdd set running=true containerEngine.name=containerd
 			  rdd set kubernetes.enabled=true kubernetes.version=1.32.2
 			  rdd set --dry-run running=true
+			  rdd set --timeout=0 running=true
 		`),
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return setAction(cmd.Context(), args, dryRun)
+			return setAction(cmd.Context(), args, dryRun, timeout)
 		},
 	}
 	command.Flags().BoolVar(&dryRun, "dry-run", false,
 		"Validate changes against the API server without persisting them")
+	command.Flags().DurationVar(&timeout, "timeout", 300*time.Second,
+		"Timeout for waiting (0 to skip)")
 
 	// Override help to append live property descriptions from the CRD schema.
 	defaultHelp := command.HelpFunc()
@@ -232,7 +255,7 @@ func collectEntries(schema *apiextensionsv1.JSONSchemaProps, prefix string, out 
 	}
 }
 
-func setAction(ctx context.Context, args []string, dryRun bool) error {
+func setAction(ctx context.Context, args []string, dryRun bool, timeout time.Duration) error {
 	// Parse PROPERTY=VALUE arguments.
 	properties := make(map[string]string, len(args))
 	for _, arg := range args {
@@ -274,28 +297,49 @@ func setAction(ctx context.Context, args []string, dryRun bool) error {
 	specMap := buildNestedMap(coerced)
 
 	// Get-or-create the App, then patch with the specified values.
-	var app appv1alpha1.App
+	// Capture the post-write generation so waitForDesiredState can
+	// reject stale condition snapshots from a previous reconcile.
+	var (
+		app       appv1alpha1.App
+		targetGen int64
+	)
 	err = c.Get(ctx, client.ObjectKey{Name: "app"}, &app)
 	switch {
 	case apierrors.IsNotFound(err):
-		return createAndPatchApp(ctx, c, restConfig, specMap, specSchema, dryRun)
+		gen, err := createAndPatchApp(ctx, c, restConfig, specMap, specSchema, dryRun)
+		if err != nil {
+			return err
+		}
+		targetGen = gen
 	case err != nil:
 		return fmt.Errorf("failed to get App: %w", err)
 	default:
-		return patchApp(ctx, c, &app, specMap, dryRun)
+		gen, err := patchApp(ctx, c, &app, specMap, dryRun)
+		if err != nil {
+			return err
+		}
+		targetGen = gen
 	}
+
+	if dryRun || timeout == 0 {
+		return nil
+	}
+	return waitForDesiredState(ctx, restConfig, properties, timeout, targetGen)
 }
 
-// createAndPatchApp creates the App using the dynamic client so that only the
-// user-specified fields (plus required fields with zero values) are sent. The
-// API server fills in CRD defaults for omitted fields.
+// createAndPatchApp creates the App using the dynamic client so that
+// only user-specified fields (plus required fields with zero values)
+// are sent; the API server fills in CRD defaults. The returned
+// generation is metadata.generation after the write, used to filter
+// stale condition snapshots in the post-write wait.
 //
-// In dry-run mode the create uses only required defaults (so the App exists for
-// admission validation), then a dry-run patch carries the user's values.
-func createAndPatchApp(ctx context.Context, c client.Client, config *rest.Config, specMap map[string]any, specSchema *apiextensionsv1.JSONSchemaProps, dryRun bool) error {
+// In dry-run mode the create uses only required defaults so the App
+// exists for admission validation; a follow-up dry-run patch then
+// carries the user's values.
+func createAndPatchApp(ctx context.Context, c client.Client, config *rest.Config, specMap map[string]any, specSchema *apiextensionsv1.JSONSchemaProps, dryRun bool) (int64, error) {
 	dynClient, err := dynamic.NewForConfig(config)
 	if err != nil {
-		return fmt.Errorf("failed to create dynamic client: %w", err)
+		return 0, fmt.Errorf("failed to create dynamic client: %w", err)
 	}
 
 	createSpec := specMap
@@ -314,30 +358,30 @@ func createAndPatchApp(ctx context.Context, c client.Client, config *rest.Config
 		},
 	}
 
-	_, err = dynClient.Resource(appGVR).Create(ctx, obj, metav1.CreateOptions{})
+	created, err := dynClient.Resource(appGVR).Create(ctx, obj, metav1.CreateOptions{})
 	if apierrors.IsAlreadyExists(err) {
 		// Race: another rdd set created it concurrently. Retry as patch.
 		var app appv1alpha1.App
 		if err := c.Get(ctx, client.ObjectKey{Name: "app"}, &app); err != nil {
-			return fmt.Errorf("failed to get App after concurrent create: %w", err)
+			return 0, fmt.Errorf("failed to get App after concurrent create: %w", err)
 		}
 		return patchApp(ctx, c, &app, specMap, dryRun)
 	}
 	if err != nil {
-		return fmt.Errorf("failed to create App: %w", err)
+		return 0, fmt.Errorf("failed to create App: %w", err)
 	}
 
 	if dryRun {
 		logrus.Info("App created with defaults")
 		var app appv1alpha1.App
 		if err := c.Get(ctx, client.ObjectKey{Name: "app"}, &app); err != nil {
-			return fmt.Errorf("failed to get App: %w", err)
+			return 0, fmt.Errorf("failed to get App: %w", err)
 		}
 		return patchApp(ctx, c, &app, specMap, true)
 	}
 
 	logrus.Info("App created")
-	return nil
+	return created.GetGeneration(), nil
 }
 
 // fillRequiredFields adds zero values for required fields that are missing
@@ -380,13 +424,15 @@ func fillRequiredFields(specMap map[string]any, schema *apiextensionsv1.JSONSche
 	}
 }
 
-// patchApp applies a merge patch with the given spec properties. In dry-run
-// mode, the API server validates the patch but does not persist it.
-func patchApp(ctx context.Context, c client.Client, app *appv1alpha1.App, specMap map[string]any, dryRun bool) error {
+// patchApp applies a merge patch with the given spec properties. In
+// dry-run mode the API server validates without persisting. The
+// returned generation is metadata.generation after the patch, used to
+// filter stale condition snapshots in the post-write wait.
+func patchApp(ctx context.Context, c client.Client, app *appv1alpha1.App, specMap map[string]any, dryRun bool) (int64, error) {
 	patchObj := map[string]any{"spec": specMap}
 	patchBytes, err := json.Marshal(patchObj)
 	if err != nil {
-		return fmt.Errorf("failed to marshal patch: %w", err)
+		return 0, fmt.Errorf("failed to marshal patch: %w", err)
 	}
 
 	var opts []client.PatchOption
@@ -395,7 +441,7 @@ func patchApp(ctx context.Context, c client.Client, app *appv1alpha1.App, specMa
 	}
 
 	if err := c.Patch(ctx, app, client.RawPatch(types.MergePatchType, patchBytes), opts...); err != nil {
-		return fmt.Errorf("failed to update App: %w", err)
+		return 0, fmt.Errorf("failed to update App: %w", err)
 	}
 
 	if dryRun {
@@ -403,7 +449,158 @@ func patchApp(ctx context.Context, c client.Client, app *appv1alpha1.App, specMa
 	} else {
 		logrus.Info("App updated")
 	}
+	return app.Generation, nil
+}
+
+// waitForDesiredState waits for the App to reach the state
+// implied by the properties that were set. running=true waits
+// for ContainerEngineReady=True when the engine controller is
+// enabled, or Running=True otherwise. running=false waits for
+// the App's Running condition to go False — stricter than
+// "container engine disconnected" because the VM must actually
+// stop. Other property changes do not wait.
+//
+// The predicate rejects snapshots with ObservedGeneration < minGen, so a
+// stale ContainerEngineReady=True from a previous reconcile cannot satisfy it.
+//
+// TODO: changes that trigger a VM restart without changing "running"
+// (for example, containerEngine.name alone) are still not waited on.
+// A dedicated "Reconciled" condition on App would let the CLI detect
+// when the full reconcile chain has settled for any property change.
+func waitForDesiredState(ctx context.Context, config *rest.Config, properties map[string]string, timeout time.Duration, minGen int64) error {
+	runningVal, ok := properties["running"]
+	if !ok {
+		return nil
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	if runningVal == "true" {
+		// Without the engine controller enabled, nothing stamps
+		// ContainerEngineReady, and waiting on it would hang for
+		// the full timeout on Windows (engine init() skips
+		// registration) or on any run that excludes engine via
+		// --controllers. Discovery errors default to the stricter
+		// ContainerEngineReady wait rather than the Running
+		// fallback.
+		engineEnabled, err := isEngineControllerEnabled(ctx, config)
+		if err != nil {
+			logrus.WithError(err).Debug("Falling back to ContainerEngineReady wait after discovery lookup failed")
+			engineEnabled = true
+		}
+		if engineEnabled {
+			logrus.Info("Waiting for container engine to be ready")
+			return watchCondition(ctx, config, func(obj *unstructured.Unstructured) bool {
+				status, gen, present := conditionInfo(obj, "ContainerEngineReady")
+				return present && gen >= minGen && status == metav1.ConditionTrue
+			})
+		}
+		logrus.Info("Waiting for the VM to start (engine controller not enabled)")
+		return watchCondition(ctx, config, func(obj *unstructured.Unstructured) bool {
+			status, gen, present := conditionInfo(obj, "Running")
+			return present && gen >= minGen && status == metav1.ConditionTrue
+		})
+	}
+	logrus.Info("Waiting for the VM to stop")
+	return watchCondition(ctx, config, func(obj *unstructured.Unstructured) bool {
+		// Absent Running means the VM was never started, so there's
+		// nothing to wait for. Otherwise wait until the condition is
+		// refreshed with our generation and reports a non-True status.
+		status, gen, present := conditionInfo(obj, "Running")
+		if !present {
+			return true
+		}
+		return gen >= minGen && status != metav1.ConditionTrue
+	})
+}
+
+// isEngineControllerEnabled reports whether the engine controller
+// is listed in the discovery ConfigMap's EnabledControllers.
+func isEngineControllerEnabled(ctx context.Context, config *rest.Config) (bool, error) {
+	discovery, err := controllers.NewControllerManagerDiscovery(config)
+	if err != nil {
+		return false, fmt.Errorf("failed to create discovery client: %w", err)
+	}
+	enabled, err := discovery.GetEnabledControllers(ctx)
+	if err != nil {
+		return false, fmt.Errorf("failed to list enabled controllers: %w", err)
+	}
+	return slices.Contains(enabled, engineControllerName), nil
+}
+
+// watchCondition watches the App singleton until the predicate
+// returns true or the context expires. watchtools.UntilWithSync
+// re-lists transparently on benign watch-channel closures (API
+// timeouts, proxy disconnects, resource-version compaction).
+func watchCondition(ctx context.Context, config *rest.Config, satisfied func(*unstructured.Unstructured) bool) error {
+	dynClient, err := dynamic.NewForConfig(config)
+	if err != nil {
+		return fmt.Errorf("failed to create dynamic client: %w", err)
+	}
+
+	// Defensive filter; the webhook enforces metadata.name=app on the singleton.
+	lw := &cache.ListWatch{
+		ListFunc: func(options metav1.ListOptions) (runtime.Object, error) {
+			options.FieldSelector = "metadata.name=app"
+			return dynClient.Resource(appGVR).List(ctx, options)
+		},
+		WatchFunc: func(options metav1.ListOptions) (watch.Interface, error) {
+			options.FieldSelector = "metadata.name=app"
+			return dynClient.Resource(appGVR).Watch(ctx, options)
+		},
+	}
+
+	precondition := func(store cache.Store) (bool, error) {
+		for _, item := range store.List() {
+			if obj, ok := item.(*unstructured.Unstructured); ok && satisfied(obj) {
+				return true, nil
+			}
+		}
+		return false, nil
+	}
+
+	condition := func(event watch.Event) (bool, error) {
+		obj, ok := event.Object.(*unstructured.Unstructured)
+		if !ok {
+			return false, nil
+		}
+		return satisfied(obj), nil
+	}
+
+	if _, err := watchtools.UntilWithSync(ctx, lw, &unstructured.Unstructured{}, precondition, condition); err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			return fmt.Errorf("timed out waiting for App state: %w", err)
+		}
+		if errors.Is(err, context.Canceled) {
+			return fmt.Errorf("wait cancelled: %w", err)
+		}
+		return fmt.Errorf("failed to watch App: %w", err)
+	}
 	return nil
+}
+
+// conditionInfo returns the status, observedGeneration, and presence
+// of the named condition on an App. Callers must check present
+// before trusting the other return values.
+func conditionInfo(obj *unstructured.Unstructured, condType string) (status metav1.ConditionStatus, observedGen int64, present bool) {
+	conditions, found, err := unstructured.NestedSlice(obj.Object, "status", "conditions")
+	if err != nil || !found {
+		return "", 0, false
+	}
+	for _, c := range conditions {
+		cond, ok := c.(map[string]any)
+		if !ok {
+			continue
+		}
+		if cond["type"] != condType {
+			continue
+		}
+		s, _ := cond["status"].(string)
+		gen, _, _ := unstructured.NestedInt64(cond, "observedGeneration")
+		return metav1.ConditionStatus(s), gen, true
+	}
+	return "", 0, false
 }
 
 // getAppKubeClient returns a controller-runtime client with the App scheme

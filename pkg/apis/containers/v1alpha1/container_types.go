@@ -53,11 +53,20 @@ type ContainerPort struct {
 
 // ContainerSpec defines the configuration the container was created with.
 type ContainerSpec struct {
-	// State is the desired state of the container.
+	// State is the desired state of the container. Valid values are
+	// "unknown", "created", and "running".
+	//
+	// The engine controller creates mirrors with state=unknown, which
+	// means "mirror Docker status but take no action". Setting the
+	// field to "running" or "created" expresses user intent: the
+	// reconciler dispatches ContainerStart, ContainerUnpause, or
+	// ContainerStop until the container reaches the desired state.
+	// "created" is satisfied by any non-running state (created,
+	// exited, dead).
 	//
 	// +required
-	// +kubebuilder:default:=running
-	// +kubebuilder:validation:Enum=created;running
+	// +kubebuilder:default:=unknown
+	// +kubebuilder:validation:Enum=created;running;unknown
 	State ContainerStatusValue `json:"state"`
 }
 
@@ -86,6 +95,8 @@ type ContainerStatus struct {
 	Image string `json:"image"`
 	// Ports describes the exposed ports of the container.
 	//
+	// +listType=map
+	// +listMapKey=name
 	// +optional
 	Ports []ContainerPort `json:"ports,omitempty"`
 	// Labels are the container labels.
@@ -205,6 +216,8 @@ type ContainerCreateRequestSpec struct {
 	Image string `json:"image"`
 	// Ports describes the exposed ports of the container.
 	//
+	// +listType=map
+	// +listMapKey=name
 	// +optional
 	Ports []ContainerPort `json:"ports,omitempty"`
 	// Labels are the container labels.  They are merged with the image labels.

@@ -114,6 +114,9 @@ spec:
                   - name
                   type: object
                 type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
               state:
                 allOf:
                 - enum:
@@ -282,8 +285,19 @@ spec:
                 - enum:
                   - created
                   - running
-                default: running
-                description: State is the desired state of the container.
+                  - unknown
+                default: unknown
+                description: |-
+                  State is the desired state of the container. Valid values are
+                  "unknown", "created", and "running".
+
+                  The engine controller creates mirrors with state=unknown, which
+                  means "mirror Docker status but take no action". Setting the
+                  field to "running" or "created" expresses user intent: the
+                  reconciler dispatches ContainerStart, ContainerUnpause, or
+                  ContainerStop until the container reaches the desired state.
+                  "created" is satisfied by any non-running state (created,
+                  exited, dead).
                 type: string
             required:
             - state
@@ -445,6 +459,9 @@ spec:
                   - name
                   type: object
                 type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
               startedAt:
                 description: StartedAt is the time this container was started; unset
                   if the container is stopped.

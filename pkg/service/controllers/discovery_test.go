@@ -185,3 +185,59 @@ func TestControllerManagerDiscoveryGroup(t *testing.T) {
 	_, err = client.CoreV1().ConfigMaps(d2.namespace).Get(t.Context(), ControllerManagerConfigMapName, metav1.GetOptions{})
 	assert.Assert(t, errors.IsNotFound(err), "expected config map to be deleted after all controller managers unregistered")
 }
+
+func TestInitDiscoveryAndMarkReady(t *testing.T) {
+	env := &envtest.Environment{
+		DownloadBinaryAssets: true,
+	}
+	cfg, err := env.Start()
+	assert.NilError(t, err, "failed to start environment")
+
+	defer func() {
+		err := env.Stop()
+		if runtime.GOOS != "windows" && err != nil {
+			checkError := os.Getenv("CI") == ""
+			checkError = checkError || !strings.Contains(err.Error(), "timeout waiting for process kube-apiserver to stop")
+			if checkError {
+				assert.NilError(t, err, "failed to stop environment")
+			}
+		}
+	}()
+
+	client, err := kubernetes.NewForConfig(cfg)
+	assert.NilError(t, err, "failed to create kubernetes client")
+
+	// InitDiscovery creates the ConfigMap without the ready annotation.
+	assert.NilError(t, InitDiscovery(t.Context(), client), "failed to init discovery")
+
+	cm, err := client.CoreV1().ConfigMaps(RDDSystemNamespace).Get(t.Context(), ControllerManagerConfigMapName, metav1.GetOptions{})
+	assert.NilError(t, err, "failed to get discovery config map after init")
+	assert.Check(t, cm.Annotations[ReadyAnnotation] == "", "expected ready annotation to be unset after InitDiscovery")
+
+	// MarkControlPlaneReady sets the annotation on the existing ConfigMap.
+	assert.NilError(t, MarkControlPlaneReady(t.Context(), client), "failed to mark control plane ready")
+
+	cm, err = client.CoreV1().ConfigMaps(RDDSystemNamespace).Get(t.Context(), ControllerManagerConfigMapName, metav1.GetOptions{})
+	assert.NilError(t, err, "failed to get discovery config map after mark ready")
+	assert.Equal(t, cm.Annotations[ReadyAnnotation], "true", "expected ready annotation to be set")
+
+	// Registering a controller manager preserves the ready annotation.
+	d, err := NewControllerManagerDiscoveryGroup(cfg, "test-group")
+	assert.NilError(t, err, "failed to create ControllerManagerDiscoveryGroup")
+	assert.NilError(t, d.RegisterControllerManager(t.Context(), ControllerManagerInput{
+		HealthPort: 1234,
+	}), "failed to register controller manager")
+
+	cm, err = client.CoreV1().ConfigMaps(RDDSystemNamespace).Get(t.Context(), ControllerManagerConfigMapName, metav1.GetOptions{})
+	assert.NilError(t, err, "failed to get discovery config map after register")
+	assert.Equal(t, cm.Annotations[ReadyAnnotation], "true", "expected ready annotation to survive controller manager registration")
+	firstUID := cm.UID
+
+	// Re-init replaces the ConfigMap so --since=startup sees a fresh
+	// creationTimestamp. UID is time-independent; creationTimestamp has second precision.
+	assert.NilError(t, InitDiscovery(t.Context(), client), "failed to re-init discovery")
+	cm, err = client.CoreV1().ConfigMaps(RDDSystemNamespace).Get(t.Context(), ControllerManagerConfigMapName, metav1.GetOptions{})
+	assert.NilError(t, err, "failed to get discovery config map after re-init")
+	assert.Check(t, cm.Annotations[ReadyAnnotation] == "", "expected ready annotation to be cleared by re-init")
+	assert.Check(t, cm.UID != firstUID, "expected re-init to create a fresh ConfigMap with a new UID")
+}

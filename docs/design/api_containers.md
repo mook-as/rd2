@@ -4,13 +4,31 @@
 > The Rancher Desktop Containers API is still in the concept stage and the details
 will need to be ironed out.
 
-The Rancher Desktop Containers API is a mostly read-only reflection of the
-running container engine objects; unless otherwise noted, any modification will
-be rejected by the controllers.
+The Rancher Desktop Containers API mirrors the container engine state into
+Kubernetes resources.  The engine controller connects to the container engine,
+performs a full sync of containers, images, and volumes, then watches the engine
+event stream for live updates.
 
 All objects are in the `containers.rancherdesktop.io` API group.
 
 All times are in RFC3339 format, per usual Kubernetes conventions.
+
+## Terminology
+
+Capitalized `Container`, `Image`, `Volume`, and `ContainerNamespace`
+refer to the resource types in this API group. Lowercase `container`,
+`image`, and `volume` refer to the underlying Docker engine objects.
+The rdd LimaVM also runs k3s, so "k8s container" would be ambiguous —
+this doc, code comments, and commit messages rely on capitalization
+instead.
+
+Where capitalization alone is ambiguous (sentence start, or prose that
+mentions both the engine object and the resource), the resources are
+called "Container mirrors", "Image mirrors", and "Volume mirrors", after
+the engine controller's role. The code uses the same terminology: the
+finalizer is `engine.rancherdesktop.io/docker-mirror`, the cleanup
+helper is `cleanupMirrorResources`, and the name helper is
+`volumeMirrorName`.
 
 When running `containerd`, the containerd namespace is listed as the `namespace`
 label rather than re-using the Kubernetes namespace.  When running `dockerd`,
@@ -25,6 +43,45 @@ unspecified.
 
 This API is mainly for use by the Rancher Desktop front end; all other users are
 strongly urged to use the relevant CLI or other API instead.
+
+## Engine Mirroring
+
+The engine controller (`pkg/controllers/app/engine/`) watches the `App` resource
+for the `Running` condition.  When the VM is running with the `moby` backend,
+the controller:
+
+1. Connects to the Docker engine via the host socket.
+2. Creates the `rancher-desktop` Kubernetes namespace and the `moby`
+   `ContainerNamespace` resource.
+3. Lists all Docker containers, images, and volumes and creates the
+   corresponding `Container`, `Image`, and `Volume` mirrors.
+4. Watches the Docker event stream for create, update, and delete events.
+
+Containerd mirroring is not implemented yet; with `containerEngine.name=containerd`
+the controller sets `ContainerEngineReady` to `True` with reason `NotApplicable`
+and takes no mirroring action.
+
+The controller sets the `ContainerEngineReady` condition on the `App` resource
+to `True` after the initial sync completes.  Scripts can wait for readiness:
+
+```sh
+rdd ctl wait --for=condition=ContainerEngineReady=True app/app
+```
+
+When the VM shuts down or the container engine becomes unreachable, the
+controller removes all mirror resources and sets `ContainerEngineReady` to
+`False`.
+
+### Finalizer lifecycle
+
+Each mirror carries the `engine.rancherdesktop.io/docker-mirror`
+finalizer. A K8s-side delete triggers the finalizer handler, which
+deletes the corresponding engine object and then strips the finalizer
+so the mirror can be garbage-collected.
+
+An engine-side delete (for example, `docker rm`) goes the other way:
+the engine controller strips the finalizer and deletes the mirror
+directly, without calling back into the engine.
 
 ## Namespaces
 
@@ -52,9 +109,9 @@ apiVersion: containers.rancherdesktop.io/v1alpha1
 kind: Container
 metadata:
   name: 8eb6f2cf72b6616aa743cf9187f350af84c9749dab65474db2530f26745d2ef3 # container ID
-  namespace: default
+  namespace: rancher-desktop
 spec:
-  state: running # Desired state
+  state: unknown # Desired state (see below)
 status:
   name: magical_gates
   namespace: k8s.io # Refers to a `ContainerNamespace` object
@@ -91,12 +148,23 @@ status:
     status: False
 ```
 
-Deleting a `Container` object causes the finalizer to delete the matching
-container in the container engine.
+### Container state transitions
+
+The engine controller creates every `Container` with
+`spec.state: unknown`: the engine mirrors Docker state without
+expressing intent, and the controller takes no start/stop action.
+
+To drive a container from the K8s API, set `spec.state` to `running`
+or `created`. The engine controller starts or stops the underlying
+container accordingly. `status.status` always reflects the actual
+Docker state.
+
+Valid values for `spec.state`:
+- `unknown` — engine-managed; no action taken (default)
+- `running` — container should be running
+- `created` — container should be stopped
 
 ### Container actions
-
-We will need to support a variety of actions on containers:
 
 #### Create container
 
@@ -142,7 +210,8 @@ An admission controller will ensure that we cannot have multiple
 `name`/`namespace` pair.
 
 #### Change container state
-Set `.spec.state` to match how Kubernetes resources normally work.
+Set `.spec.state` to `running` or `created`; the engine controller starts or
+stops the container.
 
 #### Fetch container logs
 An endpoint at `/passthrough/containers/logs` will speak WebSocket; messages are
@@ -257,12 +326,16 @@ status:
 ```
 
 #### Untag image
-Delete the `Image` object; the finalizer will untag the image.  If all tags of
-an image are removed, _and_ it is not in use by a container (running or not),
-then the image itself is removed.
+Delete the `Image` object through the K8s API; the finalizer runs
+`ImageRemove` on the matching Docker reference. Docker keeps the underlying
+image while another tag or a running container references it, so removing
+one tag may leave the image in place.
 
-If a container is using an image via a tag, then removing that tag may end up
-creating a new `Image` object to represent the untagged image.
+The engine controller mirrors untag events in the reverse direction: on
+a Docker `untag` event it re-inspects the image and removes any K8s
+`Image` resources whose `.status.repoTag` is no longer in Docker's tag
+list. If the image becomes dangling, a new `Image` object without
+`.status.repoTag` takes its place.
 
 #### Delete untagged image
 Delete the `Image` object (which does not have any `.status.repoTag` set).  An
@@ -275,8 +348,12 @@ running container that uses that image.
 apiVersion: containers.rancherdesktop.io/v1alpha1
 kind: Volume
 metadata:
-  name: volume-name-12345 # based on containerd name / namespace?
-  namespace: default # Not related to containerd namespace
+  # `vol-` plus hex SHA-256 of the original Docker volume name.
+  # Docker allows uppercase and underscores, which are invalid in
+  # RFC 1123 subdomains; the controller hashes the name and keeps
+  # the original in `.status.name`.
+  name: vol-d404559327842434dee6f7a10d8998594be5b49a7ef9a91a42ca2b3d0174ab9d
+  namespace: rancher-desktop
 status:
   name: volume-name
   namespace: k8s.io # Refers to a `ContainerNamespace` object

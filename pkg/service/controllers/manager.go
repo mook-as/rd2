@@ -96,11 +96,6 @@ func (scm *SharedControllerManager) Start(ctx context.Context) error {
 
 	log := klog.FromContext(ctx)
 
-	// Clean up stale discovery configmap to prevent readiness check confusion
-	if err := scm.discovery.UnregisterControllerManager(ctx); err != nil {
-		log.Error(err, "Failed to cleanup stale discovery configmap, continuing with startup")
-	}
-
 	// Install CRDs for all registered controllers in parallel
 	log.Info("Installing CRDs for all controllers in parallel", "controllers", len(scm.registrations))
 	if err := scm.installControllerCRDs(ctx); err != nil {
@@ -198,6 +193,13 @@ func (scm *SharedControllerManager) Start(ctx context.Context) error {
 	if err := scm.registerDiscovery(ctx); err != nil {
 		log.Error(err, "Failed to register controller manager for discovery")
 		// Don't fail startup for discovery registration errors
+	}
+
+	// Mark the control plane ready after registerDiscovery so clients
+	// waiting on the ready annotation see both CRDs installed and
+	// controller registration written, not just CRDs.
+	if err := MarkControlPlaneReady(ctx, scm.discovery.client); err != nil {
+		return fmt.Errorf("failed to mark control plane as ready: %w", err)
 	}
 
 	// Ensure cleanup on shutdown with a timeout to avoid blocking if apiserver is gone
