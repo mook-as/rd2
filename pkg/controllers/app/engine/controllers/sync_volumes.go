@@ -33,18 +33,6 @@ func volumeMirrorName(dockerName string) string {
 	return fmt.Sprintf("vol-%x", sum)
 }
 
-// syncContainerNamespace creates the "moby" ContainerNamespace mirror.
-// This resource has no mirror finalizer: Docker has no corresponding
-// engine object for the reverse delete, and cleanupMirrorResources
-// sweeps it unconditionally on VM stop, so a finalizer with no
-// handler would only trap user deletes in Terminating.
-func (w *dockerWatcher) syncContainerNamespace(ctx context.Context) error {
-	applyConfig := containersv1alpha1apply.ContainerNamespace(containerNamespace, w.apiNamespace)
-
-	return w.k8s.Apply(ctx, applyConfig,
-		client.ForceOwnership, client.FieldOwner(controllerName))
-}
-
 // syncAllVolumes lists all Docker volumes, creates or updates their
 // Volume mirrors, and prunes stale ones.
 func (w *dockerWatcher) syncAllVolumes(ctx context.Context) error {
