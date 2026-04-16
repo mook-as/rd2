@@ -51,9 +51,9 @@ func (r *reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 
 	convertStatusToCondition := func(status, conditionType, reason string) {
 		if string(container.Status.Status) == status {
-			r.setCondition(&container, conditionType, metav1.ConditionTrue, reason, "Container is "+status)
+			r.setCondition(ctx, &container, conditionType, metav1.ConditionTrue, reason, "Container is "+status)
 		} else {
-			r.setCondition(&container, conditionType, metav1.ConditionFalse, "Not"+reason, "Container is not "+status)
+			r.setCondition(ctx, &container, conditionType, metav1.ConditionFalse, "Not"+reason, "Container is not "+status)
 		}
 	}
 
@@ -62,7 +62,7 @@ func (r *reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	convertStatusToCondition("restarting", "Restarting", "Restarting")
 	convertStatusToCondition("dead", "Dead", "Dead")
 	// TODO: Figure out how to derive OOMKilled
-	r.setCondition(&container, "OOMKilled", metav1.ConditionUnknown, "OOMKilled", "Unable to tell if container is OOMKilled")
+	r.setCondition(ctx, &container, "OOMKilled", metav1.ConditionUnknown, "OOMKilled", "Unable to tell if container is OOMKilled")
 
 	// Set defaults
 	if container.Status.Status == "" {
@@ -77,17 +77,21 @@ func (r *reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	return ctrl.Result{}, nil
 }
 
-// setCondition sets or updates a condition in the container status.
-func (r *reconciler) setCondition(container *containersv1alpha1.Container, conditionType string, status metav1.ConditionStatus, reason, message string) {
+// setCondition sets or updates a condition in the container status and
+// logs every state change.
+func (r *reconciler) setCondition(ctx context.Context, container *containersv1alpha1.Container, conditionType string, status metav1.ConditionStatus, reason, message string) {
 	changed := apimeta.SetStatusCondition(&container.Status.Conditions, metav1.Condition{
 		Type:    conditionType,
 		Status:  status,
 		Reason:  reason,
 		Message: message,
 	})
-	if changed {
-		r.Recorder.Eventf(container, nil, corev1.EventTypeNormal, "ConditionChanged", conditionType, message)
+	if !changed {
+		return
 	}
+	logf.FromContext(ctx).Info("Condition changed",
+		"type", conditionType, "status", status, "reason", reason, "message", message)
+	r.Recorder.Eventf(container, nil, corev1.EventTypeNormal, "ConditionChanged", conditionType, message)
 }
 
 // SetupWithManager sets up the controller with the Manager.

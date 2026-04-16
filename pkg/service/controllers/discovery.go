@@ -27,6 +27,13 @@ const (
 
 	// RDDSystemNamespace is the namespace where RDD stores its control plane information.
 	RDDSystemNamespace = "rdd-system"
+
+	// ReadyAnnotation is set on the discovery ConfigMap after every
+	// enabled controller has installed its CRDs and every controller
+	// manager has registered its data entry. Clients must wait for
+	// this annotation because the ConfigMap itself exists from the
+	// moment the control plane starts, before any controller is ready.
+	ReadyAnnotation = "rdd.rancherdesktop.io/ready"
 )
 
 // ControllerManagerInput contains the input parameters for registering a controller manager.
@@ -131,7 +138,7 @@ func (d *ControllerManagerDiscoveryGroup) registerControllerManagerImpl(ctx cont
 		metav1.PatchOptions{},
 	)
 	if err == nil {
-		klog.InfoS("Registered controller manager in cluster",
+		klog.FromContext(ctx).Info("Registered controller manager in cluster",
 			"namespace", d.namespace,
 			"configmap", ControllerManagerConfigMapName,
 			"name", d.name,
@@ -167,7 +174,7 @@ func (d *ControllerManagerDiscoveryGroup) registerControllerManagerImpl(ctx cont
 		return fmt.Errorf("failed to register controller manager: %w", err)
 	}
 
-	klog.InfoS("Registered initial controller manager in cluster",
+	klog.FromContext(ctx).Info("Registered initial controller manager in cluster",
 		"namespace", d.namespace,
 		"configmap", ControllerManagerConfigMapName,
 		"name", d.name,
@@ -176,7 +183,9 @@ func (d *ControllerManagerDiscoveryGroup) registerControllerManagerImpl(ctx cont
 	return nil
 }
 
-// UnregisterControllerManager removes the controller manager ConfigMap.
+// UnregisterControllerManager removes this controller manager's data entry
+// from the discovery ConfigMap. The ConfigMap itself is owned by the control
+// plane; only [InitDiscovery] and [CleanupDiscovery] create or delete it.
 func (d *ControllerManagerDiscoveryGroup) UnregisterControllerManager(ctx context.Context) error {
 	patchData, err := json.Marshal(map[string]any{
 		"data": map[string]any{
@@ -187,7 +196,7 @@ func (d *ControllerManagerDiscoveryGroup) UnregisterControllerManager(ctx contex
 		return fmt.Errorf("failed to serialize controller manager patch: %w", err)
 	}
 
-	cm, err := d.client.CoreV1().ConfigMaps(d.namespace).Patch(
+	_, err = d.client.CoreV1().ConfigMaps(d.namespace).Patch(
 		ctx,
 		ControllerManagerConfigMapName,
 		types.StrategicMergePatchType,
@@ -201,34 +210,7 @@ func (d *ControllerManagerDiscoveryGroup) UnregisterControllerManager(ctx contex
 		return fmt.Errorf("failed to patch controller manager configmap: %w", err)
 	}
 
-	if len(cm.Data) == 0 {
-		// No more entries, delete the ConfigMap
-		err = d.client.CoreV1().ConfigMaps(d.namespace).Delete(
-			ctx,
-			ControllerManagerConfigMapName,
-			metav1.DeleteOptions{
-				Preconditions: &metav1.Preconditions{
-					ResourceVersion: &cm.ResourceVersion,
-				},
-			},
-		)
-
-		if err == nil {
-			klog.InfoS("Unregistered final controller manager from cluster",
-				"namespace", d.namespace,
-				"configmap", ControllerManagerConfigMapName,
-				"name", d.name)
-			return nil
-		}
-
-		// If somebody else deleted the config map or modified it, the config
-		// map should stay in the state the other controller managers left it.
-		if !errors.IsNotFound(err) && !errors.IsConflict(err) {
-			return fmt.Errorf("failed to delete controller manager configmap: %w", err)
-		}
-	}
-
-	klog.InfoS("Unregistered controller manager from cluster",
+	klog.FromContext(ctx).Info("Unregistered controller manager from cluster",
 		"namespace", d.namespace,
 		"configmap", ControllerManagerConfigMapName,
 		"name", d.name)
@@ -375,10 +357,13 @@ func (d *ControllerManagerDiscovery) ensureNamespace(ctx context.Context) error 
 	return err
 }
 
-// InitDiscovery deletes any stale discovery ConfigMap and creates an empty one.
-// The ConfigMap's creationTimestamp serves as the control plane start time.
-// This must be called after the API server is ready and before any controller
-// managers register.
+// InitDiscovery deletes any stale discovery ConfigMap and creates an
+// empty one. The creationTimestamp serves as the control plane start
+// time. Call it after the API server is ready and before any
+// controller managers register. The new ConfigMap does not carry
+// [ReadyAnnotation]; [MarkControlPlaneReady] must be called once every
+// enabled controller has installed its CRDs and registered its data
+// entry in the ConfigMap.
 func InitDiscovery(ctx context.Context, client kubernetes.Interface) error {
 	d := &ControllerManagerDiscovery{client: client, namespace: RDDSystemNamespace}
 	if err := d.ensureNamespace(ctx); err != nil {
@@ -405,7 +390,40 @@ func InitDiscovery(ctx context.Context, client kubernetes.Interface) error {
 		return fmt.Errorf("failed to create discovery configmap: %w", err)
 	}
 
-	klog.InfoS("Initialized discovery configmap",
+	klog.FromContext(ctx).Info("Initialized discovery configmap",
+		"namespace", RDDSystemNamespace,
+		"configmap", ControllerManagerConfigMapName)
+	return nil
+}
+
+// MarkControlPlaneReady sets [ReadyAnnotation] on the discovery
+// ConfigMap to signal that every enabled controller has installed
+// its CRDs and registered its data entry. Call it after the last
+// [ControllerManagerDiscoveryGroup.RegisterControllerManager] call,
+// or immediately after [InitDiscovery] when no controllers are
+// configured.
+func MarkControlPlaneReady(ctx context.Context, client kubernetes.Interface) error {
+	patchData, err := json.Marshal(map[string]any{
+		"metadata": map[string]any{
+			"annotations": map[string]string{
+				ReadyAnnotation: "true",
+			},
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("failed to serialize ready annotation patch: %w", err)
+	}
+	_, err = client.CoreV1().ConfigMaps(RDDSystemNamespace).Patch(
+		ctx,
+		ControllerManagerConfigMapName,
+		types.StrategicMergePatchType,
+		patchData,
+		metav1.PatchOptions{},
+	)
+	if err != nil {
+		return fmt.Errorf("failed to mark control plane as ready: %w", err)
+	}
+	klog.FromContext(ctx).Info("Marked control plane as ready",
 		"namespace", RDDSystemNamespace,
 		"configmap", ControllerManagerConfigMapName)
 	return nil
@@ -421,7 +439,7 @@ func CleanupDiscovery(ctx context.Context, client *kubernetes.Clientset) error {
 		return fmt.Errorf("failed to delete controller manager configmap: %w", err)
 	}
 
-	klog.InfoS("Cleaned up stale controller manager discovery configmap",
+	klog.FromContext(ctx).Info("Cleaned up stale controller manager discovery configmap",
 		"namespace", RDDSystemNamespace,
 		"configmap", ControllerManagerConfigMapName)
 

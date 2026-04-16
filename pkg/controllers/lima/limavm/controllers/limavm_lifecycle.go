@@ -198,7 +198,7 @@ func (r *LimaVMReconciler) handleWatchedState(ctx context.Context, limaVM *v1alp
 		if !base.HasConditionWithReason(limaVM.Status.Conditions, ConditionRunning, metav1.ConditionTrue, ReasonStarted) {
 			patch := client.MergeFrom(limaVM.DeepCopy())
 			limaVM.Status.RestartCount++
-			r.setCondition(limaVM, ConditionRunning, metav1.ConditionTrue, ReasonStarted, "Lima instance is running")
+			r.setCondition(ctx, limaVM, ConditionRunning, metav1.ConditionTrue, ReasonStarted, "Lima instance is running")
 			if err := r.Status().Patch(ctx, limaVM, patch); err != nil {
 				logger.Error(err, "Failed to update running condition")
 				return ctrl.Result{}, err
@@ -339,7 +339,7 @@ func (r *LimaVMReconciler) handleRestartNeeded(ctx context.Context, limaVM *v1al
 		// its own DeepCopy and miss the RestartNeeded change.
 		patch := client.MergeFrom(limaVM.DeepCopy())
 		limaVM.Status.RestartNeeded = false
-		r.setCondition(limaVM, ConditionRunning, metav1.ConditionFalse, ReasonStopped, "Stopped for restart")
+		r.setCondition(ctx, limaVM, ConditionRunning, metav1.ConditionFalse, ReasonStopped, "Stopped for restart")
 		return ctrl.Result{}, r.Status().Patch(ctx, limaVM, patch)
 
 	case phaseStarting:

@@ -40,7 +40,7 @@ EOF
 }
 
 local_setup_file() {
-    setup_rdd_control_plane "app,limavm"
+    setup_rdd_control_plane
 }
 
 @test "create App resource" {
@@ -300,7 +300,9 @@ EOF
 
 @test "unsupported Kubernetes version is rejected by admission webhook" {
     delete_app
-    run -1 rdd set running=false kubernetes.enabled=true kubernetes.version=1.31.99
+    # Exit code 3 is the cliexit.CodeRejected admission-rejection
+    # signal added in this PR; see pkg/cli/exit/exit.go.
+    run -3 rdd set running=false kubernetes.enabled=true kubernetes.version=1.31.99
     assert_output --partial "not supported"
 }
 

@@ -10,6 +10,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -22,6 +23,7 @@ import (
 	_ "k8s.io/component-base/metrics/prometheus/clientgo"
 	_ "k8s.io/component-base/metrics/prometheus/version"
 
+	cliexit "github.com/rancher-sandbox/rancher-desktop-daemon/pkg/cli/exit"
 	"github.com/rancher-sandbox/rancher-desktop-daemon/pkg/cli/help"
 	"github.com/rancher-sandbox/rancher-desktop-daemon/pkg/developer"
 	"github.com/rancher-sandbox/rancher-desktop-daemon/pkg/hostagent"
@@ -153,6 +155,12 @@ func main() {
 		newVersionCommand(),
 	)
 	if err := cli.RunNoErrOutput(cmd); err != nil {
+		// *cliexit.Error lets a subcommand opt into a specific exit code; everything else gets exit 1.
+		var exitErr *cliexit.Error
+		if errors.As(err, &exitErr) {
+			logrus.Error(err)
+			os.Exit(exitErr.Code)
+		}
 		logrus.Fatal(err)
 	}
 }

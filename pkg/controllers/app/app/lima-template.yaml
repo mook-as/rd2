@@ -27,7 +27,7 @@ portForwards:
   hostPortRange:
   - 0
   - 0
-  hostSocket: "{{.Param.HOST_SHORT_DIR}}/docker.sock"
+  hostSocket: "{{.Param.HOST_DOCKER_SOCKET}}"
 provision:
 - mode: system
   script: |

@@ -31,11 +31,15 @@ func (c *immutableValidator) ValidateDelete(context.Context, *v1alpha1.Container
 }
 
 // ValidateUpdate implements [ctrlwebhookadmission.Validator].
+// Only spec.state changes are allowed; all other spec fields are immutable.
+// The CRD schema already constrains spec.state to the valid enum
+// ({created, running, unknown}), so this webhook only enforces that
+// nothing else in the spec changes.
 func (c *immutableValidator) ValidateUpdate(_ context.Context, oldContainer, newContainer *v1alpha1.Container) (warnings ctrlwebhookadmission.Warnings, err error) {
-	// Return an error if the old object does not match the new object.
-	if !equality.Semantic.DeepEqual(oldContainer.Spec, newContainer.Spec) {
-		return nil, fmt.Errorf("container objects must not be modified: old: %v, new: %v", oldContainer, newContainer)
+	oldCopy := oldContainer.Spec
+	oldCopy.State = newContainer.Spec.State
+	if !equality.Semantic.DeepEqual(oldCopy, newContainer.Spec) {
+		return nil, fmt.Errorf("only spec.state may be changed: old: %v, new: %v", oldContainer.Spec, newContainer.Spec)
 	}
-
 	return nil, nil
 }

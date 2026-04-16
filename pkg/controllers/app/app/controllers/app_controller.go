@@ -20,6 +20,7 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
@@ -55,8 +56,8 @@ func applySpecToTemplate(baseTemplate string, spec v1alpha1.AppSpec) (string, er
 		baseTemplate,
 		"param:",
 		fmt.Sprintf("  CONTAINER_ENGINE: %s", spec.ContainerEngine.Name),
+		fmt.Sprintf("  HOST_DOCKER_SOCKET: %q", instance.DockerSocket()),
 		fmt.Sprintf("  HOST_HOME_GUEST: %q", toLinuxPath(hostHome)),
-		fmt.Sprintf("  HOST_SHORT_DIR: %q", instance.ShortDir()),
 		fmt.Sprintf("  KUBERNETES_ENABLED: %v", spec.Kubernetes.Enabled),
 		fmt.Sprintf("  KUBERNETES_VERSION: %s", spec.Kubernetes.Version),
 		"",
@@ -298,28 +299,37 @@ func (r *AppReconciler) Reconcile(ctx context.Context, _ ctrl.Request) (ctrl.Res
 		return ctrl.Result{}, nil
 	}
 
-	// Mirror LimaVM status conditions onto the App status.
-	// The priority chain above returns after every other action, so the App's
-	// resourceVersion from the initial Get is still current — no re-read needed.
-	// Truncate messages defensively: the LimaVM controller already truncates at
-	// source, but guarding here ensures a future bypass can't cause the App
-	// status update to fail CRD validation.
-	statusChanged := false
-	for _, cond := range limaVM.Status.Conditions {
-		statusChanged = apimeta.SetStatusCondition(&app.Status.Conditions, metav1.Condition{
-			Type:               cond.Type,
-			Status:             cond.Status,
-			Reason:             cond.Reason,
-			Message:            base.TruncateConditionMessage(cond.Message),
-			ObservedGeneration: app.Generation,
-			LastTransitionTime: cond.LastTransitionTime,
-		}) || statusChanged
-	}
-	if statusChanged {
-		if err := r.Status().Update(ctx, &app); err != nil {
-			log.Error(err, "Unable to update App status")
-			return ctrl.Result{}, err
+	// Mirror LimaVM status conditions onto the App status. The engine
+	// reconciler writes ContainerEngineReady on the same object, so
+	// app's resourceVersion from the initial Get can be stale.
+	// retry.RetryOnConflict + re-Get matches
+	// EngineReconciler.setEngineCondition; without it, concurrent
+	// writers 409-loop through controller-runtime requeues.
+	if err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		latest := &v1alpha1.App{}
+		if err := r.Get(ctx, client.ObjectKeyFromObject(&app), latest); err != nil {
+			return err
 		}
+		changed := false
+		for _, cond := range limaVM.Status.Conditions {
+			// Defensive: guards against a future LimaVM bypass that would fail CRD validation.
+			msg := base.TruncateConditionMessage(cond.Message)
+			changed = apimeta.SetStatusCondition(&latest.Status.Conditions, metav1.Condition{
+				Type:               cond.Type,
+				Status:             cond.Status,
+				Reason:             cond.Reason,
+				Message:            msg,
+				ObservedGeneration: latest.Generation,
+				LastTransitionTime: cond.LastTransitionTime,
+			}) || changed
+		}
+		if !changed {
+			return nil
+		}
+		return r.Status().Update(ctx, latest)
+	}); err != nil {
+		log.Error(err, "Unable to update App status")
+		return ctrl.Result{}, err
 	}
 
 	return ctrl.Result{}, nil

@@ -1,0 +1,72 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: SUSE LLC
+// SPDX-FileCopyrightText: The Rancher Desktop Authors
+
+// Package engine registers the engine controller. The engine controller
+// mirrors Docker container engine state (containers, images, volumes)
+// into `Container`, `Image`, and `Volume` resources in the
+// containers.rancherdesktop.io API group, and forwards user-initiated
+// deletions back to the Docker engine.
+package engine
+
+import (
+	"runtime"
+
+	ctrl "sigs.k8s.io/controller-runtime"
+
+	appv1alpha1 "github.com/rancher-sandbox/rancher-desktop-daemon/pkg/apis/app/v1alpha1"
+	containersv1alpha1 "github.com/rancher-sandbox/rancher-desktop-daemon/pkg/apis/containers/v1alpha1"
+	"github.com/rancher-sandbox/rancher-desktop-daemon/pkg/controllers/app/engine/controllers"
+	"github.com/rancher-sandbox/rancher-desktop-daemon/pkg/controllers/base"
+)
+
+func init() {
+	// Windows lacks a Docker socket transport, so the reconciler would
+	// hot-loop on connect errors. Skip registration until WSL2 support lands.
+	if runtime.GOOS == "windows" {
+		return
+	}
+	base.RegisterController(newController())
+}
+
+const (
+	controllerName = "engine"
+	// apiGroup is "containers" because the reconciler watches
+	// Container, Image, and Volume from that group and needs
+	// their CRDs at startup. Grouping engine with its dependencies
+	// keeps --controllers selections from splitting the two apart.
+	apiGroup = "containers"
+)
+
+type controller struct{}
+
+func newController() base.Controller {
+	return &controller{}
+}
+
+var _ base.Controller = &controller{}
+
+func (c *controller) GetName() string {
+	return controllerName
+}
+
+func (c *controller) GetAPIGroup() string {
+	return apiGroup
+}
+
+func (c *controller) GetCRDData() string {
+	return ""
+}
+
+func (c *controller) RegisterWithManager(mgr ctrl.Manager) error {
+	if err := appv1alpha1.AddToScheme(mgr.GetScheme()); err != nil {
+		return err
+	}
+	if err := containersv1alpha1.AddToScheme(mgr.GetScheme()); err != nil {
+		return err
+	}
+
+	return (&controllers.EngineReconciler{
+		Client: mgr.GetClient(),
+	}).SetupWithManager(mgr)
+}

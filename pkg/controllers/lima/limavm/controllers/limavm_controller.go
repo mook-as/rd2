@@ -177,7 +177,7 @@ func (r *LimaVMReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 
 	// Set initial condition to Unknown so other components know reconciliation is in progress.
 	if apimeta.FindStatusCondition(limaVM.Status.Conditions, ConditionCreated) == nil {
-		r.setCondition(&limaVM, ConditionCreated, metav1.ConditionUnknown, ReasonPending, "Reconciliation in progress")
+		r.setCondition(ctx, &limaVM, ConditionCreated, metav1.ConditionUnknown, ReasonPending, "Reconciliation in progress")
 		if err := r.Status().Update(ctx, &limaVM); err != nil {
 			logger.Error(err, "Failed to set initial condition")
 			return ctrl.Result{}, err
@@ -276,7 +276,7 @@ func (r *LimaVMReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	if err == nil && existingInst != nil {
 		logger.Info("Lima instance already exists", "instance", limaVM.Name)
 		limaVM.Status.ObservedTemplateResourceVersion = templateConfigMap.ResourceVersion
-		r.setCondition(&limaVM, ConditionCreated, metav1.ConditionTrue, ReasonCreated, "Lima instance exists")
+		r.setCondition(ctx, &limaVM, ConditionCreated, metav1.ConditionTrue, ReasonCreated, "Lima instance exists")
 		if statusErr := r.Status().Update(ctx, &limaVM); statusErr != nil {
 			logger.Error(statusErr, "Failed to update status for existing instance")
 			return ctrl.Result{}, statusErr
@@ -288,7 +288,7 @@ func (r *LimaVMReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	templateData, ok := templateConfigMap.Data[v1alpha1.TemplateConfigMapKey]
 	if !ok || templateData == "" {
 		err := errors.New("template ConfigMap missing template data")
-		r.setCondition(&limaVM, ConditionCreated, metav1.ConditionFalse, ReasonCreateFailed, err.Error())
+		r.setCondition(ctx, &limaVM, ConditionCreated, metav1.ConditionFalse, ReasonCreateFailed, err.Error())
 		if statusErr := r.Status().Update(ctx, &limaVM); statusErr != nil {
 			logger.Error(statusErr, "Failed to update status")
 		}
@@ -299,7 +299,7 @@ func (r *LimaVMReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	inst, err := limainstance.Create(ctx, limaVM.Name, []byte(templateData), false)
 	if err != nil {
 		logger.Error(err, "Failed to create Lima instance")
-		r.setCondition(&limaVM, ConditionCreated, metav1.ConditionFalse, ReasonCreateFailed, err.Error())
+		r.setCondition(ctx, &limaVM, ConditionCreated, metav1.ConditionFalse, ReasonCreateFailed, err.Error())
 		if statusErr := r.Status().Update(ctx, &limaVM); statusErr != nil {
 			logger.Error(statusErr, "Failed to update status after instance creation failure")
 		}
@@ -325,7 +325,7 @@ func (r *LimaVMReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		if delErr := limainstance.Delete(ctx, inst, true); delErr != nil {
 			logger.Error(delErr, "Failed to clean up instance after prepare failure")
 		}
-		r.setCondition(&limaVM, ConditionCreated, metav1.ConditionFalse, ReasonCreateFailed, err.Error())
+		r.setCondition(ctx, &limaVM, ConditionCreated, metav1.ConditionFalse, ReasonCreateFailed, err.Error())
 		if statusErr := r.Status().Update(ctx, &limaVM); statusErr != nil {
 			logger.Error(statusErr, "Failed to update status after instance preparation failure")
 		}
@@ -340,7 +340,7 @@ func (r *LimaVMReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	// delete the just-prepared instance directory.
 	patch := client.MergeFrom(limaVM.DeepCopy())
 	limaVM.Status.ObservedTemplateResourceVersion = templateConfigMap.ResourceVersion
-	r.setCondition(&limaVM, ConditionCreated, metav1.ConditionTrue, ReasonCreated, "Lima instance created successfully")
+	r.setCondition(ctx, &limaVM, ConditionCreated, metav1.ConditionTrue, ReasonCreated, "Lima instance created successfully")
 	if err := r.Status().Patch(ctx, &limaVM, patch); err != nil {
 		logger.Error(err, "Failed to update status after instance creation")
 		return ctrl.Result{}, err
@@ -432,15 +432,22 @@ func (r *LimaVMReconciler) handleTemplateUpdate(ctx context.Context, limaVM *v1a
 	return ctrl.Result{}, nil
 }
 
-// setCondition updates or adds a condition in the LimaVM status.
-func (r *LimaVMReconciler) setCondition(limaVM *v1alpha1.LimaVM, conditionType string, status metav1.ConditionStatus, reason, message string) {
+// setCondition updates or adds a condition in the LimaVM status. It logs
+// every state change so reconciler traces expose the full condition
+// timeline without reading K8s events.
+func (r *LimaVMReconciler) setCondition(ctx context.Context, limaVM *v1alpha1.LimaVM, conditionType string, status metav1.ConditionStatus, reason, message string) {
 	changed := apimeta.SetStatusCondition(&limaVM.Status.Conditions, metav1.Condition{
 		Type:    conditionType,
 		Status:  status,
 		Reason:  reason,
 		Message: base.TruncateConditionMessage(message),
 	})
-	if changed && r.Recorder != nil {
+	if !changed {
+		return
+	}
+	log.FromContext(ctx).Info("Condition changed",
+		"type", conditionType, "status", status, "reason", reason, "message", message)
+	if r.Recorder != nil {
 		r.Recorder.Eventf(limaVM, nil, corev1.EventTypeNormal, "ConditionChanged", conditionType, message)
 	}
 }
@@ -451,7 +458,7 @@ func (r *LimaVMReconciler) updateCondition(ctx context.Context, limaVM *v1alpha1
 	// modified externally during long-running operations like waitForPIDFile or
 	// graceful shutdown.
 	patch := client.MergeFrom(limaVM.DeepCopy())
-	r.setCondition(limaVM, conditionType, status, reason, message)
+	r.setCondition(ctx, limaVM, conditionType, status, reason, message)
 	return r.Status().Patch(ctx, limaVM, patch)
 }
 

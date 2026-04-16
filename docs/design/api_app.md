@@ -89,21 +89,27 @@ status:
 
 - **spec.kubernetes.version**: The Kubernetes version to use (e.g. `"1.30.2"`). Defaults to `"1.30.2"`. Propagated to the `KUBERNETES_VERSION` Lima template param.
 
-- **status.conditions**: Conditions are **mirrored from the owned `LimaVM`** resource. The App controller copies `type`, `status`, `reason`, `message`, and `lastTransitionTime` from the LimaVM's conditions.
+- **status.conditions**: Two controllers write here. The App controller mirrors `Created` and `Running` from the owned `LimaVM`, copying `type`, `status`, `reason`, `message`, and `lastTransitionTime` directly. The engine controller writes `ContainerEngineReady` after connecting to Docker and completing the initial sync (see `api_containers.md`). Both writers use `retry.RetryOnConflict` with a re-Get so concurrent status updates do not 409.
 
-  | Type      | Status      | Reason         | Description                                                       |
-  |-----------|-------------|----------------|-------------------------------------------------------------------|
-  | `Created` | `Unknown`   | `Pending`      | LimaVM controller has started reconciliation                      |
-  | `Created` | `True`      | `Created`      | Lima instance created on disk and ready                           |
-  | `Created` | `False`     | `CreateFailed` | Lima instance creation failed (see `message` for details)         |
-  | `Running` | `Unknown`   | `Reconciling`  | Verifying instance state (e.g. after controller restart)          |
-  | `Running` | `True`      | `Started`      | Lima instance is running                                          |
-  | `Running` | `False`     | `Stopped`      | Lima instance is stopped                                          |
-  | `Running` | `False`     | `Starting`     | Lima instance is starting up                                      |
-  | `Running` | `False`     | `StartFailed`  | Lima instance failed to start                                     |
-  | `Running` | `False`     | `StopFailed`   | Lima instance failed to stop cleanly                              |
+  | Type                   | Status    | Reason           | Description                                                       |
+  |------------------------|-----------|------------------|-------------------------------------------------------------------|
+  | `Created`              | `Unknown` | `Pending`        | LimaVM controller has started reconciliation                      |
+  | `Created`              | `True`    | `Created`        | Lima instance created on disk and ready                           |
+  | `Created`              | `False`   | `CreateFailed`   | Lima instance creation failed (see `message` for details)         |
+  | `Running`              | `Unknown` | `Reconciling`    | Verifying instance state (e.g. after controller restart)          |
+  | `Running`              | `True`    | `Started`        | Lima instance is running                                          |
+  | `Running`              | `False`   | `Stopped`        | Lima instance is stopped                                          |
+  | `Running`              | `False`   | `Starting`       | Lima instance is starting up                                      |
+  | `Running`              | `False`   | `StartFailed`    | Lima instance failed to start                                     |
+  | `Running`              | `False`   | `StopFailed`     | Lima instance failed to stop cleanly                              |
+  | `ContainerEngineReady` | `True`    | `Connected`      | Engine controller has connected to Docker and completed full sync |
+  | `ContainerEngineReady` | `True`    | `NotApplicable`  | Mirroring is not implemented for the current backend (e.g. `containerd`); forced `True` so `rdd set` can finish waiting |
+  | `ContainerEngineReady` | `False`   | `ConnectFailed`  | Engine controller failed to connect to Docker                     |
+  | `ContainerEngineReady` | `False`   | `Stopped`        | The VM is stopped; the engine watcher is not running              |
 
-  Because conditions are mirrored, `lastTransitionTime` reflects when the **LimaVM** transitioned, not when the App controller copied the value. This makes the timestamp meaningful for staleness checks.
+  `Running=True` means the Lima guest has finished booting and SSH is reachable. It says nothing about the container engine socket; consumers that depend on the engine (container/image/volume mirrors, `docker` against the forwarded socket) must also check `ContainerEngineReady`, which flips to `True` only after the engine controller has connected to the socket and completed its initial full sync.
+
+  `Created` and `Running` are mirrored, so their `lastTransitionTime` reflects the LimaVM transition rather than the copy — the timestamp is meaningful for staleness checks. `ContainerEngineReady.observedGeneration` is stamped with the App's generation when the engine controller writes the condition, so `rdd set` can distinguish stale snapshots from fresh ones.
 
 Deleting the `App` resource triggers the finalizer to stop and delete the owned LimaVM (and wait for the LimaVM controller to complete its own cleanup before removing the App finalizer).
 

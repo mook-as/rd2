@@ -56,6 +56,7 @@ import (
 	// Import controller packages to trigger init() functions for embedded mode.
 	_ "github.com/rancher-sandbox/rancher-desktop-daemon/pkg/controllers/app/app"
 	_ "github.com/rancher-sandbox/rancher-desktop-daemon/pkg/controllers/app/demo"
+	_ "github.com/rancher-sandbox/rancher-desktop-daemon/pkg/controllers/app/engine"
 	"github.com/rancher-sandbox/rancher-desktop-daemon/pkg/controllers/base"
 	// Import built-in system controllers.
 	_ "github.com/rancher-sandbox/rancher-desktop-daemon/pkg/controllers/builtin/namespace"
@@ -767,7 +768,13 @@ func Run(ctx context.Context, opts options.CompletedOptions) error {
 	// The WaitGroup ensures the controller manager completes shutdown
 	// (including terminating hostagent processes) before Run returns.
 	var mgrWg sync.WaitGroup
-	if len(enabledControllers) > 0 {
+	if len(enabledControllers) == 0 {
+		// No controllers means no CRDs to install, so signal
+		// readiness immediately for waiting clients.
+		if err := controllers.MarkControlPlaneReady(ctx, initClient); err != nil {
+			return fmt.Errorf("failed to mark control plane as ready: %w", err)
+		}
+	} else {
 		mgrWg.Add(1)
 		go func() {
 			defer mgrWg.Done()

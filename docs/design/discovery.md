@@ -6,7 +6,7 @@ Controller managers register themselves in a shared ConfigMap so that other comp
 
 ## ConfigMap
 
-The ConfigMap is named `rdd-controller-manager` in the `rdd-system` namespace. Each key is an API group name (e.g. `lima.rancherdesktop.io`). Each value is a JSON object:
+The ConfigMap is named `rdd-controller-manager` in the `rdd-system` namespace. Each key in `data` is an API group name (e.g. `lima.rancherdesktop.io`). Each value is a JSON object:
 
 ```json
 {
@@ -36,9 +36,24 @@ The ConfigMap is named `rdd-controller-manager` in the `rdd-system` namespace. E
 
 ## Lifecycle
 
-A controller manager patches the ConfigMap on startup (adding its API group key) and removes the key on shutdown. The ConfigMap itself is deleted when the last key is removed.
+The control plane creates the ConfigMap with an empty `data` map as soon as the API server is ready, before any controller manager starts. Its `creationTimestamp` therefore marks the control plane start time, which [`rdd ctl await --since=startup`](cmd_service.md) uses to filter condition transitions.
 
-The control plane also cleans up the entire ConfigMap during service shutdown and on startup (to clear stale entries from a previous crash).
+A controller manager patches the ConfigMap on startup (adding its API group key) and removes the key on shutdown. The ConfigMap itself is owned by the control plane: only the control plane creates or deletes it. The control plane recreates it on startup (dropping any stale entries from a previous crash) and deletes it on shutdown.
+
+## Ready annotation
+
+The annotation `rdd.rancherdesktop.io/ready=true` signals that every enabled controller has installed its CRDs **and** registered its data entry in the ConfigMap. Clients that depend on CRDs (for example, `rdd set`, which fetches the App CRD schema) or on the enabled-controller list (for example, `rdd set running=true`, which checks whether the engine controller is present) must wait for the annotation; otherwise they race startup and see either `the server could not find the requested resource` or a stale, empty controller list.
+
+The control plane sets the annotation in one of two places:
+
+1. Immediately after creating the ConfigMap, if no controllers are enabled.
+2. Otherwise, inside the shared controller manager's startup goroutine, after `installControllerCRDs` has established every CRD **and** `registerDiscovery` has written the controller-manager entry into `configMap.Data`.
+
+Ordering both steps before the annotation keeps the "ready = clients may proceed" contract consistent: any client that waits for the annotation sees both CRDs and the enabled-controller list, not just one of the two.
+
+The ConfigMap is recreated on every control plane startup, so a stale `ready` from a previous crash is always cleared before CRD installation begins.
+
+The annotation only covers controllers known at control plane startup. External controllers (for example, the mock controller, or a controller manager started later via `rdd svc create --controllers=...`) can attach at any time, so a client waiting for the ready annotation must not assume that every controller it cares about is already registered. Discover external controllers by reading the ConfigMap directly.
 
 ## Consumers
 

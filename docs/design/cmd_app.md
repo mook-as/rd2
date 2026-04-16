@@ -2,7 +2,7 @@
 
 The application commands use short option names for usability. Unlike the `rdctl` tool from "Rancher Desktop 1" they will use e.g. `--cpus` instead of `--virtual-machine.number-cpus`.
 
-## `rdd set [--dry-run] PROPERTY=VALUE [PROPERTY=VALUE ...]`
+## `rdd set [--dry-run] [--wait=BOOL] [--timeout=DURATION] PROPERTY=VALUE [PROPERTY=VALUE ...]`
 
 Set one or more properties on the App singleton resource. Properties use dot notation for nested fields.
 
@@ -10,7 +10,19 @@ Valid property names and types are derived from the App CRD's OpenAPI schema at 
 
 If the App resource does not exist, it is created with default settings before the specified values are applied.
 
-- `--dry-run`: Validate changes against the API server's admission controller without persisting them. If the App does not exist, it is created with defaults (the VM will not start) so that the admission controller can validate the patch.
+By default, `rdd set` waits for the desired state before returning. The
+property-to-condition mapping is hardcoded; it is not read from the CRD
+schema:
+
+- `running=true` waits for `ContainerEngineReady=True` — the engine watcher has connected to Docker on the `moby` backend, or the condition reports `NotApplicable` on `containerd`. If the controller set excludes engine (for example, `--controllers=-engine`, or on Windows where the engine controller does not register yet because the Docker socket transport is not wired up for WSL2), the wait falls back to `Running=True`.
+- `running=false` waits for the App's `Running` condition to leave `True`, meaning the VM has actually stopped. This is stricter than "container engine disconnected".
+- Other property changes do not wait. Pure backend swaps (for example, `rdd set containerEngine.name=containerd` without a `running` argument) return as soon as the patch is accepted.
+
+The wait filters on the App's post-patch `metadata.generation`, so a leftover `ContainerEngineReady=True` from a prior backend cannot prematurely satisfy it.
+
+- `--dry-run`: Validate changes against the API server's admission controller without persisting them. If the App does not exist, it is created with defaults (the VM will not start) so the admission controller can validate the patch. The wait is skipped in dry-run mode.
+- `--wait`: Wait for the desired state after the patch is accepted (default `true`). Pass `--wait=false` to return as soon as the patch is accepted.
+- `--timeout=DURATION`: How long to wait (default `5m`). `--timeout=0` waits indefinitely, matching `kubectl wait`.
 
 Examples:
 
@@ -19,7 +31,19 @@ rdd set running=true
 rdd set running=true containerEngine.name=containerd
 rdd set kubernetes.enabled=true kubernetes.version=1.32.2
 rdd set --dry-run running=true
+rdd set --wait=false running=true
 ```
+
+### Exit codes
+
+| Code | Meaning |
+|------|---------|
+| `0` | Success. |
+| `1` | Generic / internal error. |
+| `3` | The API server's admission controller rejected the request. |
+| `4` | The wait deadline expired before the desired state was reached. |
+
+`2` is reserved for cobra usage errors. Other rdd commands will adopt the same scheme as they grow `--wait` semantics; the codes are defined in `pkg/cli/exit`.
 
 ## `rdd create`
 

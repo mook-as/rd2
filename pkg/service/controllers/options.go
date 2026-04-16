@@ -9,6 +9,14 @@ import (
 	"github.com/spf13/pflag"
 )
 
+// ControllersFlagUsage is the help text for the --controllers flag.
+// Shared between the embedded service and any standalone binary that
+// surfaces the same flag so the two cannot drift.
+const ControllersFlagUsage = "Controllers to enable. Use '*' for all, " +
+	"or a comma-separated list of controller or API-group names. " +
+	"Groups: rdd, app, containers, lima. " +
+	"Prefix a name with '-' to exclude it, e.g. '*,-demo' or 'containers,-engine'."
+
 // Options holds the controller configuration options.
 type Options struct {
 	Controllers string // Controller selection specification (--controllers flag)
@@ -29,7 +37,7 @@ func (o *Options) AddFlags(fs *pflag.FlagSet) {
 		return
 	}
 
-	fs.StringVar(&o.Controllers, "controllers", "*", "Controllers to enable. Use '*' for all, or specify comma-separated list. API groups: 'rdd' (configmapreplicaset, notary), 'app' (demo). Prefix with '-' to exclude, e.g., '*,-demo'")
+	fs.StringVar(&o.Controllers, "controllers", "*", ControllersFlagUsage)
 }
 
 // Complete returns the completed configuration.

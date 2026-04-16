@@ -11,7 +11,10 @@ TEST_DATA_PATH="${PATH_BATS_ROOT}/../pkg/controllers/mock/testdata"
 NAMESPACE="rancher-desktop"
 
 local_setup_file() {
-    setup_rdd_control_plane "containers"
+    # -engine keeps the engine controller out: it would race the
+    # external mock-controller on the shared Container/Image/Volume
+    # mirrors in the rancher-desktop namespace.
+    setup_rdd_control_plane "containers,-engine"
     echo "${RDD_LOG_DIR}/mock-controller.log" >&3
     "mock-controller${EXE}" &>"${RDD_LOG_DIR}/mock-controller.log" &
     echo "$!" >"${BATS_FILE_TMPDIR}/controller_pid"

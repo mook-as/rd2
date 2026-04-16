@@ -118,10 +118,14 @@ func waitForDiscoveryConfigMap(ctx context.Context) error {
 	return waitForFreshDiscoveryConfigMap(ctx, time.Time{})
 }
 
-// waitForFreshDiscoveryConfigMap polls until the discovery ConfigMap has a
-// creationTimestamp at or after beforeStart. The serve command recreates the
-// ConfigMap on every startup, so a fresh timestamp means this control plane
-// instance is ready. Pass zero time to wait for existence only.
+// waitForFreshDiscoveryConfigMap polls until the discovery ConfigMap
+// for the current control plane instance exists and is marked ready.
+// The serve command recreates the ConfigMap on every startup, so a
+// creationTimestamp at or after beforeStart identifies the current
+// instance. The ready annotation is set after CRDs are installed and
+// every controller manager has registered, so waiting for it lets
+// clients use both CRDs and discovery data without racing startup.
+// Pass zero time to skip the freshness check.
 func waitForFreshDiscoveryConfigMap(ctx context.Context, beforeStart time.Time) error {
 	restConfig, err := service.GetKubeRestConfig()
 	if err != nil {
@@ -142,7 +146,10 @@ func waitForFreshDiscoveryConfigMap(ctx context.Context, beforeStart time.Time) 
 		if err != nil {
 			return false, err
 		}
-		return !cm.CreationTimestamp.Time.Before(beforeStart), nil
+		if cm.CreationTimestamp.Time.Before(beforeStart) {
+			return false, nil // Stale ConfigMap from a previous run; wait for the new one.
+		}
+		return cm.Annotations[controllers.ReadyAnnotation] == "true", nil
 	})
 }
 
@@ -165,7 +172,7 @@ func newServiceCreateCommand() *cobra.Command {
 		RunE: serviceCreateAction,
 	}
 
-	command.Flags().String("controllers", "*", "Controllers to enable. Use '*' for all, or specify comma-separated list. API groups: 'rdd' (configmapreplicaset,notary), 'app' (demo). Prefix with '-' to exclude, e.g., '*,-demo'")
+	command.Flags().String("controllers", "*", controllers.ControllersFlagUsage)
 	command.Flags().Int("secure-port", 0, "The port on which to serve HTTPS with authentication and authorization (default: 6443 + instance index)")
 	if !developer.Mode() {
 		_ = command.Flags().MarkHidden("controllers")
