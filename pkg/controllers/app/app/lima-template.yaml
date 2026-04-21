@@ -4,7 +4,6 @@ mounts:
 - location: "~"
   writable: true
 ssh:
-  localPort: 51422
   loadDotSSHPubKeys: false
 firmware:
   legacyBIOS: false
