@@ -214,6 +214,54 @@ dump_memory_pressure() {
     esac
 }
 
+# On Windows, Lima runs each VM as a WSL2 distro named `lima-<vmname>`.
+# When a bats target hangs waiting on the guest (e.g. `docker info`
+# blocked on an unresponsive dockerd socket), the host-side logs show
+# only that ssh is stuck; the actual cause lives in the VM's journal.
+# wsl.exe talks to the WSL service directly and does not depend on the
+# rdd daemon, so this dump still works after rdd is wedged or killed.
+# Every invocation is behind `timeout` so a hung guest cannot block the
+# bundle capture itself.
+dump_windows_vm_logs() {
+    command -v wsl.exe >/dev/null 2>&1 || return 0
+
+    # WSL_UTF8=1 makes wsl.exe emit UTF-8 (WSL 0.64.0, 2022); without
+    # it the default is UTF-16LE with a BOM. Export so all wsl.exe
+    # calls below inherit it.
+    local -x WSL_UTF8=1
+
+    # --list --running --quiet prints one distro per line.
+    local distros
+    distros=$(timeout --kill-after=1 10 wsl.exe --list --running --quiet 2>/dev/null \
+        | grep '^lima-' | sort -u || true)
+    if [ -z "$distros" ]; then
+        return
+    fi
+
+    local distro
+    for distro in $distros; do
+        echo
+        echo "=== VM: ${distro} ==="
+
+        echo
+        echo "--- ${distro}: systemctl status rancher-desktop.target ---"
+        timeout --kill-after=1 10 wsl.exe -d "$distro" -- \
+            systemctl status rancher-desktop.target --no-pager 2>&1 || true
+
+        echo
+        echo "--- ${distro}: ps auxf ---"
+        timeout --kill-after=1 10 wsl.exe -d "$distro" -- \
+            ps auxf 2>&1 || true
+
+        # Dump the full journal for this boot. The VM lives only as
+        # long as the bats target, so the journal is naturally bounded.
+        echo
+        echo "--- ${distro}: journalctl -b ---"
+        timeout --kill-after=1 30 wsl.exe -d "$distro" -- \
+            journalctl -b --no-pager 2>&1 || true
+    done
+}
+
 # Snapshot the current state of the rdd API server and (if wired up) the
 # forwarded Docker daemon. Wraps every probe in `timeout` so a hung or
 # dead daemon cannot block the capture — the common case for the
@@ -298,6 +346,9 @@ capture_state() {
 
         echo
         dump_api_state
+
+        echo
+        dump_windows_vm_logs
 
         echo
         echo "=== End of support bundle (${context}) ==="

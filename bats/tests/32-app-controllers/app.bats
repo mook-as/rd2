@@ -204,7 +204,12 @@ local_setup_file() {
 }
 
 @test "wait for dockerd to be ready with moby container engine" {
-    try --max 10 --delay 3 -- rdd limavm shell "${VM_NAME}" sudo docker info
+    # Per-try timeout guards against an ssh session that connects but then
+    # blocks on an unresponsive dockerd socket inside the VM: `ssh` keeps
+    # the channel alive via keepalives, so the default retry loop would
+    # otherwise wait for the remote command forever.
+    try --max 10 --delay 3 --per-try-timeout 30s \
+        -- rdd limavm shell "${VM_NAME}" sudo docker info
 }
 
 @test "containerd is not running with moby container engine" {

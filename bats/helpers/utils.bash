@@ -272,6 +272,10 @@ trace() {
 # try runs the specified command until it either succeeds, or --max attempts
 # have been made (with a --delay seconds sleep in between).
 # With --until-fail, waits until the command fails instead of succeeds.
+# With --per-try-timeout DUR, each attempt is wrapped in `timeout(1)` so a
+# single hung call cannot stall the whole retry budget; DUR accepts any
+# timeout(1) suffix (s, m, h). The attempt exits non-zero (124 on SIGTERM,
+# 137 on SIGKILL) and counts like any other failure toward --max.
 #
 # Right now the command is **always** run with --separate-stderr, and stderr
 # is output after all of stdout. This is subject to change, if we can figure
@@ -279,6 +283,7 @@ trace() {
 try() {
     local max=24
     local delay=5
+    local per_try_timeout=""
     local until_fail=0
 
     while [[ $# -gt 0 ]] && [[ $1 == -* ]]; do
@@ -289,6 +294,10 @@ try() {
             ;;
         --delay)
             delay=$2
+            shift
+            ;;
+        --per-try-timeout)
+            per_try_timeout=$2
             shift
             ;;
         --until-fail)
@@ -308,7 +317,16 @@ try() {
 
     local count=0
     while true; do
-        run_e "$@"
+        if [[ -n "${per_try_timeout}" ]]; then
+            # --verbose logs "sending signal TERM" to stderr so the try
+            # log distinguishes a timeout kill from a plain non-zero
+            # exit. --kill-after=5s escalates SIGTERM to SIGKILL when
+            # the command ignores the graceful signal, so a hung retry
+            # cannot stall the loop.
+            run_e timeout --verbose --kill-after=5s "${per_try_timeout}" "$@"
+        else
+            run_e "$@"
+        fi
         local success
         if ((until_fail)); then
             success=$((status != 0))
