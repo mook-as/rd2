@@ -10,7 +10,6 @@
  * Do not edit the class manually.
  */
 
-import { IoRancherdesktopContainersV1alpha1ContainerSpec } from '../models/IoRancherdesktopContainersV1alpha1ContainerSpec';
 import { IoRancherdesktopContainersV1alpha1ContainerStatus } from '../models/IoRancherdesktopContainersV1alpha1ContainerStatus';
 import { V1ObjectMeta } from '../models/V1ObjectMeta';
 import { HttpFile } from '../http/http';
@@ -28,7 +27,10 @@ export class IoRancherdesktopContainersV1alpha1Container {
     */
     'kind'?: string;
     'metadata'?: V1ObjectMeta;
-    'spec': IoRancherdesktopContainersV1alpha1ContainerSpec;
+    /**
+    * Spec is reserved for future use. The Container API has no desired-state fields today: actions are requested via the AnnotationAction annotation on metadata instead.
+    */
+    'spec'?: any;
     'status'?: IoRancherdesktopContainersV1alpha1ContainerStatus;
 
     static readonly discriminator: string | undefined = undefined;
@@ -57,7 +59,7 @@ export class IoRancherdesktopContainersV1alpha1Container {
         {
             "name": "spec",
             "baseName": "spec",
-            "type": "IoRancherdesktopContainersV1alpha1ContainerSpec",
+            "type": "any",
             "format": ""
         },
         {
