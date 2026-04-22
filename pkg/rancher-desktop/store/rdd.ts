@@ -57,6 +57,9 @@ export const getters = {
   running(state, getters) {
     return getters.status('Running');
   },
+  settled(state, getters) {
+    return getters.status('Settled');
+  },
 } satisfies GetterTree<RDDState>;
 
 export const mutations = {
