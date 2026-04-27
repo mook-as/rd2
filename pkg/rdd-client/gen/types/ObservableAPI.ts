@@ -33,8 +33,8 @@ import { IoRancherdesktopContainersV1alpha1ContainerCreateRequestStatus } from '
 import { IoRancherdesktopContainersV1alpha1ContainerList } from '../models/IoRancherdesktopContainersV1alpha1ContainerList';
 import { IoRancherdesktopContainersV1alpha1ContainerNamespace } from '../models/IoRancherdesktopContainersV1alpha1ContainerNamespace';
 import { IoRancherdesktopContainersV1alpha1ContainerNamespaceList } from '../models/IoRancherdesktopContainersV1alpha1ContainerNamespaceList';
-import { IoRancherdesktopContainersV1alpha1ContainerSpec } from '../models/IoRancherdesktopContainersV1alpha1ContainerSpec';
 import { IoRancherdesktopContainersV1alpha1ContainerStatus } from '../models/IoRancherdesktopContainersV1alpha1ContainerStatus';
+import { IoRancherdesktopContainersV1alpha1ContainerStatusLastAction } from '../models/IoRancherdesktopContainersV1alpha1ContainerStatusLastAction';
 import { IoRancherdesktopContainersV1alpha1ContainerStatusPortsInner } from '../models/IoRancherdesktopContainersV1alpha1ContainerStatusPortsInner';
 import { IoRancherdesktopContainersV1alpha1ContainerStatusPortsInnerBindingsInner } from '../models/IoRancherdesktopContainersV1alpha1ContainerStatusPortsInnerBindingsInner';
 import { IoRancherdesktopContainersV1alpha1Image } from '../models/IoRancherdesktopContainersV1alpha1Image';

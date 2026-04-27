@@ -11,6 +11,7 @@
  */
 
 import { IoRancherdesktopAppV1alpha1AppStatusConditionsInner } from '../models/IoRancherdesktopAppV1alpha1AppStatusConditionsInner';
+import { IoRancherdesktopContainersV1alpha1ContainerStatusLastAction } from '../models/IoRancherdesktopContainersV1alpha1ContainerStatusLastAction';
 import { IoRancherdesktopContainersV1alpha1ContainerStatusPortsInner } from '../models/IoRancherdesktopContainersV1alpha1ContainerStatusPortsInner';
 import { HttpFile } from '../http/http';
 
@@ -50,6 +51,7 @@ export class IoRancherdesktopContainersV1alpha1ContainerStatus {
     * Labels are the container labels.
     */
     'labels'?: { [key: string]: string; };
+    'lastAction'?: IoRancherdesktopContainersV1alpha1ContainerStatusLastAction;
     /**
     * Name of the container; this is distinct from the container ID.
     */
@@ -130,6 +132,12 @@ export class IoRancherdesktopContainersV1alpha1ContainerStatus {
             "name": "labels",
             "baseName": "labels",
             "type": "{ [key: string]: string; }",
+            "format": ""
+        },
+        {
+            "name": "lastAction",
+            "baseName": "lastAction",
+            "type": "IoRancherdesktopContainersV1alpha1ContainerStatusLastAction",
             "format": ""
         },
         {

@@ -52,12 +52,12 @@ export default defineComponent({
   },
 
   computed: {
-    ...mapTypedGetters('rdd', ['running']),
+    ...mapTypedGetters('rdd', ['settled']),
     progressDetails(): string {
       return this.progress.description || '';
     },
     progressIndeterminate(): boolean {
-      return !this.running;
+      return !this.settled;
     },
     progressBusy(): boolean {
       return this.progressIndeterminate || this.progress.current < this.progress.max;

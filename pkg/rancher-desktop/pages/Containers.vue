@@ -281,13 +281,13 @@ export default defineComponent({
               const containers = Array.isArray(args) ? args : [container];
 
               return Promise.all(containers.map(container =>
-                this.containerSetState({ container, state: 'stopped' })));
+                this.containerRequestAction({ container, state: 'stop' })));
             },
             startContainer: (args?: Container[]) => {
               const containers = Array.isArray(args) ? args : [container];
 
               return Promise.all(containers.map(container =>
-                this.containerSetState({ container, state: 'running' })));
+                this.containerRequestAction({ container, state: 'start' })));
             },
             deleteContainer: (args?: Container[]) => {
               const containers = Array.isArray(args) ? args : [container];
@@ -327,7 +327,7 @@ export default defineComponent({
   },
   methods: {
     ...mapTypedActions('page', ['setHeader']),
-    ...mapTypedActions('container-engine', ['containerDelete', 'containerSetState', 'setCurrentNamespace', 'watchResources', 'unwatchResources']),
+    ...mapTypedActions('container-engine', ['containerDelete', 'containerRequestAction', 'setCurrentNamespace', 'watchResources', 'unwatchResources']),
     ...mapTypedMutations('container-engine', ['SET_ERROR']),
     onChangeNamespace(event: Event) {
       const { value } = event.target as HTMLSelectElement;

@@ -2,6 +2,7 @@ import { Plugin } from 'vuex';
 
 import { defineResource, listNamespacedResource, resourceMutations, resourceState, resourceWatchActions, ResourceNames } from '@pkg/store/rddConnection';
 import { ActionContext, ActionTree, GetterTree, MutationsType } from '@pkg/store/ts-helpers';
+import { RecursivePartial } from '@pkg/utils/typeUtils';
 import * as RDDClient from '@rdd-client';
 
 type ContainerEngineState = ReturnType<typeof state>;
@@ -107,21 +108,28 @@ export const actions = {
     }
   },
   /** Request the given container to transition to the provided state. */
-  containerSetState(
+  containerRequestAction(
     { rootState, commit },
     { container, state }: {
       container: RDDClient.IoRancherdesktopContainersV1alpha1Container,
-      state:     'running' | 'stopped',
+      state:     'start' | 'stop' | 'pause' | 'unpause' | 'restart',
     },
   ) {
     const config: RDDClient.KubeConfig = rootState['rdd-connection'].config;
     const client = config.makeApiClient(RDDClient.ContainersRancherdesktopIoV1alpha1Api);
+    const body: RecursivePartial<RDDClient.IoRancherdesktopContainersV1alpha1Container> = {
+      metadata: {
+        annotations: {
+          'containers.rancherdesktop.io/action': state,
+        },
+      },
+    };
 
     return client.patchNamespacedContainer(
       {
         name:            container.metadata!.name!,
         namespace:       container.metadata!.namespace!,
-        body:            { spec: { state } },
+        body,
         fieldValidation: 'Strict',
       },
       RDDClient.setHeaderOptions('Content-Type', RDDClient.PatchStrategy.MergePatch),
