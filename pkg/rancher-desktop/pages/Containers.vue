@@ -158,10 +158,13 @@ type RowItem = Container & {
   imageName:         string | undefined;
   portsSortKey:      number[];
   availableActions?: Action[];
-  stopContainer?:    (this: Container, containers?: Container[]) => void;
-  startContainer?:   (this: Container, containers?: Container[]) => void;
-  deleteContainer?:  (this: Container, containers?: Container[]) => void;
-  viewInfo?:         (this: Container, containers?: Container[]) => void;
+  startContainer:    (this: Container, containers?: Container[]) => void;
+  stopContainer:     (this: Container, containers?: Container[]) => void;
+  pauseContainer:    (this: Container, containers?: Container[]) => void;
+  unpauseContainer:  (this: Container, containers?: Container[]) => void;
+  restartContainer:  (this: Container, containers?: Container[]) => void;
+  deleteContainer:   (this: Container, containers?: Container[]) => void;
+  viewInfo:          (this: Container, containers?: Container[]) => void;
   portList:          (readonly [number, number])[];
 };
 
@@ -256,6 +259,13 @@ export default defineComponent({
                 bulkable:   false,
               },
               {
+                label:      'Start',
+                action:     'startContainer',
+                enabled:    this.isStopped(container),
+                bulkable:   true,
+                bulkAction: 'startContainer',
+              },
+              {
                 label:      'Stop',
                 action:     'stopContainer',
                 enabled:    this.isRunning(container),
@@ -263,11 +273,25 @@ export default defineComponent({
                 bulkAction: 'stopContainer',
               },
               {
-                label:      'Start',
-                action:     'startContainer',
-                enabled:    this.isStopped(container),
+                label:      'Pause',
+                action:     'pauseContainer',
+                enabled:    this.isRunning(container),
                 bulkable:   true,
-                bulkAction: 'startContainer',
+                bulkAction: 'pauseContainer',
+              },
+              {
+                label:      'Unpause',
+                action:     'unpauseContainer',
+                enabled:    this.isPaused(container),
+                bulkable:   true,
+                bulkAction: 'unpauseContainer',
+              },
+              {
+                label:      'Restart',
+                action:     'restartContainer',
+                enabled:    this.isRunning(container),
+                bulkable:   true,
+                bulkAction: 'restartContainer',
               },
               {
                 label:      this.t('images.manager.table.action.delete'),
@@ -277,17 +301,35 @@ export default defineComponent({
                 bulkAction: 'deleteContainer',
               },
             ],
+            startContainer: (args?: Container[]) => {
+              const containers = Array.isArray(args) ? args : [container];
+
+              return Promise.all(containers.map(container =>
+                this.containerRequestAction({ container, state: 'start' })));
+            },
             stopContainer: (args?: Container[]) => {
               const containers = Array.isArray(args) ? args : [container];
 
               return Promise.all(containers.map(container =>
                 this.containerRequestAction({ container, state: 'stop' })));
             },
-            startContainer: (args?: Container[]) => {
+            pauseContainer: (args?: Container[]) => {
               const containers = Array.isArray(args) ? args : [container];
 
               return Promise.all(containers.map(container =>
-                this.containerRequestAction({ container, state: 'start' })));
+                this.containerRequestAction({ container, state: 'pause' })));
+            },
+            unpauseContainer: (args?: Container[]) => {
+              const containers = Array.isArray(args) ? args : [container];
+
+              return Promise.all(containers.map(container =>
+                this.containerRequestAction({ container, state: 'unpause' })));
+            },
+            restartContainer: (args?: Container[]) => {
+              const containers = Array.isArray(args) ? args : [container];
+
+              return Promise.all(containers.map(container =>
+                this.containerRequestAction({ container, state: 'restart' })));
             },
             deleteContainer: (args?: Container[]) => {
               const containers = Array.isArray(args) ? args : [container];
@@ -370,6 +412,9 @@ export default defineComponent({
     },
     isStopped(container: Container) {
       return ['created', 'exited'].includes(container.status?.status ?? 'unknown');
+    },
+    isPaused(container: Container) {
+      return container.status?.status === 'paused';
     },
     shortSha(sha: string) {
       const prefix = 'sha256:';
