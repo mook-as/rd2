@@ -1,7 +1,7 @@
 import { Plugin } from 'vuex';
 
 import type { RootState } from '@pkg/entry/store';
-import { defineResource, listNamespacedResource, resourceMutations, resourceState, resourceWatchActions } from '@pkg/store/rddConnection';
+import { defineResource, resourceMutations, resourceState, resourceWatchActions } from '@pkg/store/rddConnection';
 import { ActionTree, GetterTree, MutationsType } from '@pkg/store/ts-helpers';
 import * as RDDClient from '@rdd-client';
 
@@ -10,15 +10,9 @@ type RDDState = ReturnType<typeof state>;
 const resources = [
   defineResource({
     name:       'namespaces',
+    type:       'Namespace',
     path:       () => '/api/v1/namespaces',
     makeClient: config => config.makeApiClient(RDDClient.CoreV1Api),
-    list:       client => client.listNamespace(),
-  }),
-  defineResource({
-    name:       'configMaps',
-    path:       (namespace) => `/api/v1/namespaces/${ namespace }/configmaps`,
-    makeClient: config => config.makeApiClient(RDDClient.CoreV1Api),
-    list:       listNamespacedResource('ConfigMap'),
   }),
   defineResource({
     name:       'systemConfigMaps',
@@ -29,9 +23,9 @@ const resources = [
   }),
   defineResource({
     name:       'apps',
+    type:       'App',
     path:       () => '/apis/app.rancherdesktop.io/v1alpha1/apps',
     makeClient: config => config.makeApiClient(RDDClient.AppRancherdesktopIoV1alpha1Api),
-    list:       client => client.listApp(),
   }),
 ] as const;
 
@@ -53,6 +47,14 @@ export const getters = {
   },
   settled(state, getters) {
     return getters.status('Settled');
+  },
+  /**
+   * Get the current Kubernetes namespace from the app; undefined if the app is
+   * missing or does not specify one (which is invalid due to the defaulter).
+   */
+  kubernetesNamespace(state, getters) {
+    const app: RDDClient.IoRancherdesktopAppV1alpha1App | undefined = getters.app;
+    return app?.spec?.namespace;
   },
 } satisfies GetterTree<RDDState>;
 
@@ -129,7 +131,8 @@ export const actions = {
   },
 } satisfies ActionTree<RDDState, RootState, typeof mutations, typeof getters>;
 
-export const plugins: Plugin<RDDState>[] = [
+export const plugins: Plugin<RootState>[] = [
+  // Start watching resources immediately.
   function(store) {
     store.dispatch('rdd/setupResourceWatch', {
       callback: (error: Error) => {
@@ -140,5 +143,16 @@ export const plugins: Plugin<RDDState>[] = [
       console.error('Failed to set up watch for RDD resources:', error);
       store.commit('rdd/SET_ERROR', error);
     });
+  },
+  // When the app namespace changes, set it on the connection state.
+  function(store) {
+    store.watch(
+      (_state, getters) => getters['rdd/kubernetesNamespace'],
+      (newNamespace: string | undefined) => {
+        if (newNamespace) { // Ignore empty/unset; not valid for state.
+          store.commit('rdd-connection/SET_NAMESPACE', newNamespace);
+        }
+      },
+    );
   },
 ];
