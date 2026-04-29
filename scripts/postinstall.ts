@@ -4,13 +4,9 @@ import os from 'os';
 import path from 'path';
 
 import * as goUtils from '@/scripts/dependencies/go-source';
-import { Lima, Qemu, SocketVMNet, AlpineLimaISO } from '@/scripts/dependencies/lima';
-import { MobyOpenAPISpec } from '@/scripts/dependencies/moby-openapi';
 import { SudoPrompt } from '@/scripts/dependencies/sudo-prompt';
-import { ExtensionProxyImage, WSLDistroImage } from '@/scripts/dependencies/tar-archives';
 import * as tools from '@/scripts/dependencies/tools';
 import { Wix } from '@/scripts/dependencies/wix';
-import { WSLDistro, Moproxy } from '@/scripts/dependencies/wsl';
 import {
   DependencyPlatform, DependencyVersions, readDependencyVersions, DownloadContext, Dependency,
 } from '@/scripts/lib/dependencies';
@@ -36,70 +32,33 @@ const versionToStamp = getStampVersion();
 
 // Dependencies that should be installed into places that users touch
 // (so users' WSL distros and hosts as of the time of writing).
-const userTouchedDependencies = [
-  new tools.KuberlrAndKubectl(),
-  new tools.Helm(),
-  new tools.DockerCLI(),
-  new tools.DockerBuildx(),
-  new tools.DockerCompose(),
-  new tools.DockerProvidedCredHelpers(),
-  new tools.ECRCredHelper(),
-  new tools.SpinCLI(),
+const userTouchedDependencies: Dependency[] = [
   new goUtils.RDCtl(versionToStamp),
-  new goUtils.GoDependency('docker-credential-none'),
 ];
 
 // Dependencies that are specific to unix hosts.
-const unixDependencies = [
-  new Lima(),
-  new Qemu(),
-  new AlpineLimaISO(),
-];
+const unixDependencies: Dependency[] = [];
 
 // Dependencies that are specific to macOS hosts.
 const macOSDependencies = [
-  new SocketVMNet(),
   new SudoPrompt(),
 ];
 
 // Dependencies that are specific to windows hosts.
 const windowsDependencies = [
-  new WSLDistro(),
-  new WSLDistroImage(),
   new Wix(),
-  new goUtils.GoDependency('networking/cmd/host', 'internal/host-switch'),
-  new goUtils.WSLHelper(versionToStamp),
-  new goUtils.NerdctlStub(),
-  new goUtils.SpinStub(),
 ];
 
 // Dependencies that are specific to WSL.
-const wslDependencies = [
-  new Moproxy(),
-  new goUtils.RDCtl(versionToStamp),
-  new goUtils.GoDependency('guestagent', 'staging'),
-  new goUtils.GoDependency('networking/cmd/vm', 'staging/vm-switch'),
-  new goUtils.GoDependency('networking/cmd/network', 'staging/network-setup'),
-  new goUtils.GoDependency('networking/cmd/proxy', 'staging/wsl-proxy'),
-  new goUtils.WSLHelper(versionToStamp),
-  new goUtils.NerdctlStub(),
-];
+const wslDependencies: Dependency[] = [];
 
 // Dependencies that are specific to WSL and Lima VMs.
-const vmDependencies = [
-  new tools.Trivy(),
-  new tools.WasmShims(),
-  new tools.CertManager(),
-  new tools.SpinOperator(),
-  new goUtils.GoDependency('extension-proxy', { outputPath: 'staging', env: { CGO_ENABLED: '0' } }),
-  new ExtensionProxyImage(),
-];
+const vmDependencies: Dependency[] = [];
 
 // Dependencies that are specific to hosts.
 const hostDependencies = [
   new tools.Steve(),
   new tools.RancherDashboard(),
-  new MobyOpenAPISpec(),
 ];
 
 async function downloadDependencies(items: DependencyWithContext[]): Promise<void> {

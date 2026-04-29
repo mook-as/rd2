@@ -41,16 +41,6 @@ const ipcMainProxy = getIpcMainProxy(console);
 let gone = false; // when true indicates app is shutting down
 const noModalDialogs = false;
 
-if (process.platform === 'linux') {
-  // On Linux, put Electron into a new process group so that we can more
-  // reliably kill processes we spawn from extensions.
-  import('posix-node').then(({ default: { setpgid } }) => {
-    setpgid?.(0, 0);
-  }).catch(ex => {
-    console.error(`Ignoring error setting process group: ${ ex }`);
-  });
-}
-
 // Scheme must be registered before the app is ready
 Electron.protocol.registerSchemesAsPrivileged([
   { scheme: 'app', privileges: { secure: true, standard: true } },
@@ -300,8 +290,6 @@ ipcMainProxy.handle('show-message-box-rd', async(_event, options: Electron.Messa
 
   return response;
 });
-
-ipcMainProxy.handle('service-fetch', () => []);
 
 ipcMainProxy.handle('get-locked-fields', () => ({}));
 
