@@ -429,9 +429,11 @@ ResourceWatchActionsReturn<T> {
                 resourceOptions.callback?.(error, r.name);
                 console.error(`${ r.name }:`, error);
               } else {
-                console.error(`${ r.name }: Closing connection without error`);
+                console.debug(`${ r.name }: Closing connection without error`);
+                if (state._watchers[r.name]?.refCount < 1) {
+                  return; // Do not reconnect on stop.
+                }
               }
-              // The old config is no longer valid.
               const doReconnect = async() => {
                 // None of these are expected to throw.
                 await dispatch('rdd-connection/fetchConfig', undefined, { root: true });
@@ -648,6 +650,8 @@ class Watcher<
       if (Object.is(err, errorManuallyStopped)) {
         // The watcher errored out because we called stop(); do not propagate
         // this as an actual error.
+        this.#loaded.resolve();
+        this.#doneFn();
         return;
       } else if (err.statusCode === 429) {
         // We can get this if we request too early (when the backend restarts),
@@ -660,9 +664,7 @@ class Watcher<
         this.#restartTimeout = setTimeout(() => this.start(), delay * 1_000);
         return;
       }
-      // `err` is an object that calls `toString()` on `console.log`, so we
-      // need to re-convert it to a plain object for better debugging.
-      console.debug(`${ this.#type } watch error`, JSON.parse(JSON.stringify(err)));
+      // this.#doneFn(err) logs the error already, no need to do so here.
       this.#loaded.reject(err);
       this.#doneFn(err);
     });
