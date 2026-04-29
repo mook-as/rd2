@@ -13563,15 +13563,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"posix-node@npm:0.12.0":
-  version: 0.12.0
-  resolution: "posix-node@npm:0.12.0"
-  dependencies:
-    debug: "npm:^4.3.4"
-  checksum: 10c0/77673397b7c1def2fa841db932f8b4bbaebe8c133c54d209d1407649fc622f0a2e21c33111eb57fcaa017ae54f59e92fca746c14e39fd4cca15bbfa5334d3fd4
-  languageName: node
-  linkType: hard
-
 "postcss-calc@npm:^8.2.3":
   version: 8.2.4
   resolution: "postcss-calc@npm:8.2.4"
@@ -14317,7 +14308,6 @@ __metadata:
     node-loader: "npm:^2.1.0"
     octokit: "npm:5.0.5"
     plist: "npm:3.1.0"
-    posix-node: "npm:0.12.0"
     proxy-agent: "npm:^8.0.0"
     ps-tree: "npm:1.2.0"
     rancher-icons: "rancher/icons#v2.0.21"
@@ -14347,8 +14337,6 @@ __metadata:
       built: true
     native-reg:
       built: true
-    posix-node:
-      optional: true
     unrs-resolver:
       built: true
   languageName: unknown
