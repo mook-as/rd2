@@ -125,7 +125,7 @@ export class Watch {
             }
             doneCallOnce(null);
           } catch (err) {
-            doneCallOnce(err);
+            doneCallOnce(controller.signal.aborted ? controller.signal.reason : err);
           }
         })();
       } else {
