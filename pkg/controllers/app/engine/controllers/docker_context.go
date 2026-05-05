@@ -58,7 +58,7 @@ func newContextStore() (store.Store, error) {
 	return store.New(filepath.Join(dir, "contexts"), cfg), nil
 }
 
-func createReplaceDockerContext(name, socketPath string) error {
+func createReplaceDockerContext(name, endpointURL string) error {
 	s, err := newContextStore()
 	if err != nil {
 		return err
@@ -67,7 +67,7 @@ func createReplaceDockerContext(name, socketPath string) error {
 		Name:     name,
 		Metadata: map[string]any{"Description": "Rancher Desktop " + name},
 		Endpoints: map[string]any{
-			docker.DockerEndpoint: docker.EndpointMeta{Host: "unix://" + socketPath},
+			docker.DockerEndpoint: docker.EndpointMeta{Host: endpointURL},
 		},
 	})
 }
@@ -180,7 +180,7 @@ func probeNamedDockerContext(ctx context.Context, name string) bool {
 	}
 	scheme, _, _ := strings.Cut(epMeta.Host, "://")
 	switch scheme {
-	case "unix", "tcp":
+	case "unix", "tcp", "npipe":
 	default:
 		log.Info("Non-tcp/unix endpoint scheme; assuming context healthy", "scheme", scheme)
 		return true

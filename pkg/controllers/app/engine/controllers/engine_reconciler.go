@@ -12,7 +12,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"runtime"
 	"sync"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -116,6 +115,11 @@ type engine interface {
 // fields below.
 type EngineReconciler struct {
 	client.Client
+
+	// apiReader is a direct-to-API-server reader (no cache). Used in
+	// deleteAllOfType to guarantee a consistent view of mirror resources
+	// at cleanup time, even if the informer cache hasn't caught up yet.
+	apiReader client.Reader
 
 	// reconcileChan receives events from the engine watcher goroutine.
 	reconcileChan chan event.GenericEvent
@@ -222,7 +226,15 @@ func (r *EngineReconciler) Reconcile(ctx context.Context, _ ctrl.Request) (ctrl.
 			terminalMessage = "Engine mirroring is only supported with the moby backend"
 		}
 		current := meta.FindStatusCondition(app.Status.Conditions, appv1alpha1.AppConditionContainerEngineReady)
-		alreadyClean := !watcherDied && current != nil && current.Reason == terminalReason && current.Status == terminalStatus
+		// alreadyClean skips the four List calls when ContainerEngineReady
+		// already reflects the final state for the current generation.
+		// We require ObservedGeneration >= app.Generation to ensure that
+		// any new spec change always triggers cleanup instead of relying
+		// on a stale condition from a previous reconcile.
+		alreadyClean := !watcherDied && current != nil &&
+			current.Reason == terminalReason &&
+			current.Status == terminalStatus &&
+			current.ObservedGeneration >= app.Generation
 		if !alreadyClean {
 			if err := r.cleanupMirrorResources(ctx); err != nil {
 				log.Error(err, "Failed to clean up mirror resources")
@@ -299,7 +311,7 @@ func (r *EngineReconciler) startWatcherAndSync(_ context.Context) error {
 		return err
 	}
 	r.watcher = e
-	r.manageDockerContext(instance.DockerSocket())
+	r.manageDockerContext(instance.DockerEndpoint())
 	return nil
 }
 
@@ -319,19 +331,11 @@ func (r *EngineReconciler) stopWatcher() {
 // manageDockerContext creates the instance Docker context and, in a goroutine,
 // probes the user's current context; if it is absent or unhealthy, switches
 // the default to the new context. At most one probe runs at a time.
-func (r *EngineReconciler) manageDockerContext(socketPath string) {
-	// TODO(windows): Docker context management uses unix:// sockets; Windows
-	// requires npipe:// in the context meta file, an npipe-aware probe client,
-	// and platform-specific path handling in getCurrentDockerContext and
-	// createReplaceDockerContext. Track in a follow-up issue before shipping
-	// Windows support.
-	if runtime.GOOS == "windows" {
-		return
-	}
+func (r *EngineReconciler) manageDockerContext(endpointURL string) {
 	contextName := instance.Name()
 	log := logf.FromContext(r.watcherCtx).WithName("docker-context")
 
-	if err := createReplaceDockerContext(contextName, socketPath); err != nil {
+	if err := createReplaceDockerContext(contextName, endpointURL); err != nil {
 		log.Error(err, "Failed to create Docker context", "context", contextName)
 		return
 	}
@@ -400,10 +404,6 @@ func (r *EngineReconciler) manageDockerContext(socketPath string) {
 // then resets the current context if it points at our instance and deletes
 // the instance's Docker context directory.
 func (r *EngineReconciler) removeDockerContext() {
-	// TODO(windows): see manageDockerContext — same gap applies here.
-	if runtime.GOOS == "windows" {
-		return
-	}
 	r.contextMu.Lock()
 	if r.contextProbeCancel != nil {
 		r.contextProbeCancel()
@@ -494,8 +494,13 @@ func (r *EngineReconciler) cleanupMirrorResources(ctx context.Context) error {
 // in the sync_*.go full-sync prune paths. Finalizer removal retries
 // on conflict; per-item errors are collected so one stuck object does
 // not block the rest.
+//
+// The list is fetched via apiReader (direct API server, not the
+// informer cache) so that resources created by the watcher goroutine
+// immediately before it was stopped are visible even if the cache
+// hasn't reflected the creation yet.
 func (r *EngineReconciler) deleteAllOfType(ctx context.Context, list client.ObjectList) error {
-	if err := r.List(ctx, list, client.InNamespace(r.apiNamespace)); err != nil {
+	if err := r.apiReader.List(ctx, list, client.InNamespace(r.apiNamespace)); err != nil {
 		return err
 	}
 
@@ -513,7 +518,11 @@ func (r *EngineReconciler) deleteAllOfType(ctx context.Context, list client.Obje
 		// obj.GetObjectKind().
 		retryErr := retry.RetryOnConflict(retry.DefaultRetry, func() error {
 			latest := obj.DeepCopyObject().(client.Object)
-			if err := r.Get(ctx, key, latest); err != nil {
+			// Use apiReader here too: if the informer cache hasn't reflected
+			// a just-created resource yet, r.Get would return NotFound and
+			// we would skip the finalizer removal, leaving the resource in
+			// Terminating state after the subsequent Delete call.
+			if err := r.apiReader.Get(ctx, key, latest); err != nil {
 				if apierrors.IsNotFound(err) {
 					return nil
 				}
@@ -724,6 +733,7 @@ func (r *EngineReconciler) processVolumeFinalizers(ctx context.Context, e engine
 // SetupWithManager sets up the controller with the Manager.
 func (r *EngineReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	r.reconcileChan = make(chan event.GenericEvent, 1)
+	r.apiReader = mgr.GetAPIReader()
 
 	// Create the watcher-scoped context and register a shutdown
 	// hook that cancels it and stops the active watcher. The hook

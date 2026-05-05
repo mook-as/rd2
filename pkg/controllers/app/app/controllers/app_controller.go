@@ -432,14 +432,21 @@ func computeSettledCondition(app *v1alpha1.App, engineEnabled bool) metav1.Condi
 		settled.Reason = v1alpha1.AppSettledReasonSettled
 		settled.Message = settledMessageSettled
 	case !desiredRunning:
-		// While desiredRunning is false, ContainerEngineReady may be
-		// absent or stale: the engine controller writes it once per
-		// run and stops writing it once the watcher has been torn
-		// down. A stopped VM is settled regardless of what
-		// ContainerEngineReady currently says.
-		settled.Status = metav1.ConditionTrue
-		settled.Reason = v1alpha1.AppSettledReasonSettled
-		settled.Message = settledMessageSettled
+		// Wait for the engine reconciler to acknowledge the current
+		// generation before declaring settled. The engine writes
+		// ContainerEngineReady with the current generation only after
+		// cleanupMirrorResources has finished, so this ensures mirror
+		// resources (Containers, Images, Volumes, ContainerNamespaces)
+		// are gone before rdd set running=false returns.
+		if engineCond == nil || engineCond.ObservedGeneration < app.Generation {
+			settled.Status = metav1.ConditionFalse
+			settled.Reason = v1alpha1.AppSettledReasonEngineStale
+			settled.Message = settledMessageEngineStale
+		} else {
+			settled.Status = metav1.ConditionTrue
+			settled.Reason = v1alpha1.AppSettledReasonSettled
+			settled.Message = settledMessageSettled
+		}
 	case engineCond == nil:
 		settled.Status = metav1.ConditionFalse
 		settled.Reason = v1alpha1.AppSettledReasonWaitingForEngine

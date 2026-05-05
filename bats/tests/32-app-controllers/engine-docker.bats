@@ -10,15 +10,21 @@ load '../../helpers/load'
 # resources are forwarded to Docker.
 
 local_setup_file() {
-    # The Docker socket access pattern used by these tests is not yet wired
-    # up for Windows/WSL2.
-    skip_on_windows
-
     # Isolate all Docker config reads and writes from the developer's real
     # ~/.docker directory. Set DOCKER_CONFIG before starting the service so
     # the controller process inherits it (service.Start uses exec.Command
     # without an explicit Env, so it inherits the caller's environment).
-    export DOCKER_CONFIG="${BATS_FILE_TMPDIR}/docker-config"
+    #
+    # On Windows, rdd.exe is a native binary: it interprets /tmp/... as a
+    # path from the drive root (C:\tmp\...) rather than MSYS2's /tmp which
+    # maps to a different location. cygpath -m produces a mixed-format path
+    # (C:/msys64/...) that both native Windows processes and MSYS2 agree on.
+    if is_windows; then
+        DOCKER_CONFIG="$(cygpath -m "${BATS_FILE_TMPDIR}/docker-config")"
+    else
+        DOCKER_CONFIG="${BATS_FILE_TMPDIR}/docker-config"
+    fi
+    export DOCKER_CONFIG
     mkdir -p "${DOCKER_CONFIG}"
 
     # Deliberately skip setup_rdd_control_plane here: `rdd set` internally
@@ -27,8 +33,12 @@ local_setup_file() {
     # set, so no explicit --controllers selection is needed.
     rdd svc delete
     rdd set running=true
-    run -0 rdd svc paths docker_socket
-    export DOCKER_HOST="unix://${output}"
+    if is_windows; then
+        export DOCKER_HOST="npipe:////./pipe/docker_engine"
+    else
+        run -0 rdd svc paths docker_socket
+        export DOCKER_HOST="unix://${output}"
+    fi
     # Mirror resources live in App.spec.namespace. Override RDD_NAMESPACE
     # to whatever the App was created with so the test queries the same
     # namespace the engine controller uses, regardless of CRD defaults.
@@ -233,8 +243,15 @@ do_websocket() { # endpoint
 
     do_websocket "/passthrough/engine/logs/${container}"
     # `--tty` means the output is cooked, so LF has been converted to CRLF.
-    assert_line hello$'\r'
-    assert_line world$'\r'
+    # On Windows, MSYS2/Git Bash strips CR from pipe output, so we only
+    # assert the CR on non-Windows platforms.
+    if is_windows; then
+        assert_line hello
+        assert_line world
+    else
+        assert_line hello$'\r'
+        assert_line world$'\r'
+    fi
 }
 
 @test "cleanup from logs with tty test" {
@@ -770,10 +787,15 @@ docker_context_dir() {
     run -0 jq -r '.Name' "${meta_file}"
     assert_output "${context_name}"
 
-    run -0 rdd service paths docker_socket
-    local socket_path=${output}
     run -0 jq -r '.Endpoints.docker.Host' "${meta_file}"
-    assert_output "unix://${socket_path}"
+    if is_windows; then
+        assert_output "npipe:////./pipe/docker_engine"
+    else
+        run -0 rdd service paths docker_socket
+        local socket_path=${output}
+        run -0 jq -r '.Endpoints.docker.Host' "${meta_file}"
+        assert_output "unix://${socket_path}"
+    fi
 }
 
 @test "moby engine sets currentContext when no healthy context exists" {

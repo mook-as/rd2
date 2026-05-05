@@ -51,9 +51,8 @@ type dockerWatcher struct {
 // newDockerWatcher creates a Docker client, performs a full sync, and starts
 // the event stream watcher goroutine.
 func newDockerWatcher(ctx context.Context, k8s client.Client, apiNamespace string, reconcileChan chan<- event.GenericEvent) (*dockerWatcher, error) {
-	socketPath := instance.DockerSocket()
 	cli, err := mobyclient.New(
-		mobyclient.WithHost("unix://" + socketPath),
+		mobyclient.WithHost(instance.DockerEndpoint()),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Docker client: %w", err)
