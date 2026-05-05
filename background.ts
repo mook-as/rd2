@@ -206,7 +206,9 @@ Electron.app.on('before-quit', (event) => {
     handleFailure(ex);
   } finally {
     gone = true;
-    Electron.app.quit();
+    setImmediate(() => {
+      Electron.app.quit();
+    });
   }
 });
 
