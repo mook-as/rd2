@@ -432,13 +432,27 @@ func computeSettledCondition(app *v1alpha1.App, engineEnabled bool) metav1.Condi
 		settled.Reason = v1alpha1.AppSettledReasonSettled
 		settled.Message = settledMessageSettled
 	case !desiredRunning:
-		// Wait for the engine reconciler to acknowledge the current
-		// generation before declaring settled. The engine writes
-		// ContainerEngineReady with the current generation only after
-		// cleanupMirrorResources has finished, so this ensures mirror
-		// resources (Containers, Images, Volumes, ContainerNamespaces)
-		// are gone before rdd set running=false returns.
-		if engineCond == nil || engineCond.ObservedGeneration < app.Generation {
+		// Wait for the engine reconciler to confirm cleanup for this
+		// generation before declaring settled. Two conditions must both
+		// hold:
+		//
+		//  1. ObservedGeneration >= app.Generation: the engine reconciler
+		//     has seen this spec change (prevents a Settled=True from a
+		//     prior generation's condition sneaking through).
+		//
+		//  2. The reason is a terminal stopped state ("Stopped" or
+		//     "NotApplicable"): the engine reconciler runs
+		//     cleanupMirrorResources and stamps ContainerEngineReady only
+		//     after cleanup succeeds.  Without this check a
+		//     "Connected/M+1" condition — written while the VM was still
+		//     running on an earlier reconcile that saw the spec change but
+		//     not yet the stopped VM — would incorrectly satisfy the wait,
+		//     causing `rdd set running=false` to return before mirror
+		//     resources (Containers, Images, Volumes) are deleted.
+		engineSettled := engineCond != nil &&
+			engineCond.ObservedGeneration >= app.Generation &&
+			(engineCond.Reason == v1alpha1.EngineReasonStopped || engineCond.Reason == v1alpha1.EngineReasonNotApplicable)
+		if !engineSettled {
 			settled.Status = metav1.ConditionFalse
 			settled.Reason = v1alpha1.AppSettledReasonEngineStale
 			settled.Message = settledMessageEngineStale

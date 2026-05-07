@@ -61,6 +61,24 @@ const (
 	AppSettledReasonEngineStale = "EngineStale"
 )
 
+const (
+	// EngineReasonStopped is set on ContainerEngineReady when the engine has
+	// stopped and all mirror resources have been cleaned up.
+	EngineReasonStopped = "Stopped"
+
+	// EngineReasonNotApplicable is set on ContainerEngineReady for backends
+	// (e.g. containerd) that do not use Docker mirroring.
+	EngineReasonNotApplicable = "NotApplicable"
+
+	// EngineReasonConnected is set on ContainerEngineReady when the engine is
+	// running and mirror resources are in sync.
+	EngineReasonConnected = "Connected"
+
+	// EngineReasonConnectFailed is set on ContainerEngineReady when the engine
+	// reconciler could not connect to the Docker daemon.
+	EngineReasonConnectFailed = "ConnectFailed"
+)
+
 // ContainerEngineSpec defines the desired container engine configuration.
 type ContainerEngineSpec struct {
 	// name specifies the container engine to use.

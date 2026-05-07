@@ -13,6 +13,7 @@ import (
 	"io"
 	"os"
 	"sync"
+	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -211,7 +212,7 @@ func (r *EngineReconciler) Reconcile(ctx context.Context, _ ctrl.Request) (ctrl.
 			// Docker context directly.
 			r.removeDockerContext()
 		}
-		terminalReason := "Stopped"
+		terminalReason := appv1alpha1.EngineReasonStopped
 		terminalStatus := metav1.ConditionFalse
 		terminalMessage := "Container engine stopped"
 		if running && !engineIsDocker {
@@ -221,7 +222,7 @@ func (r *EngineReconciler) Reconcile(ctx context.Context, _ ctrl.Request) (ctrl.
 			// expect Container/Image/Volume mirrors must gate on
 			// Reason, not Status alone. The condition will be renamed
 			// when containerd mirroring lands.
-			terminalReason = "NotApplicable"
+			terminalReason = appv1alpha1.EngineReasonNotApplicable
 			terminalStatus = metav1.ConditionTrue
 			terminalMessage = "Engine mirroring is only supported with the moby backend"
 		}
@@ -248,7 +249,7 @@ func (r *EngineReconciler) Reconcile(ctx context.Context, _ ctrl.Request) (ctrl.
 		log.Info("App is running, starting Docker watcher")
 		if err := r.startWatcherAndSync(ctx); err != nil {
 			log.Error(err, "Failed to start Docker watcher")
-			if condErr := r.setEngineCondition(ctx, &app, metav1.ConditionFalse, "ConnectFailed", err.Error()); condErr != nil {
+			if condErr := r.setEngineCondition(ctx, &app, metav1.ConditionFalse, appv1alpha1.EngineReasonConnectFailed, err.Error()); condErr != nil {
 				log.Error(condErr, "Failed to update ContainerEngineReady to ConnectFailed")
 			}
 			return ctrl.Result{}, err
@@ -262,7 +263,7 @@ func (r *EngineReconciler) Reconcile(ctx context.Context, _ ctrl.Request) (ctrl.
 	// that stamps the new generation into ContainerEngineReady, and
 	// rdd set's wait predicate depends on it. setEngineCondition
 	// no-ops when nothing changed, so stable reconciles pay nothing.
-	if err := r.setEngineCondition(ctx, &app, metav1.ConditionTrue, "Connected", "Container engine synced"); err != nil {
+	if err := r.setEngineCondition(ctx, &app, metav1.ConditionTrue, appv1alpha1.EngineReasonConnected, "Container engine synced"); err != nil {
 		return ctrl.Result{}, err
 	}
 
@@ -464,8 +465,10 @@ func (r *EngineReconciler) setEngineCondition(ctx context.Context, app *appv1alp
 }
 
 // cleanupMirrorResources removes every mirror resource the engine
-// controller owns. Errors from all four kinds are joined so one stuck
-// type does not block the rest.
+// controller owns. After deleting all resources it polls the API
+// server until they are gone from the watch cache, so that the
+// ContainerEngineReady condition is only stamped once callers (e.g.
+// `rdd set running=false`) can observe a clean state.
 func (r *EngineReconciler) cleanupMirrorResources(ctx context.Context) error {
 	log := logf.FromContext(ctx)
 	log.Info("Cleaning up all mirror resources")
@@ -483,7 +486,68 @@ func (r *EngineReconciler) cleanupMirrorResources(ctx context.Context) error {
 	if err := r.deleteAllOfType(ctx, &containersv1alpha1.ContainerNamespaceList{}); err != nil {
 		errs = append(errs, fmt.Errorf("failed to delete ContainerNamespaces: %w", err))
 	}
-	return errors.Join(errs...)
+	if err := errors.Join(errs...); err != nil {
+		return err
+	}
+	// Block until the API server's watch cache reflects the deletions.
+	// The Kubernetes watch cache is updated asynchronously: DELETE
+	// requests commit to etcd synchronously, but the cache event is
+	// processed in a separate goroutine. On slower systems (e.g.
+	// Windows CI with SQLite I/O) there is an observable window where
+	// `kubectl get` returns a just-deleted resource. Polling here
+	// ensures that ContainerEngineReady is only stamped — and `rdd set
+	// running=false` only returns — after the cache reflects the clean
+	// state, so the immediately-following test assertion passes.
+	return r.waitMirrorResourcesGone(ctx)
+}
+
+// waitMirrorResourcesGone polls the informer cache until all four mirror
+// resource types are empty or the 30-second timeout expires. r.List is
+// used (not r.apiReader) so the poll drains the watch cache, not etcd.
+func (r *EngineReconciler) waitMirrorResourcesGone(ctx context.Context) error {
+	log := logf.FromContext(ctx)
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	for {
+		remaining, err := r.countMirrorResources(ctx)
+		if err != nil {
+			return fmt.Errorf("error verifying mirror resources gone: %w", err)
+		}
+		if remaining == 0 {
+			return nil
+		}
+		log.V(1).Info("Waiting for mirror resources to disappear from watch cache",
+			"remaining", remaining)
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("timed out waiting for %d mirror resources to be deleted: %w",
+				remaining, ctx.Err())
+		case <-time.After(200 * time.Millisecond):
+		}
+	}
+}
+
+// countMirrorResources returns the total number of mirror resources in
+// the informer cache. All four types must be registered in Watches.
+func (r *EngineReconciler) countMirrorResources(ctx context.Context) (int, error) {
+	lists := []client.ObjectList{
+		&containersv1alpha1.ContainerList{},
+		&containersv1alpha1.VolumeList{},
+		&containersv1alpha1.ImageList{},
+		&containersv1alpha1.ContainerNamespaceList{},
+	}
+	var total int
+	for _, list := range lists {
+		if err := r.List(ctx, list, client.InNamespace(r.apiNamespace)); err != nil {
+			return 0, err
+		}
+		items, err := meta.ExtractList(list)
+		if err != nil {
+			return 0, err
+		}
+		total += len(items)
+	}
+	return total, nil
 }
 
 // deleteAllOfType lists and removes every resource of the given kind
@@ -767,5 +831,6 @@ func (r *EngineReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(&containersv1alpha1.Container{}, enqueueApp).
 		Watches(&containersv1alpha1.Image{}, enqueueApp).
 		Watches(&containersv1alpha1.Volume{}, enqueueApp).
+		Watches(&containersv1alpha1.ContainerNamespace{}, enqueueApp).
 		Complete(r)
 }

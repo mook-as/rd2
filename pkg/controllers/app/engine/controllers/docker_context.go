@@ -154,7 +154,7 @@ func probeDockerContext(ctx context.Context) bool {
 //
 // When we cannot determine whether the context is healthy — because the store
 // is unreadable, the endpoint metadata is missing or malformed, the scheme is
-// not tcp/unix (e.g. SSH), or the TLS config cannot be loaded — we return true
+// not tcp/unix/npipe (e.g. SSH), or the TLS config cannot be loaded — we return true
 // (assume healthy). This conservatism prevents RDD from clobbering a context
 // that is in the middle of being edited or migrated.
 func probeNamedDockerContext(ctx context.Context, name string) bool {
@@ -182,7 +182,7 @@ func probeNamedDockerContext(ctx context.Context, name string) bool {
 	switch scheme {
 	case "unix", "tcp", "npipe":
 	default:
-		log.Info("Non-tcp/unix endpoint scheme; assuming context healthy", "scheme", scheme)
+		log.Info("Unprobed endpoint scheme; assuming context healthy", "scheme", scheme)
 		return true
 	}
 	ep, err := docker.WithTLSData(s, name, epMeta)

@@ -20,7 +20,8 @@ local_setup_file() {
     # maps to a different location. cygpath -m produces a mixed-format path
     # (C:/msys64/...) that both native Windows processes and MSYS2 agree on.
     if is_windows; then
-        DOCKER_CONFIG="$(cygpath -m "${BATS_FILE_TMPDIR}/docker-config")"
+        run -0 cygpath -m "${BATS_FILE_TMPDIR}/docker-config"
+        DOCKER_CONFIG=${output}
     else
         DOCKER_CONFIG="${BATS_FILE_TMPDIR}/docker-config"
     fi
@@ -787,12 +788,12 @@ docker_context_dir() {
     run -0 jq -r '.Name' "${meta_file}"
     assert_output "${context_name}"
 
-    run -0 jq -r '.Endpoints.docker.Host' "${meta_file}"
     if is_windows; then
+        run -0 jq -r '.Endpoints.docker.Host' "${meta_file}"
         assert_output "npipe:////./pipe/docker_engine"
     else
         run -0 rdd service paths docker_socket
-        local socket_path=${output}
+        socket_path=${output}
         run -0 jq -r '.Endpoints.docker.Host' "${meta_file}"
         assert_output "unix://${socket_path}"
     fi
