@@ -123,6 +123,20 @@ var LimaHome = sync.OnceValue(func() string {
 // DockerSocket returns the path to the Docker socket for this instance
 // (e.g., ~/.rd2/docker.sock). This is the host-side socket that Lima
 // port-forwards from the guest's /var/run/docker.sock.
+// On Windows, returns the named pipe path (\\.\pipe\docker_engine).
 var DockerSocket = sync.OnceValue(func() string {
+	if runtime.GOOS == "windows" {
+		return `\\.\pipe\docker_engine`
+	}
 	return filepath.Join(ShortDir(), "docker.sock")
+})
+
+// DockerEndpoint returns the full Docker endpoint URL for this instance.
+// On Windows this is a named-pipe URL (npipe:////./pipe/docker_engine);
+// on Unix it is a unix-socket URL (unix:///path/to/docker.sock).
+var DockerEndpoint = sync.OnceValue(func() string {
+	if runtime.GOOS == "windows" {
+		return `npipe:////./pipe/docker_engine`
+	}
+	return "unix://" + DockerSocket()
 })

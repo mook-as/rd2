@@ -57,7 +57,7 @@ func testGetContextHost(t *testing.T, name string) (string, error) {
 func Test_createReplaceDockerContext(t *testing.T) {
 	newDockerTestDir(t)
 
-	assert.NilError(t, createReplaceDockerContext("rancher-desktop-2", "/tmp/docker.sock"))
+	assert.NilError(t, createReplaceDockerContext("rancher-desktop-2", "unix:///tmp/docker.sock"))
 
 	host, err := testGetContextHost(t, "rancher-desktop-2")
 	assert.NilError(t, err)
@@ -73,7 +73,7 @@ func Test_createReplaceDockerContext(t *testing.T) {
 	assert.Equal(t, meta["Description"], "Rancher Desktop rancher-desktop-2")
 
 	// Replacing with a new socket updates the host.
-	assert.NilError(t, createReplaceDockerContext("rancher-desktop-2", "/run/docker.sock"))
+	assert.NilError(t, createReplaceDockerContext("rancher-desktop-2", "unix:///run/docker.sock"))
 	host, err = testGetContextHost(t, "rancher-desktop-2")
 	assert.NilError(t, err)
 	assert.Equal(t, host, "unix:///run/docker.sock")
@@ -94,7 +94,7 @@ func Test_dockerConfigDir_DOCKER_CONFIG(t *testing.T) {
 	assert.Equal(t, dir, override)
 
 	// Context files land under DOCKER_CONFIG, not HOME/.docker.
-	assert.NilError(t, createReplaceDockerContext("rancher-desktop-2", "/tmp/docker.sock"))
+	assert.NilError(t, createReplaceDockerContext("rancher-desktop-2", "unix:///tmp/docker.sock"))
 	_, err = os.Stat(filepath.Join(override, "contexts"))
 	assert.NilError(t, err, "contexts/ must exist under DOCKER_CONFIG")
 	_, err = os.Stat(filepath.Join(home, ".docker", "contexts"))
@@ -115,7 +115,7 @@ func Test_getCurrentDockerContext_malformedAuth(t *testing.T) {
 func Test_deleteDockerContext(t *testing.T) {
 	newDockerTestDir(t)
 
-	assert.NilError(t, createReplaceDockerContext("rancher-desktop-2", "/tmp/docker.sock"))
+	assert.NilError(t, createReplaceDockerContext("rancher-desktop-2", "unix:///tmp/docker.sock"))
 	host, err := testGetContextHost(t, "rancher-desktop-2")
 	assert.NilError(t, err)
 	assert.Equal(t, host, "unix:///tmp/docker.sock")

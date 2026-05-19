@@ -12,7 +12,6 @@ package engine
 import (
 	"maps"
 	"net/http"
-	"runtime"
 	"slices"
 
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -24,11 +23,6 @@ import (
 )
 
 func init() {
-	// Windows lacks a Docker socket transport, so the reconciler would
-	// hot-loop on connect errors. Skip registration until WSL2 support lands.
-	if runtime.GOOS == "windows" {
-		return
-	}
 	base.RegisterController(newController())
 }
 
