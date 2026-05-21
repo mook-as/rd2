@@ -23,8 +23,11 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	"github.com/rancher-sandbox/rancher-desktop-daemon/pkg/apis/app/v1alpha1"
 	limav1alpha1 "github.com/rancher-sandbox/rancher-desktop-daemon/pkg/apis/lima/v1alpha1"
@@ -139,6 +142,13 @@ func (r *AppReconciler) Reconcile(ctx context.Context, _ ctrl.Request) (ctrl.Res
 		}
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
+
+	log.V(1).Info("reconcile entered",
+		"specRunning", app.Spec.Running,
+		"generation", app.Generation,
+		"resourceVersion", app.ResourceVersion,
+		"beingDeleted", app.DeletionTimestamp != nil,
+	)
 
 	// Handle deletion, delete owned resources.
 	if base.IsBeingDeleted(&app) {
@@ -544,7 +554,42 @@ func runningLimaVMMessage(runningCond *metav1.Condition, desired string) string 
 // SetupWithManager sets up the controller with the Manager.
 func (r *AppReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&v1alpha1.App{}).
+		For(&v1alpha1.App{}, builder.WithPredicates(watchEventLogger("app"))).
 		Owns(&limav1alpha1.LimaVM{}).
 		Complete(r)
+}
+
+// watchEventLogger returns a predicate that logs every watch event the
+// controller receives, before workqueue dispatch. Logs at V(1), so default
+// verbosity stays quiet.
+func watchEventLogger(name string) predicate.Predicate {
+	log := logf.Log.WithName(name + ".watch")
+	return predicate.Funcs{
+		CreateFunc: func(e event.CreateEvent) bool {
+			log.V(1).Info("create",
+				"name", e.Object.GetName(),
+				"generation", e.Object.GetGeneration(),
+				"resourceVersion", e.Object.GetResourceVersion(),
+			)
+			return true
+		},
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			log.V(1).Info("update",
+				"name", e.ObjectNew.GetName(),
+				"oldGeneration", e.ObjectOld.GetGeneration(),
+				"newGeneration", e.ObjectNew.GetGeneration(),
+				"oldResourceVersion", e.ObjectOld.GetResourceVersion(),
+				"newResourceVersion", e.ObjectNew.GetResourceVersion(),
+			)
+			return true
+		},
+		DeleteFunc: func(e event.DeleteEvent) bool {
+			log.V(1).Info("delete", "name", e.Object.GetName())
+			return true
+		},
+		GenericFunc: func(e event.GenericEvent) bool {
+			log.V(1).Info("generic", "name", e.Object.GetName())
+			return true
+		},
+	}
 }

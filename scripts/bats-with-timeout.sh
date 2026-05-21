@@ -272,28 +272,33 @@ dump_api_state() {
         return
     fi
 
-    if "$rdd_bin" service status 2>/dev/null | grep --quiet 'control plane has been started: true'; then
-        local resource_types
-        echo "=== rdd ctl get (overview) ==="
-        resource_types=$("$rdd_bin" ctl api-resources --output=json \
-            | jq -rc '.resources | map(select((.group // "") | test("rancherdesktop.io")) | .name) | join(",")' \
-            || echo "apps,limavms,containers,images,volumes,containernamespaces")
-        timeout --kill-after=1 10 \
-            "$rdd_bin" ctl get "$resource_types" --all-namespaces 2>&1 || true
+    # Always attempt API capture. The hangs we are most often diagnosing
+    # have the apiserver alive but the readiness path stuck, so the status
+    # gate would skip exactly when capture is most useful. Each probe has
+    # its own short timeout, so a fully dead daemon cannot block the bundle.
+    local status_line
+    status_line=$(timeout --kill-after=1 5 "$rdd_bin" service status 2>&1 | head -1 || echo "status check timed out")
+    echo "=== rdd service status: ${status_line} ==="
 
-        echo
-        echo "=== rdd ctl get events (by time) ==="
-        timeout --kill-after=1 10 \
-            "$rdd_bin" ctl get events --all-namespaces \
-            --sort-by=.lastTimestamp 2>&1 | tail -100 || true
+    local resource_types
+    echo
+    echo "=== rdd ctl get (overview) ==="
+    resource_types=$(timeout --kill-after=1 5 "$rdd_bin" ctl api-resources --output=json 2>/dev/null \
+        | jq -rc '.resources | map(select((.group // "") | test("rancherdesktop.io")) | .name) | join(",")' \
+        || echo "apps,limavms,containers,images,volumes,containernamespaces")
+    timeout --kill-after=1 10 \
+        "$rdd_bin" ctl get "$resource_types" --all-namespaces 2>&1 || true
 
-        echo
-        echo "=== rdd ctl get (full YAML) ==="
-        timeout --kill-after=1 15 \
-            "$rdd_bin" ctl get "$resource_types" --all-namespaces --output=yaml 2>&1 || true
-    else
-        echo "=== rdd control plane is not running ==="
-    fi
+    echo
+    echo "=== rdd ctl get events (by time) ==="
+    timeout --kill-after=1 10 \
+        "$rdd_bin" ctl get events --all-namespaces \
+        --sort-by=.lastTimestamp 2>&1 | tail -100 || true
+
+    echo
+    echo "=== rdd ctl get (full YAML) ==="
+    timeout --kill-after=1 15 \
+        "$rdd_bin" ctl get "$resource_types" --all-namespaces --output=yaml 2>&1 || true
 
     # Docker state: test suites that exercise the container engine
     # forward the guest Docker socket to a host path. Skip silently
@@ -379,6 +384,31 @@ our_leaked_pids() {
     done < <(ps -a -x -o pid=,ucomm= 2>/dev/null || ps -e -o pid=,ucomm= 2>/dev/null || true)
 }
 
+# SIGQUIT the rdd service so its goroutine stacks land in rdd.stderr.log.
+# The service's cmdline does not carry the instance suffix (only env vars
+# do), so matches_our_instance cannot find it; we read the pidfile instead.
+# No-op if the pidfile is missing or the process is gone.
+sig_quit_rdd_service() {
+    local pid_file pid
+    pid_file=$("$rdd_bin" svc paths pid_file 2>/dev/null || true)
+    if [ -z "$pid_file" ] || [ ! -f "$pid_file" ]; then
+        return
+    fi
+    pid=$(cat "$pid_file" 2>/dev/null || true)
+    if [ -z "$pid" ] || ! kill -0 "$pid" 2>/dev/null; then
+        return
+    fi
+    {
+        echo
+        echo "=== SIGQUIT -> rdd service (RDD_INSTANCE=${instance}, pid=${pid}) ==="
+        echo "cmdline=$(cmdline_of "$pid")"
+    } >>"${bundle_file}" 2>&1
+    kill -QUIT "$pid" 2>/dev/null || true
+    # The dump goes to the service's stderr (captured in rdd.stderr.log).
+    # Pause so the runtime flushes before SIGTERM ends the process.
+    sleep 2
+}
+
 # SIGQUIT Go processes belonging to our RDD_INSTANCE so their goroutine
 # stacks land in the preserved stderr logs. No-op if nothing is leaked.
 sig_quit_our_go_leaks() {
@@ -432,6 +462,7 @@ while kill -0 "${cmd_pid}" 2>/dev/null; do
     if [ "$(date +%s)" -ge "${deadline}" ]; then
         echo "bats-with-timeout: RDD_INSTANCE=${instance} exceeded ${timeout_seconds}s, capturing support bundle" >&2
         capture_state "timeout"
+        sig_quit_rdd_service
         sig_quit_our_go_leaks
         echo "bats-with-timeout: sending SIGTERM to ${cmd_pid}" >&2
         kill -TERM "${cmd_pid}" 2>/dev/null || true
