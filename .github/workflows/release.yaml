@@ -1,0 +1,91 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+    - v*
+
+permissions: {}
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [arm64, amd64]
+        platform:
+        - os: darwin
+          runs-on: macos-latest
+        - os: windows
+          runs-on: windows-latest
+        - os: linux
+          runs-on: ubuntu-latest
+        exclude:
+        - platform:
+            os: windows
+          arch: arm64 # No Windows ARM64 cross compiler available.
+    runs-on: ${{ matrix.platform.runs-on}}
+    permissions:
+      contents: read
+    steps:
+    - name: Install Linux/ARM64 cross compiler
+      if: ${{ matrix.platform.os == 'linux' && matrix.arch == 'arm64' }}
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y gcc-aarch64-linux-gnu
+        echo 'CC=aarch64-linux-gnu-gcc' >> "$GITHUB_ENV"
+    - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      with:
+        persist-credentials: false
+    - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+      with:
+        go-version-file: go.mod
+    - run: make build-rdd
+      shell: bash
+      env:
+        GOOS: ${{ matrix.platform.os }}
+        GOARCH: ${{ matrix.arch }}
+    - name: Prepare for Upload
+      shell: bash
+      run: |
+        ext=""
+        if [[ "${{ matrix.platform.os }}" == "windows" ]]; then
+          ext=".exe"
+        fi
+        name="rdd-${{ matrix.platform.os }}-${{ matrix.arch }}${ext}"
+        mv "bin/rdd${ext}" "bin/${name}"
+        sha512sum "bin/${name}" > "bin/${name}.sha512sum"
+    - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: rdd-${{ matrix.platform.os }}-${{ matrix.arch }}
+        path: |
+          bin/rdd-${{ matrix.platform.os }}-${{ matrix.arch }}*
+          bin/rdd-${{ matrix.platform.os }}-${{ matrix.arch }}.sha512sum
+        if-no-files-found: error
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+    - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      with:
+        path: .
+        merge-multiple: true
+    - name: Merge Checksums
+      run: |
+        cat rdd-*-*.sha512sum | sort --key=2 > rdd.sha512sum
+        rm --force rdd-*-*.sha512sum
+    - name: Create Release
+      run: >-
+        exec gh release create
+        --draft
+        --repo ${{ github.repository }}
+        --generate-notes
+        --target ${{ github.sha }}
+        --verify-tag
+        ${{ github.ref_name }}
+        rdd-*-*
+        rdd.sha512sum
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
