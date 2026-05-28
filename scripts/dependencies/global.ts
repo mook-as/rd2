@@ -2,12 +2,13 @@
 // `dependencies.yaml`.  Imported by `scripts/rddepman.ts`.
 
 import { Electron } from '@/scripts/dependencies/electron';
-import { AlpineLimaISO, Lima, Qemu, SocketVMNet } from '@/scripts/dependencies/lima';
-import { MobyOpenAPISpec } from '@/scripts/dependencies/moby-openapi';
 import * as tools from '@/scripts/dependencies/tools';
 import { Wix } from '@/scripts/dependencies/wix';
-import { Moproxy, WSLDistro } from '@/scripts/dependencies/wsl';
 import { VersionedDependency } from '@/scripts/lib/dependencies';
+
+import { AlpineLimaISO, Lima, Qemu, SocketVMNet } from '@/scripts/dependencies/lima';
+import { MobyOpenAPISpec } from '@/scripts/dependencies/moby-openapi';
+import { Moproxy, WSLDistro } from '@/scripts/dependencies/wsl';
 
 export const globalDependencies: VersionedDependency[] = [
   new tools.KuberlrAndKubectl(),

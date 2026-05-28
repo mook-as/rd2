@@ -6,6 +6,7 @@ import Electron from 'electron';
 import _ from 'lodash';
 import semver from 'semver';
 
+import { Steve } from '@pkg/backend/steve';
 import { Help } from '@pkg/config/help';
 import { getIpcMainProxy } from '@pkg/main/ipcMain';
 import mainEvents from '@pkg/main/mainEvents';
@@ -18,7 +19,6 @@ import { protocolsRegistered, setupProtocolHandlers } from '@pkg/utils/protocols
 import getWSLVersion from '@pkg/utils/wslVersion';
 import * as window from '@pkg/window';
 import '@pkg/main/rdd-ctl';
-import { Steve } from '@pkg/backend/steve';
 import { closeDashboard, openDashboard } from '@pkg/window/dashboard';
 
 // https://www.electronjs.org/docs/latest/breaking-changes#changed-gtk-4-is-default-when-running-gnome
@@ -248,7 +248,7 @@ ipcMainProxy.on('dialog/close', (_event, args) => {
 
 // Start and stop Steve as needed
 ipcMainProxy.on('backend/app-status-changed', (_event, statusConditions) => {
-  const [status,] = statusConditions.KubernetesReady ?? [];
+  const [status] = statusConditions.KubernetesReady ?? [];
 
   if (status) {
     Steve.getInstance().start().catch((err) => {

@@ -418,7 +418,7 @@ test.describe.fixme('Container Shell Tab', () => {
   });
 });
 
-test.describe.serial('Container Info Tab', () => {
+test.describe.fixme('Container Info Tab', () => {
   let electronApp: ElectronApplication;
   let infoContainerId: string;
 

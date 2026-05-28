@@ -24,9 +24,9 @@ export const mutations = {
 export const plugins: Plugin<RootState>[] = [
   // Vuex plugin to monitor for Steve port updates.
   function({ commit }) {
-    ipcRenderer.on('steve-port', (event, port) => {
+    ipcRenderer.on('backend/steve-port', (event, port) => {
       commit('steve/SET_PORT', port);
     });
-    ipcRenderer.send('steve-port');
+    ipcRenderer.send('backend/steve-fetch-port');
   },
 ];

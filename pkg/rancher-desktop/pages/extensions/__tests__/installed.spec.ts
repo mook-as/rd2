@@ -24,7 +24,6 @@ mockModules({
   '@pkg/components/LoadingIndicator.vue':       componentStub,
   '@pkg/components/NavIconExtension.vue':       componentStub,
   '@pkg/components/SortableTable/index.vue':    sortableTableStub,
-  '@pkg/hocs/withCredentials':                  { default: jest.fn() },
   '@pkg/utils/ipcRenderer':                    {
     ipcRenderer: {
       on: jest.fn(),

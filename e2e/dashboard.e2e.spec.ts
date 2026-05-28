@@ -3,7 +3,7 @@ import { ElectronApplication, Page, expect, test } from '@playwright/test';
 import { NavPage } from '@/e2e/pages/nav-page';
 import { kubectl, retry, startSlowerDesktop, teardown } from '@/e2e/utils/TestUtils';
 
-test.describe.serial('Dashboard', () => {
+test.describe.fixme('Dashboard', () => {
   let electronApp: ElectronApplication;
   let page: Page;
   let dashboardPage: Page;

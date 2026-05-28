@@ -1,6 +1,7 @@
 <script lang="ts">
-import { mapTypedGetters, mapTypedState } from '@pkg/entry/store';
 import { defineComponent } from 'vue';
+
+import { mapTypedGetters, mapTypedState } from '@pkg/entry/store';
 
 export default defineComponent({
   name:     'dashboard-open',

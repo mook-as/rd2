@@ -19,7 +19,7 @@ export interface IpcMainEvents {
   /** The app status has changed.  The input is the status conditions on the app. */
   'backend/app-status-changed': (status: Record<string, readonly [boolean | undefined, string]>) => void;
   /** Trigger the corresponding IPC renderer event. */
-  'backend/steve-fetch-port': () => void;
+  'backend/steve-fetch-port':   () => void;
   // #endregion
 
   // #region main/update
@@ -123,7 +123,7 @@ export interface IpcRendererEvents {
   'always-debugging':          (status: boolean) => void;
   'is-debugging':              (status: boolean) => void;
   /** The steve port may have changed. */
-  'backend/steve-port':                (port: number) => void;
+  'backend/steve-port':        (port: number) => void;
   'kubernetes-errors-details': (
     titlePart: string,
     mainMessage: string,
