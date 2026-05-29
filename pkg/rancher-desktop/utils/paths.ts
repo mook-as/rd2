@@ -141,7 +141,10 @@ function getPlatformSpecificPaths(rdd: RDDPaths, platform: supportedPlatforms): 
 const platformAgnosticPaths: PlatformAgnosticPaths = {
   get resources() {
     if (electron.app?.isPackaged) {
-      return process.resourcesPath;
+      if (process.resourcesPath) {
+        return path.join(process.resourcesPath, 'resources');
+      }
+      return undefined as any;
     }
     // In `yarn dev`, `process.resourcesPath` is
     // `.../Electron.app/Contents/Resources` (and other similar paths on other
