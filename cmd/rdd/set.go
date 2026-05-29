@@ -481,10 +481,57 @@ func waitForDesiredState(ctx context.Context, config *rest.Config, timeout time.
 	defer cancel()
 
 	logrus.Info("Waiting for App to settle")
+	reporter := newConditionReporter(minGen)
 	return watchCondition(ctx, config, func(obj *unstructured.Unstructured) bool {
+		// Surface reconcile progress: log each App condition as its
+		// status, reason, or message changes while we wait.
+		reporter.report(obj)
 		status, gen, present := conditionInfo(obj, appv1alpha1.AppConditionSettled)
 		return present && gen >= minGen && status == metav1.ConditionTrue
 	})
+}
+
+// conditionReporter logs App status condition changes as they happen, so
+// `rdd set --wait` shows reconcile progress instead of blocking silently. It
+// reports only conditions observed at or after the target generation, so the
+// output tracks this change rather than a stale snapshot from an earlier spec
+// version — the same generation filter waitForDesiredState applies to Settled.
+type conditionReporter struct {
+	minGen int64
+	seen   map[string]string
+}
+
+func newConditionReporter(minGen int64) *conditionReporter {
+	return &conditionReporter{minGen: minGen, seen: make(map[string]string)}
+}
+
+// report logs each App condition at or after the target generation whose
+// status, reason, or message changed since the last snapshot.
+func (r *conditionReporter) report(obj *unstructured.Unstructured) {
+	conditions, found, err := unstructured.NestedSlice(obj.Object, "status", "conditions")
+	if err != nil || !found {
+		return
+	}
+	for _, c := range conditions {
+		cond, ok := c.(map[string]any)
+		if !ok {
+			continue
+		}
+		observedGen, _, _ := unstructured.NestedInt64(cond, "observedGeneration")
+		if observedGen < r.minGen {
+			continue // Stale snapshot from an earlier spec version.
+		}
+		condType, _ := cond["type"].(string)
+		status, _ := cond["status"].(string)
+		reason, _ := cond["reason"].(string)
+		message, _ := cond["message"].(string)
+		key := status + "|" + reason + "|" + message
+		if r.seen[condType] == key {
+			continue
+		}
+		r.seen[condType] = key
+		logrus.Infof("%s=%s: %s (%s)", condType, status, message, reason)
+	}
 }
 
 // watchCondition watches the App singleton until the predicate
