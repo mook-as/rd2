@@ -772,6 +772,13 @@ docker_context_dir() {
     echo "${DOCKER_CONFIG}/contexts/meta/${hash}"
 }
 
+# assert_docker_context checks config.json's currentContext against the
+# expected value; suitable for polling with try.
+assert_docker_context() { # <expected-context>
+    run jq -r '.currentContext' "${DOCKER_CONFIG}/config.json"
+    assert_output "$1"
+}
+
 @test "moby engine creates Docker context for the instance" {
     # Restart with moby (the containerd test above may have left the engine in
     # containerd mode).
@@ -824,8 +831,7 @@ EOF
     rdd ctl wait --for=condition=ContainerEngineReady app/app --timeout=30s
 
     # The probe goroutine runs asynchronously; give it a moment.
-    try --max 6 --delay 1 -- \
-        bash -c "jq -r '.currentContext' '${DOCKER_CONFIG}/config.json' | grep -qx '${context_name}'"
+    try --max 6 --delay 1 -- assert_docker_context "${context_name}"
 
     run -0 jq -r '.currentContext' "${DOCKER_CONFIG}/config.json"
     assert_output "${context_name}"
