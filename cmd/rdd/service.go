@@ -132,6 +132,7 @@ func startAndWaitForReady(ctx context.Context, serveArgs []string, timeout time.
 	if err := service.Start(ctx, serveArgs); err != nil {
 		return err
 	}
+	logrus.Infof("starting %q control plane", instance.Name())
 
 	ctx, cancel := watchtools.ContextWithOptionalTimeout(ctx, timeout)
 	defer cancel()

@@ -20,6 +20,11 @@ const EngineControllerName = "engine"
 const KubernetesControllerName = "kubernetes"
 
 // App condition types.
+//
+// Load-bearing invariant: every condition written to App status must stamp
+// ObservedGeneration with the App's generation. `rdd set` filters conditions
+// by generation, both to wait on a fresh Settled and to report reconcile
+// progress, so an unstamped condition reads as stale and never appears.
 const (
 	// AppConditionRunning mirrors the LimaVM Running condition: True
 	// means the Lima guest has finished booting and SSH is reachable.
