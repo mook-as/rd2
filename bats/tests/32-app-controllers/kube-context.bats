@@ -18,7 +18,18 @@ local_setup_file() {
     # Set KUBECONFIG before starting the service so the controller process inherits
     # it; service.Start uses exec.Command without an explicit Env, so it inherits
     # the caller's environment.
-    export KUBECONFIG="${BATS_FILE_TMPDIR}/kube/config"
+    #
+    # On Windows, rdd.exe is a native binary: it interprets /tmp/... as a path
+    # from the drive root (C:\tmp\...) rather than MSYS2's /tmp which maps to a
+    # different location. cygpath -m produces a mixed-format path (C:/msys64/...)
+    # that both native Windows processes and MSYS2 agree on.
+    if is_windows; then
+        run -0 cygpath -m "${BATS_FILE_TMPDIR}/kube/config"
+        KUBECONFIG="${output}"
+    else
+        KUBECONFIG="${BATS_FILE_TMPDIR}/kube/config"
+    fi
+    export KUBECONFIG
     mkdir -p "$(dirname "${KUBECONFIG}")"
 
     rdd svc delete
