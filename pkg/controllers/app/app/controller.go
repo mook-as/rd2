@@ -64,6 +64,10 @@ const (
 	appValidatorWebhookName = "app-validator.app.rancherdesktop.io"
 	// appValidatorConfigName is the name of the App ValidatingWebhookConfiguration.
 	appValidatorConfigName = "app-validator"
+	// appDefaulterWebhookName is the name used for the App mutating webhook.
+	appDefaulterWebhookName = "app-defaulter.app.rancherdesktop.io"
+	// appDefaulterConfigName is the name of the App MutatingWebhookConfiguration.
+	appDefaulterConfigName = "app-defaulter"
 )
 
 // controller implements the base.Controller interface for app.
@@ -112,8 +116,31 @@ func (c *controller) GetWebhookManagers() []base.WebhookManager {
 	return c.webhookManagers
 }
 
-// setupWebhook sets up the App validating webhook.
+// setupWebhook sets up the App mutating and validating webhooks. The mutating
+// webhook resolves Kubernetes version channels (e.g. "stable") to concrete
+// versions before the validating webhook checks them.
 func (c *controller) setupWebhook(mgr ctrl.Manager) error {
+	defaulter, err := controllers.NewAppDefaulter(k3sVersionsData)
+	if err != nil {
+		return err
+	}
+	mutatingConfig := base.WebhookConfig[*v1alpha1.App]{
+		Name:        appDefaulterConfigName,
+		WebhookName: appDefaulterWebhookName,
+		WebhookPort: c.webhookPort,
+		Operations: []admissionregistrationv1.OperationType{
+			admissionregistrationv1.Create,
+			admissionregistrationv1.Update,
+		},
+		Defaulter: defaulter,
+	}
+
+	managers, err := base.SetupWebhookForResource(mgr, &v1alpha1.App{}, mutatingConfig)
+	if err != nil {
+		return err
+	}
+	c.webhookManagers = append(c.webhookManagers, managers...)
+
 	validator, err := controllers.NewAppValidator(k3sVersionsData)
 	if err != nil {
 		return err
@@ -129,7 +156,7 @@ func (c *controller) setupWebhook(mgr ctrl.Manager) error {
 		Validator: validator,
 	}
 
-	managers, err := base.SetupWebhookForResource(mgr, &v1alpha1.App{}, validatingConfig)
+	managers, err = base.SetupWebhookForResource(mgr, &v1alpha1.App{}, validatingConfig)
 	if err != nil {
 		return err
 	}

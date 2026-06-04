@@ -334,6 +334,26 @@ EOF
     assert_output --partial "not found"
 }
 
+@test "mutating webhook resolves Kubernetes version channels and defaults to stable" {
+    delete_app
+    # --wait=false: the webhook resolves the version at admission, so the test reads it
+    # without waiting for the App to settle. The LimaVM is still created in the background.
+    rdd set --wait=false running=false kubernetes.enabled=true kubernetes.version=stable
+    # The mutating webhook rewrites the "stable" channel to a concrete version
+    # before the validating webhook runs, which would otherwise reject "stable"
+    # as an unsupported version.
+    run -0 rdd ctl get app "${APP_NAME}" -o jsonpath='{.spec.kubernetes.version}'
+    assert_output --regexp '^[0-9]+\.[0-9]+\.[0-9]+$'
+    stable_version=${output}
+
+    # Omitting the version resolves to the same concrete version as an explicit
+    # "stable", confirming stable is the default channel.
+    delete_app
+    rdd set --wait=false running=false kubernetes.enabled=true
+    run -0 rdd ctl get app "${APP_NAME}" -o jsonpath='{.spec.kubernetes.version}'
+    assert_output "${stable_version}"
+}
+
 @test "valid Kubernetes version allows LimaVM creation" {
     skip_on_windows "Kubernetes tests require further setup on Windows"
     delete_app
@@ -444,20 +464,10 @@ EOF
     assert_output --partial "containerEngine.name"
 }
 
-@test "dry-run rejects kubernetes.enabled=true with empty version" {
-    run -1 rdd ctl apply --dry-run=server -f - <<EOF
-apiVersion: app.rancherdesktop.io/v1alpha1
-kind: App
-metadata:
-  name: app
-spec:
-  running: false
-  containerEngine:
-    name: moby
-  kubernetes:
-    enabled: true
-EOF
-    assert_output --partial "kubernetes.version must not be empty"
+@test "dry-run accepts kubernetes.enabled=true with empty version" {
+    # The mutating webhook defaults the version to the stable channel, so
+    # enabling Kubernetes without one passes validation.
+    rdd set --dry-run running=false containerEngine.name=moby kubernetes.enabled=true
 }
 
 @test "dry-run rejects unsupported kubernetes.version" {

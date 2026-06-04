@@ -76,3 +76,50 @@ func Test_parseK3sVersions(t *testing.T) {
 		})
 	}
 }
+
+func Test_parseK3sChannels(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		input   string
+		want    map[string]string
+		wantErr bool
+	}{
+		{
+			name:  "aliases and minor-version channels",
+			input: `{"channels":{"stable":"1.34.6","latest":"1.35.3","v1.32":"1.32.13"}}`,
+			// parseK3sChannels strips the "v" prefix from the channel name, so "1.32" resolves too.
+			want: map[string]string{"stable": "1.34.6", "latest": "1.35.3", "1.32": "1.32.13"},
+		},
+		{
+			name:  "channel value normalizes to bare semver",
+			input: `{"channels":{"stable":"v1.34.6+k3s1"}}`,
+			want:  map[string]string{"stable": "1.34.6"},
+		},
+		{
+			name:  "no channels",
+			input: `{"versions":[]}`,
+			want:  map[string]string{},
+		},
+		{
+			name:    "malformed JSON",
+			input:   `not json`,
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := parseK3sChannels(tt.input)
+			if tt.wantErr {
+				assert.Assert(t, err != nil, "expected an error but got nil")
+				return
+			}
+			assert.NilError(t, err)
+			assert.DeepEqual(t, got, tt.want)
+		})
+	}
+}
