@@ -166,8 +166,9 @@ func Test_Reconcile_KubernetesReady_Ready(t *testing.T) {
 		Build()
 
 	r := &KubernetesReconciler{
-		Client:        c,
-		K3sConfigPath: srcPath,
+		Client:                 c,
+		K3sConfigPath:          srcPath,
+		InstanceKubeConfigPath: filepath.Join(dir, "kube.config"),
 	}
 	// removeKubeContext cancels the in-flight current-context probe and waits
 	// for the goroutine started by manageKubeContext to finish, so it cannot
@@ -209,8 +210,9 @@ func Test_Reconcile_KubernetesReady_MergeFailed(t *testing.T) {
 		Build()
 
 	r := &KubernetesReconciler{
-		Client:        c,
-		K3sConfigPath: srcPath,
+		Client:                 c,
+		K3sConfigPath:          srcPath,
+		InstanceKubeConfigPath: filepath.Join(dir, "kube.config"),
 	}
 
 	req := ctrl.Request{NamespacedName: client.ObjectKey{Name: appName}}
@@ -303,8 +305,9 @@ func Test_Reconcile_KubernetesReady_Probing_ProbeError(t *testing.T) {
 	// Point K3sConfigPath at a file that does not exist so probeK3sAPI
 	// returns the (false, err) "kubeconfig unreadable" path.
 	r := &KubernetesReconciler{
-		Client:        c,
-		K3sConfigPath: filepath.Join(dir, "missing-k3s.yaml"),
+		Client:                 c,
+		K3sConfigPath:          filepath.Join(dir, "missing-k3s.yaml"),
+		InstanceKubeConfigPath: filepath.Join(dir, "kube.config"),
 	}
 
 	req := ctrl.Request{NamespacedName: client.ObjectKey{Name: appName}}
@@ -338,8 +341,9 @@ func Test_Reconcile_KubernetesReady_Probing_Unhealthy(t *testing.T) {
 		Build()
 
 	r := &KubernetesReconciler{
-		Client:        c,
-		K3sConfigPath: srcPath,
+		Client:                 c,
+		K3sConfigPath:          srcPath,
+		InstanceKubeConfigPath: filepath.Join(dir, "kube.config"),
 	}
 
 	req := ctrl.Request{NamespacedName: client.ObjectKey{Name: appName}}
@@ -375,8 +379,9 @@ func Test_Reconcile_KubernetesReady_Unhealthy_FromReady_ImmediateFlip(t *testing
 		Build()
 
 	r := &KubernetesReconciler{
-		Client:        c,
-		K3sConfigPath: srcPath,
+		Client:                 c,
+		K3sConfigPath:          srcPath,
+		InstanceKubeConfigPath: filepath.Join(dir, "kube.config"),
 	}
 
 	req := ctrl.Request{NamespacedName: client.ObjectKey{Name: appName}}
@@ -507,8 +512,9 @@ func Test_Reconcile_KubernetesReady_Ambiguous_HealthyResetsCounter(t *testing.T)
 	// simulate a brief slow patch followed by recovery.
 	step := 0
 	r := &KubernetesReconciler{
-		Client:        c,
-		K3sConfigPath: srcPath,
+		Client:                 c,
+		K3sConfigPath:          srcPath,
+		InstanceKubeConfigPath: filepath.Join(dir, "kube.config"),
 	}
 	r.probeFn = func(context.Context) (probeResult, error) {
 		step++
