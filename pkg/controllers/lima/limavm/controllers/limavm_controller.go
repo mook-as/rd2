@@ -11,6 +11,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -298,6 +299,21 @@ func (r *LimaVMReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	// Create the Lima instance
 	inst, err := limainstance.Create(ctx, limaVM.Name, []byte(templateData), false)
 	if err != nil {
+		// If the directory exists but store.Inspect returned nil above (no valid
+		// Lima metadata), the directory is stale — left behind by a previous
+		// service run whose cleanup failed (e.g. file locks from orphaned WSL2
+		// processes on Windows). removeStaleInstance handles the platform-specific
+		// cleanup (unregistering the WSL2 distro on Windows to release the VHD
+		// lock) before removing the directory, then we requeue to start fresh.
+		if strings.Contains(err.Error(), "already exists") {
+			instanceDir := filepath.Join(instance.LimaHome(), limaVM.Name)
+			logger.Info("Found stale Lima instance directory, removing it", "path", instanceDir)
+			if rmErr := removeStaleInstance(ctx, logger, limaVM.Name, instanceDir); rmErr != nil {
+				logger.Error(rmErr, "Failed to remove stale Lima instance directory; will retry")
+				return ctrl.Result{RequeueAfter: 2 * time.Second}, nil
+			}
+			return ctrl.Result{RequeueAfter: time.Second}, nil
+		}
 		logger.Error(err, "Failed to create Lima instance")
 		r.setCondition(ctx, &limaVM, ConditionCreated, metav1.ConditionFalse, ReasonCreateFailed, err.Error())
 		if statusErr := r.Status().Update(ctx, &limaVM); statusErr != nil {

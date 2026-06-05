@@ -707,15 +707,47 @@ func stopInstanceForcibly(ctx context.Context, logger logr.Logger, inst *limatyp
 }
 
 // terminateWSL2Distro sends `wsl.exe --terminate` for the Lima distro with
-// the given instance name. Best-effort with a 10-second timeout: wsl.exe can
-// hang if the WSL subsystem is degraded.
+// the given instance name. No-op on non-Windows. Best-effort with a
+// 10-second timeout: wsl.exe can hang if the WSL subsystem is degraded.
 func terminateWSL2Distro(ctx context.Context, logger logr.Logger, instName string) {
+	if runtime.GOOS != "windows" {
+		return
+	}
 	distroName := "lima-" + instName
 	wslCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	if err := exec.CommandContext(wslCtx, "wsl.exe", "--terminate", distroName).Run(); err != nil {
 		logger.V(1).Info("Failed to terminate WSL2 distro", "distro", distroName, "error", err)
 	}
+}
+
+// unregisterWSL2Distro sends `wsl.exe --unregister` for the Lima distro with
+// the given instance name. No-op on non-Windows. This removes the WSL2
+// registration and deletes the distro's ext4.vhdx, allowing Lima to import a
+// fresh distro on the next Prepare. Best-effort with a 30-second timeout
+// (unregister is slower than terminate and can hang if WSL2 is degraded).
+func unregisterWSL2Distro(ctx context.Context, logger logr.Logger, instName string) {
+	if runtime.GOOS != "windows" {
+		return
+	}
+	distroName := "lima-" + instName
+	wslCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	if err := exec.CommandContext(wslCtx, "wsl.exe", "--unregister", distroName).Run(); err != nil {
+		logger.V(1).Info("Failed to unregister WSL2 distro", "distro", distroName, "error", err)
+	}
+}
+
+// removeStaleInstance removes a stale Lima instance directory left behind by
+// a previous service run whose cleanup failed. On Windows, the WSL2 distro is
+// unregistered first (removing its ext4.vhdx and releasing any file locks)
+// before the remaining Lima metadata directory is deleted. On non-Windows the
+// directory is removed directly.
+func removeStaleInstance(ctx context.Context, logger logr.Logger, instName, instanceDir string) error {
+	if runtime.GOOS == "windows" {
+		unregisterWSL2Distro(ctx, logger, instName)
+	}
+	return os.RemoveAll(instanceDir)
 }
 
 // preserveInstanceLogs moves log files from the Lima instance directory to
