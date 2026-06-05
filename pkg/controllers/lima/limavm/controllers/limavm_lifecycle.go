@@ -633,6 +633,9 @@ func hostAgentPIDFile(inst *limatype.Instance) string {
 // on other platforms IsOurProcess is a no-op, so the PID is kept. DriverPID is
 // not screened here — IsOurProcess matches the rdd image, not the qemu/wsl
 // driver — so a recycled DriverPID is still taskkilled by the caller.
+//
+// TODO: track the hostagent and driver in a Windows Job Object so termination
+// no longer trusts a stored DriverPID that the OS may have recycled.
 func clearRecycledHostAgentPID(inst *limatype.Instance) {
 	if inst.HostAgentPID > 0 && !process.IsOurProcess(inst.HostAgentPID, "hostagent", hostAgentPIDFile(inst)) {
 		inst.HostAgentPID = 0

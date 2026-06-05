@@ -350,8 +350,10 @@ EOF
 
     # On Windows the hostagent runs inside a WSL2 distro that a force-kill leaves
     # running — the keepAlive process (nohup sleep) outlives the hostagent — so
-    # graceful shutdown must terminate the distro explicitly.
-    if is_msys; then
+    # graceful shutdown must terminate the distro explicitly. Gate on is_windows,
+    # not is_msys: rdd drives WSL2 distros both from MSYS2 and from a Linux build
+    # running inside a WSL2 distro (both report OS=windows).
+    if is_windows; then
         try --max 30 --delay 1 --until-fail -- assert_distro_running "${VM_NAME}"
     fi
 
