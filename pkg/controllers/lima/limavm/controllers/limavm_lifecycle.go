@@ -794,13 +794,15 @@ func unregisterWSL2Distro(ctx context.Context, logger logr.Logger, instName stri
 
 // removeStaleInstance removes a stale Lima instance directory left behind by
 // a previous service run whose cleanup failed. On Windows, the WSL2 distro is
-// unregistered first (removing its ext4.vhdx and releasing any file locks)
-// before the remaining Lima metadata directory is deleted. On non-Windows the
-// directory is removed directly.
+// terminated and then unregistered (removing its ext4.vhdx and releasing any
+// file locks) before the remaining Lima metadata directory is deleted; the WSL2
+// calls are no-ops on other platforms, where the directory is removed directly.
 func removeStaleInstance(ctx context.Context, logger logr.Logger, instName, instanceDir string) error {
-	if runtime.GOOS == "windows" {
-		unregisterWSL2Distro(ctx, logger, instName)
-	}
+	// Terminate the distro before unregistering it: wsl.exe --unregister can
+	// deadlock on a distro that still holds kernel state, the same hazard
+	// forceStopForDeletion guards against. Both calls are no-ops off Windows.
+	terminateWSL2Distro(ctx, logger, instName)
+	unregisterWSL2Distro(ctx, logger, instName)
 	return os.RemoveAll(instanceDir)
 }
 
