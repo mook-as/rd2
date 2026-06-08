@@ -202,7 +202,7 @@ EOF
     run -1 create_limavm "test-vm-bad-lima" "bad-lima"
     assert_output --partial "failed to validate template"
     assert_output --partial "field \`arch\`"
-    assert_output --partial 'got "cray-1"'
+    assert_output --partial "got \`cray-1\`"
 }
 
 @test "updating LimaVM spec.running does not affect template ConfigMap" {
