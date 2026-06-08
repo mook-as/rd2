@@ -13,9 +13,12 @@ insert_final_newline = true
 quote_type = single
 trim_trailing_whitespace = true
 
+[Makefile]
+indent_style = tab
+
 [*.go]
 indent_style = tab
 
-[*.{sh,bash}]
+[*.{sh,bash,bats}]
 indent_size = 4
 simplify = true
