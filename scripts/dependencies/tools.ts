@@ -34,13 +34,12 @@ export class Helm extends GlobalDependency(GitHubDependency) {
 
   async download(context: DownloadContext): Promise<void> {
     // Download Helm. It is a tar.gz file that needs to be expanded and file moved.
-    const arch = context.isM1 ? 'arm64' : 'amd64';
-    const archiveName = `helm-v${ context.dependencies.helm.version }-${ context.goPlatform }-${ arch }.tar.gz`;
+    const archiveName = `helm-v${ context.dependencies.helm.version }-${ context.goPlatform }-${ context.goArch }.tar.gz`;
     const helmURL = `https://get.helm.sh/${ archiveName }`;
 
     await downloadTarGZ(helmURL, path.join(context.binDir, exeName(context, 'helm')), {
       expectedChecksum: lookupChecksum(context, this.name, archiveName),
-      entryName:        `${ context.goPlatform }-${ arch }/${ exeName(context, 'helm') }`,
+      entryName:        `${ context.goPlatform }-${ context.goArch }/${ exeName(context, 'helm') }`,
     });
   }
 
@@ -68,9 +67,8 @@ export class DockerCLI extends GlobalDependency(GitHubDependency) {
 
   async download(context: DownloadContext): Promise<void> {
     const dockerPlatform = context.dependencyPlatform === 'wsl' ? 'wsl' : context.goPlatform;
-    const arch = context.isM1 ? 'arm64' : 'amd64';
     const baseURL = `https://github.com/${ this.githubOwner }/${ this.githubRepo }/releases/download/v${ context.dependencies.dockerCLI.version }`;
-    const executableName = exeName(context, `docker-${ dockerPlatform }-${ arch }`);
+    const executableName = exeName(context, `docker-${ dockerPlatform }-${ context.goArch }`);
     const dockerURL = `${ baseURL }/${ executableName }`;
     const destPath = path.join(context.binDir, exeName(context, 'docker'));
     const expectedChecksum = lookupChecksum(context, this.name, executableName);
@@ -102,9 +100,8 @@ export class DockerBuildx extends GlobalDependency(GitHubDependency) {
 
   async download(context: DownloadContext): Promise<void> {
     // Download the Docker-Buildx Plug-In
-    const arch = context.isM1 ? 'arm64' : 'amd64';
     const baseURL = `https://github.com/${ this.githubOwner }/${ this.githubRepo }/releases/download/v${ context.dependencies.dockerBuildx.version }`;
-    const executableName = exeName(context, `buildx-v${ context.dependencies.dockerBuildx.version }.${ context.goPlatform }-${ arch }`);
+    const executableName = exeName(context, `buildx-v${ context.dependencies.dockerBuildx.version }.${ context.goPlatform }-${ context.goArch }`);
     const dockerBuildxURL = `${ baseURL }/${ executableName }`;
     const dockerBuildxPath = path.join(context.dockerPluginsDir, exeName(context, 'docker-buildx'));
     const expectedChecksum = lookupChecksum(context, this.name, executableName);
@@ -138,7 +135,7 @@ export class DockerCompose extends GlobalDependency(GitHubDependency) {
 
   async download(context: DownloadContext): Promise<void> {
     const baseUrl = `https://github.com/${ this.githubOwner }/${ this.githubRepo }/releases/download/v${ context.dependencies.dockerCompose.version }`;
-    const arch = context.isM1 ? 'aarch64' : 'x86_64';
+    const arch = context.arch === 'arm64' ? 'aarch64' : 'x86_64';
     const executableName = exeName(context, `docker-compose-${ context.goPlatform }-${ arch }`);
     const url = `${ baseUrl }/${ executableName }`;
     const destPath = path.join(context.dockerPluginsDir, exeName(context, 'docker-compose'));
@@ -203,8 +200,7 @@ export class Steve extends GlobalDependency(GitHubDependency) {
 
   async download(context: DownloadContext): Promise<void> {
     const steveURLBase = `https://github.com/${ this.githubOwner }/${ this.githubRepo }/releases/download/v${ context.dependencies.steve.version }`;
-    const arch = context.isM1 ? 'arm64' : 'amd64';
-    const archiveName = `steve-${ context.goPlatform }-${ arch }.tar.gz`;
+    const archiveName = `steve-${ context.goPlatform }-${ context.goArch }.tar.gz`;
     const steveURL = `${ steveURLBase }/${ archiveName }`;
     const stevePath = path.join(context.internalDir, exeName(context, 'steve'));
     const expectedChecksum = lookupChecksum(context, this.name, archiveName);
@@ -238,7 +234,6 @@ export class DockerProvidedCredHelpers extends GlobalDependency(GitHubDependency
   readonly githubRepo = 'docker-credential-helpers';
 
   async download(context: DownloadContext): Promise<void> {
-    const arch = context.isM1 ? 'arm64' : 'amd64';
     const version = context.dependencies.dockerProvidedCredentialHelpers.version;
     const credHelperNames = {
       linux:  ['docker-credential-secretservice', 'docker-credential-pass'],
@@ -249,7 +244,7 @@ export class DockerProvidedCredHelpers extends GlobalDependency(GitHubDependency
     const baseURL = `https://github.com/${ this.githubOwner }/${ this.githubRepo }/releases/download/v${ version }`;
 
     for (const baseName of credHelperNames) {
-      const fullBaseName = `${ baseName }-v${ version }.${ context.goPlatform }-${ arch }`;
+      const fullBaseName = `${ baseName }-v${ version }.${ context.goPlatform }-${ context.goArch }`;
       const fullBinName = exeName(context, fullBaseName);
       const sourceURL = `${ baseURL }/${ fullBinName }`;
       const expectedChecksum = lookupChecksum(context, this.name, fullBinName);
@@ -298,14 +293,13 @@ export class ECRCredHelper extends GlobalDependency(GitHubDependency) {
   readonly githubRepo = 'amazon-ecr-credential-helper';
 
   async download(context: DownloadContext): Promise<void> {
-    const arch = context.isM1 ? 'arm64' : 'amd64';
     const ecrLoginPlatform = context.platform.startsWith('win') ? 'windows' : context.platform;
     const baseName = 'docker-credential-ecr-login';
     const baseUrl = 'https://amazon-ecr-credential-helper-releases.s3.us-east-2.amazonaws.com';
     const binName = exeName(context, baseName);
-    const sourceUrl = `${ baseUrl }/${ context.dependencies.ECRCredentialHelper.version }/${ ecrLoginPlatform }-${ arch }/${ binName }`;
+    const sourceUrl = `${ baseUrl }/${ context.dependencies.ECRCredentialHelper.version }/${ ecrLoginPlatform }-${ context.goArch }/${ binName }`;
     const destPath = path.join(context.binDir, binName);
-    const expectedChecksum = lookupChecksum(context, this.name, `${ ecrLoginPlatform }-${ arch }/${ binName }`);
+    const expectedChecksum = lookupChecksum(context, this.name, `${ ecrLoginPlatform }-${ context.goArch }/${ binName }`);
 
     return await download(sourceUrl, destPath, { expectedChecksum });
   }

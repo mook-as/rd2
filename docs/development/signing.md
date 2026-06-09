@@ -121,8 +121,8 @@ For notarization, the following environment variables are also needed:
 
 ### Performing signing
 
-When signing for M1/aarch64, please set the `M1` environment variable ahead of
-time as usual.
+To do cross-arch signing export the `GOARCH` environment variable to the proper
+value (`amd64` or `arm64`) when running `yarn sign`.
 
 If notarization is not required, append `--skip-notarize` to the command:
 

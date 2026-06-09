@@ -29,11 +29,10 @@ export class Electron extends GlobalDependency(VersionedDependency) {
     // has been updated but before the next rddepman run (where we update the
     // checksums).  However, we can at least check if the versions match, and if
     // yes, that the checksum is correct.
-    const arch = context.isM1 ? 'arm64' : 'x64';
     const version = await this.version;
     const { checksums: recordedChecksums, version: recordedVersion } = context.dependencies.electron;
     const baseURL = this.getBaseURL(version);
-    const archiveName = `electron-v${ version }-${ context.platform }-${ arch }.zip`;
+    const archiveName = `electron-v${ version }-${ context.platform }-${ context.arch }.zip`;
     const url = `${ baseURL }${ archiveName }`;
     const archivePath = path.join(context.hostDir, archiveName);
     const outPath = path.join(process.cwd(), 'node_modules', 'electron', 'dist');

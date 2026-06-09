@@ -216,9 +216,6 @@ jobs:
         hash="$(security find-identity | awk "$awk_expr")"
         echo "CSC_FINGERPRINT=${hash}" >> "$GITHUB_ENV"
       timeout-minutes: 1
-    - name: Flag build for M1
-      if: matrix.arch == 'aarch64'
-      run: echo "M1=1" >> "${GITHUB_ENV}"
     - name: Sign artifact
       run: |
         for zip in Rancher\ Desktop*mac*.zip; do

@@ -160,17 +160,6 @@ Then you can install dependencies with:
 yarn
 ```
 
-> ### ⚠️ Working on a mac with an M1 chip?
->
-> You will need to set the `M1` environment variable before installing dependencies and running any npm scripts:
->
-> ```
-> export M1=1
-> yarn
-> ```
->
-> You will want to run `git clean -fdx` to clean out any cached assets and re-downloaded with the correct arch before running `yarn` if you previously installed dependencies without setting `M1` first.
-
 ### Linux
 
 Ensure you have the following installed:
