@@ -15,6 +15,7 @@ import _ from 'lodash';
 import * as plist from 'plist';
 import yaml from 'yaml';
 
+import buildUtils from '@/scripts/lib/build-utils';
 import { spawnFile } from '@pkg/utils/childProcess';
 
 interface SigningConfig {
@@ -142,9 +143,9 @@ export async function sign(workDir: string): Promise<string[]> {
   }
 
   log.info('Building disk image and update archive...');
-  const arch = process.env.M1 ? Arch.arm64 : Arch.x64;
+  const arch = buildUtils.arch === 'arm64' ? Arch.arm64 : Arch.x64;
   const productFileName = config.productName?.replace(/\s*\d+$/, '')?.replace(/\s+/g, '.');
-  const productArch = process.env.M1 ? 'aarch64' : 'x86_64';
+  const productArch = arch === Arch.arm64 ? 'aarch64' : 'x86_64';
   const artifactName = `${ productFileName }-\${version}-mac.${ productArch }.\${ext}`;
   const formats = ['dmg', 'zip'];
 

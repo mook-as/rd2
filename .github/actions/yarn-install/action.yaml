@@ -33,11 +33,6 @@ runs:
     shell: powershell
     run: .\scripts\windows-setup.ps1 -SkipVisualStudio -SkipTools
 
-  - name: Flag build for M1
-    if: runner.os == 'macOS' && runner.arch == 'ARM64'
-    run: echo "M1=1" >> "${GITHUB_ENV}"
-    shell: bash
-
   - run: yarn install --immutable
     shell: bash
 

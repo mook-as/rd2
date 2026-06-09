@@ -12,14 +12,17 @@ import { download, getResource, hashFile } from './download';
 export type DependencyPlatform = 'wsl' | 'linux' | 'darwin' | 'win32';
 export type Platform = 'linux' | 'darwin' | 'win32';
 export type GoPlatform = 'linux' | 'darwin' | 'windows';
+export type Arch = 'x64' | 'arm64';
+export type GoArch = 'amd64' | 'arm64';
 
 export interface DownloadContext {
   dependencies:       DependencyManifest;
   dependencyPlatform: DependencyPlatform;
   platform:           Platform;
+  arch:               Arch;
+  // goPlatform / goArch is the go name for platform/arch.
   goPlatform:         GoPlatform;
-  // whether we are running on M1
-  isM1:               boolean;
+  goArch:             GoArch;
   // resourcesDir is the directory that external dependencies and the like go into
   resourcesDir:       string;
   // binDir is for binaries that the user will execute

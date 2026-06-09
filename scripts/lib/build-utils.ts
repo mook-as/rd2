@@ -337,8 +337,19 @@ export default {
     });
   },
 
-  get arch(): NodeJS.Architecture {
-    return process.env.M1 ? 'arm64' : process.arch;
+  get arch(): 'x64' | 'arm64' {
+    const archMap = {
+      amd64: 'x64',
+      arm64: 'arm64',
+    } as const;
+
+    if (process.env.GOARCH) {
+      if (process.env.GOARCH in archMap) {
+        return archMap[process.env.GOARCH as keyof typeof archMap];
+      }
+      console.warn(`\x1b[0;1;33m[WARNING]\x1b[0m Unknown GOARCH ${ process.env.GOARCH }, defaulting to ${ process.arch }`);
+    }
+    return process.arch === 'arm64' ? 'arm64' : 'x64';
   },
 
   /**

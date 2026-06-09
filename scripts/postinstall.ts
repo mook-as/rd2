@@ -4,6 +4,7 @@ import path from 'path';
 import { Electron } from '@/scripts/dependencies/electron';
 import * as tools from '@/scripts/dependencies/tools';
 import { Wix } from '@/scripts/dependencies/wix';
+import buildUtils from '@/scripts/lib/build-utils';
 import {
   Dependency,
   DependencyManifest,
@@ -180,13 +181,16 @@ async function runScripts(): Promise<void> {
 
 function buildDownloadContextFor(rawPlatform: DependencyPlatform, manifest: DependencyManifest): Promise<DownloadContext> {
   const platform = rawPlatform === 'wsl' ? 'linux' : rawPlatform;
+  const arch = buildUtils.arch;
+  const goArch = arch === 'arm64' ? 'arm64' : 'amd64';
   const resourcesDir = path.join(process.cwd(), 'resources');
   return Promise.resolve({
     dependencies:       manifest,
     dependencyPlatform: rawPlatform,
     platform,
+    arch,
     goPlatform:         platform === 'win32' ? 'windows' : platform,
-    isM1:               !!process.env.M1,
+    goArch,
     resourcesDir,
     binDir:             path.join(resourcesDir, platform, 'bin'),
     internalDir:        path.join(resourcesDir, 'internal'),
