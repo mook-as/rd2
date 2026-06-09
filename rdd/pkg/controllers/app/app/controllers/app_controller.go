@@ -148,6 +148,11 @@ func applySpecToTemplate(baseTemplate string, spec v1alpha1.AppSpec, kubernetesP
 	if err != nil {
 		return "", err
 	}
+	// vm-switch writes its logfile under LogDir() (passed below as VM_SWITCH_LOG)
+	// and fails to start if the directory is missing, so create it before the VM.
+	if err := os.MkdirAll(instance.LogDir(), 0o700); err != nil {
+		return "", fmt.Errorf("failed to create log directory: %w", err)
+	}
 	return strings.Join([]string{
 		baseTemplate,
 		"param:",
