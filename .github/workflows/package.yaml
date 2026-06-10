@@ -110,6 +110,18 @@ jobs:
         name: Rancher Desktop-linux.zip
         path: dist/rancher-desktop-*-linux.zip
         if-no-files-found: error
+    - name: Prepare Linux Pages zip
+      if: matrix.platform == 'linux'
+      run: |
+        # Copy the Linux zip to its own directory, with a consistent name.
+        mkdir -p dist/upload/
+        mv dist/rancher-desktop-*-linux.zip dist/upload/rancher-desktop-linux.zip
+    - name: Upload Linux Pages zip
+      uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+      if: matrix.platform == 'linux'
+      with:
+        name: Rancher Desktop-linux.github-pages
+        path: dist/upload/
     - name: Trigger OBS build
       if: matrix.platform == 'linux' && github.ref_type == 'branch' && ( startsWith(github.ref_name, 'main') || startsWith(github.ref_name, 'release-') )
       run: |
@@ -136,6 +148,19 @@ jobs:
         AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         AWS_DEFAULT_REGION: us-east-1
         OBS_WEBHOOK_TOKEN: ${{ secrets.OBS_WEBHOOK_TOKEN }}
+
+  publish-linux:
+    name: Publish Linux Binaries
+    needs: package
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      pages: write
+    steps:
+    - name: Deploy Linux zip to GitHub Pages
+      uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5.0.0
+      with:
+        artifact_name: Rancher Desktop-linux.github-pages
 
   sign-win:
     name: Test Signing (Windows)
