@@ -20,9 +20,12 @@ import (
 
 	"gotest.tools/v3/assert"
 
+	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	k8sruntime "k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/kubernetes"
+	k8sfake "k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/tools/clientcmd"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -131,6 +134,31 @@ func newAppNotRunning() *appv1alpha1.App {
 	return app
 }
 
+// readyNode returns a Node carrying a Ready condition set to True.
+func readyNode() *corev1.Node {
+	return &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{Name: "lima-rd"},
+		Status: corev1.NodeStatus{
+			Conditions: []corev1.NodeCondition{{Type: corev1.NodeReady, Status: corev1.ConditionTrue}},
+		},
+	}
+}
+
+// notReadyNode returns a registered Node whose Ready condition is False.
+func notReadyNode() *corev1.Node {
+	node := readyNode()
+	node.Status.Conditions[0].Status = corev1.ConditionFalse
+	return node
+}
+
+// fakeClientset returns a clientsetFn that serves objs from an in-memory
+// client, letting the node check run without a real cluster.
+func fakeClientset(objs ...k8sruntime.Object) func() (kubernetes.Interface, error) {
+	return func() (kubernetes.Interface, error) {
+		return k8sfake.NewSimpleClientset(objs...), nil
+	}
+}
+
 // isolateKubeconfig points HOME and KUBECONFIG at dir so the reconciler's
 // kubeconfig writes cannot touch the developer's real ~/.kube/config even
 // if a future refactor changes KUBECONFIG-precedence handling.
@@ -169,6 +197,7 @@ func Test_Reconcile_KubernetesReady_Ready(t *testing.T) {
 		Client:                 c,
 		K3sConfigPath:          srcPath,
 		InstanceKubeConfigPath: filepath.Join(dir, "kube.config"),
+		clientsetFn:            fakeClientset(readyNode()),
 	}
 	// removeKubeContext cancels the in-flight current-context probe and waits
 	// for the goroutine started by manageKubeContext to finish, so it cannot
@@ -190,6 +219,107 @@ func Test_Reconcile_KubernetesReady_Ready(t *testing.T) {
 	assert.Equal(t, cond.Reason, appv1alpha1.AppKubernetesReasonReady)
 }
 
+// Test_Reconcile_KubernetesReady_GatedUntilNodeReady checks that a healthy
+// API server does not promote KubernetesReady to True until the node is
+// Ready, so `rdd set` cannot return while a scheduled pod would have no
+// node to run on.
+func Test_Reconcile_KubernetesReady_GatedUntilNodeReady(t *testing.T) {
+	tests := []struct {
+		name       string
+		objects    []k8sruntime.Object
+		wantReason string
+	}{
+		{
+			name:       "node not Ready",
+			objects:    []k8sruntime.Object{notReadyNode()},
+			wantReason: appv1alpha1.AppKubernetesReasonWaitingForNode,
+		},
+		{
+			name:       "no node registered",
+			objects:    []k8sruntime.Object{},
+			wantReason: appv1alpha1.AppKubernetesReasonWaitingForNode,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			srcPath := fakeK3sServer(t, filepath.Join(dir, "k3s.yaml"), http.StatusOK)
+			isolateKubeconfig(t, dir)
+
+			scheme := newKubeScheme(t)
+			app := newAppRunning()
+			c := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithObjects(app).
+				WithStatusSubresource(app).
+				Build()
+
+			r := &KubernetesReconciler{
+				Client:                 c,
+				K3sConfigPath:          srcPath,
+				InstanceKubeConfigPath: filepath.Join(dir, "kube.config"),
+				clientsetFn:            fakeClientset(tc.objects...),
+			}
+			t.Cleanup(func() { r.removeKubeContext(context.Background()) })
+
+			req := ctrl.Request{NamespacedName: client.ObjectKey{Name: appName}}
+			result, err := r.Reconcile(context.Background(), req)
+			assert.NilError(t, err)
+			assert.Equal(t, result.RequeueAfter, kubeProbeRequeue,
+				"a not-yet-usable cluster should requeue after kubeProbeRequeue")
+
+			got := &appv1alpha1.App{}
+			assert.NilError(t, c.Get(context.Background(), client.ObjectKey{Name: appName}, got))
+			cond := findKubeReady(got)
+			assert.Assert(t, cond != nil, "KubernetesReady condition missing")
+			assert.Equal(t, cond.Status, metav1.ConditionFalse,
+				"KubernetesReady must stay False until a node is Ready")
+			assert.Equal(t, cond.Reason, tc.wantReason)
+		})
+	}
+}
+
+// Test_Reconcile_KubernetesReady_StaysReadyDespiteNodeBlip checks that the
+// node gate runs only on the path to the first Ready. Once Ready,
+// API-server liveness alone keeps the condition True, so a transient node
+// blip cannot flap Settled.
+func Test_Reconcile_KubernetesReady_StaysReadyDespiteNodeBlip(t *testing.T) {
+	dir := t.TempDir()
+	srcPath := fakeK3sServer(t, filepath.Join(dir, "k3s.yaml"), http.StatusOK)
+	isolateKubeconfig(t, dir)
+
+	scheme := newKubeScheme(t)
+	app := newAppRunningKubeReady()
+	c := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(app).
+		WithStatusSubresource(app).
+		Build()
+
+	r := &KubernetesReconciler{
+		Client:                 c,
+		K3sConfigPath:          srcPath,
+		InstanceKubeConfigPath: filepath.Join(dir, "kube.config"),
+		// No Ready node: if the gate ran here it would flip the
+		// condition to False, so leaving it True proves the gate is skipped.
+		clientsetFn: fakeClientset(),
+	}
+	t.Cleanup(func() { r.removeKubeContext(context.Background()) })
+
+	req := ctrl.Request{NamespacedName: client.ObjectKey{Name: appName}}
+	result, err := r.Reconcile(context.Background(), req)
+	assert.NilError(t, err)
+	assert.Equal(t, result.RequeueAfter, kubeHealthyRequeue)
+
+	got := &appv1alpha1.App{}
+	assert.NilError(t, c.Get(context.Background(), client.ObjectKey{Name: appName}, got))
+	cond := findKubeReady(got)
+	assert.Assert(t, cond != nil, "KubernetesReady condition missing")
+	assert.Equal(t, cond.Status, metav1.ConditionTrue,
+		"already-Ready condition must not flap on a node blip")
+	assert.Equal(t, cond.Reason, appv1alpha1.AppKubernetesReasonReady)
+}
+
 func Test_Reconcile_InstanceKubeConfig_WrittenOnReady_RemovedOnDisable(t *testing.T) {
 	dir := t.TempDir()
 	srcPath := fakeK3sServer(t, filepath.Join(dir, "k3s.yaml"), http.StatusOK)
@@ -208,6 +338,7 @@ func Test_Reconcile_InstanceKubeConfig_WrittenOnReady_RemovedOnDisable(t *testin
 		Client:                 c,
 		K3sConfigPath:          srcPath,
 		InstanceKubeConfigPath: instanceKubeConfig,
+		clientsetFn:            fakeClientset(readyNode()),
 	}
 	// The healthy reconcile starts a current-context probe goroutine; ensure it
 	// finishes before the test returns even if an assertion below fails.

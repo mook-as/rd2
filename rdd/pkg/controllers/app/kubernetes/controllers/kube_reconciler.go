@@ -17,9 +17,11 @@ import (
 	"syscall"
 	"time"
 
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -120,6 +122,11 @@ type KubernetesReconciler struct {
 	// probeFn lets tests inject probe results without making real HTTP calls.
 	// Production wiring leaves it nil; Reconcile then calls probeK3sAPI.
 	probeFn func(ctx context.Context) (probeResult, error)
+
+	// clientsetFn lets tests inject a fake typed client so the node check
+	// runs against in-memory objects. Production wiring leaves it nil;
+	// checkNodeReady then builds a client from the instance kubeconfig.
+	clientsetFn func() (kubernetes.Interface, error)
 }
 
 // probe dispatches to probeFn if injected (tests) or probeK3sAPI otherwise.
@@ -128,6 +135,68 @@ func (r *KubernetesReconciler) probe(ctx context.Context) (probeResult, error) {
 		return r.probeFn(ctx)
 	}
 	return r.probeK3sAPI(ctx)
+}
+
+// checkNodeReady reports whether a node has reached Ready, so a scheduled
+// workload has somewhere to run. It returns (ready, reason, message); reason
+// and message describe the blocking gate only when ready is false.
+// Workload-level readiness (coredns, traefik) is deliberately NOT gated here:
+// it would delay Ready for every user, and consumers that need it can wait
+// for those Deployments themselves.
+func (r *KubernetesReconciler) checkNodeReady(ctx context.Context) (ready bool, reason, message string) {
+	cs, err := r.getClientset()
+	if err != nil {
+		return false, appv1alpha1.AppKubernetesReasonWaitingForNode,
+			fmt.Sprintf("Cannot reach cluster: %v", err)
+	}
+
+	checkCtx, cancel := context.WithTimeout(ctx, kubeProbeTimeout)
+	defer cancel()
+
+	nodes, err := cs.CoreV1().Nodes().List(checkCtx, metav1.ListOptions{})
+	if err != nil {
+		return false, appv1alpha1.AppKubernetesReasonWaitingForNode,
+			fmt.Sprintf("Cannot list nodes: %v", err)
+	}
+	if len(nodes.Items) == 0 {
+		return false, appv1alpha1.AppKubernetesReasonWaitingForNode, "No node has registered yet"
+	}
+	for i := range nodes.Items {
+		if !nodeReady(&nodes.Items[i]) {
+			return false, appv1alpha1.AppKubernetesReasonWaitingForNode,
+				fmt.Sprintf("Node %q is not Ready", nodes.Items[i].Name)
+		}
+	}
+
+	return true, "", ""
+}
+
+// getClientset returns the injected fake client in tests or a real client
+// built from the instance kubeconfig in production.
+func (r *KubernetesReconciler) getClientset() (kubernetes.Interface, error) {
+	if r.clientsetFn != nil {
+		return r.clientsetFn()
+	}
+	data, err := os.ReadFile(r.K3sConfigPath)
+	if err != nil {
+		return nil, fmt.Errorf("read instance kubeconfig: %w", err)
+	}
+	cfg, err := clientcmd.RESTConfigFromKubeConfig(data)
+	if err != nil {
+		return nil, fmt.Errorf("parse instance kubeconfig: %w", err)
+	}
+	cfg.Timeout = kubeProbeTimeout
+	return kubernetes.NewForConfig(cfg)
+}
+
+// nodeReady reports whether node carries a Ready condition set to True.
+func nodeReady(node *corev1.Node) bool {
+	for _, c := range node.Status.Conditions {
+		if c.Type == corev1.NodeReady {
+			return c.Status == corev1.ConditionTrue
+		}
+	}
+	return false
 }
 
 // Reconcile drives the KubernetesReady condition and ~/.kube/config lifecycle.
@@ -249,6 +318,23 @@ func (r *KubernetesReconciler) Reconcile(ctx context.Context, _ ctrl.Request) (c
 		return ctrl.Result{RequeueAfter: kubeProbeRequeue}, nil
 	}
 
+	// /healthz answers before the node registers, so reporting Ready here
+	// would let `rdd set` return while `kubectl run` still sits Pending.
+	// Gate the first Ready on node Ready. Once Ready, API-server liveness
+	// alone keeps the condition True, so a transient node blip does not
+	// flap Settled.
+	if !apimeta.IsStatusConditionTrue(app.Status.Conditions, appv1alpha1.AppConditionKubernetesReady) {
+		ready, reason, message := r.checkNodeReady(ctx)
+		if !ready {
+			log.V(1).Info("k3s API healthy but cluster not yet usable",
+				"reason", reason, "message", message)
+			if condErr := r.setKubeCondition(ctx, &app, metav1.ConditionFalse, reason, message); condErr != nil {
+				return ctrl.Result{}, condErr
+			}
+			return ctrl.Result{RequeueAfter: kubeProbeRequeue}, nil
+		}
+	}
+
 	// Requeue periodically so a later k3s death surfaces even if no other
 	// controller writes to App in the meantime. Without this, setKubeCondition
 	// is a no-op when Ready→Ready and there is nothing else to trigger a
@@ -256,7 +342,7 @@ func (r *KubernetesReconciler) Reconcile(ctx context.Context, _ ctrl.Request) (c
 	return ctrl.Result{RequeueAfter: kubeHealthyRequeue}, r.setKubeCondition(ctx, &app,
 		metav1.ConditionTrue,
 		appv1alpha1.AppKubernetesReasonReady,
-		"Kubernetes API server is ready",
+		"Kubernetes cluster is ready",
 	)
 }
 
