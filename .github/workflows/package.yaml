@@ -47,7 +47,11 @@ jobs:
         - platform: win
           runs-on: windows-latest
         - platform: linux
+          arch: x86_64
           runs-on: ubuntu-22.04
+        - platform: linux
+          arch: aarch64
+          runs-on: ubuntu-22.04-arm
     runs-on: ${{ matrix.runs-on }}
     steps:
     - name: Set GOARCH
@@ -107,7 +111,7 @@ jobs:
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       if: matrix.platform == 'linux'
       with:
-        name: Rancher Desktop-linux.zip
+        name: Rancher Desktop-linux.${{ matrix.arch }}.zip
         path: dist/rancher-desktop-*-linux.zip
         if-no-files-found: error
     - name: Trigger OBS build
