@@ -162,6 +162,7 @@ func applySpecToTemplate(baseTemplate string, spec v1alpha1.AppSpec, kubernetesP
 		fmt.Sprintf("  HOST_INSTANCE_CONFIG: %q", toLinuxPath(instance.K3sConfig())),
 		fmt.Sprintf("  VM_SWITCH_LOG: %q", toLinuxPath(filepath.Join(instance.LogDir(), "vm-switch.log"))),
 		fmt.Sprintf("  NETWORK_SETUP_EXTRA_ARGS: %q", networkSetupExtraArgs()),
+		fmt.Sprintf("  GUEST_LOG_DIR: %q", guestLogDir()),
 		fmt.Sprintf("  KUBERNETES_ENABLED: %v", spec.Kubernetes.Enabled),
 		fmt.Sprintf("  KUBERNETES_VERSION: %s", spec.Kubernetes.Version),
 		fmt.Sprintf("  KUBERNETES_PORT: %d", kubernetesPort),
@@ -183,6 +184,16 @@ func networkSetupExtraArgs() string {
 		args += " --trace-packets"
 	}
 	return args
+}
+
+// guestLogDir returns the guest-visible host log dir under RDD_KEEP_LOGS, empty
+// otherwise. The lima template's capture script streams guest journals and
+// lima-init.log there; empty makes it a no-op.
+func guestLogDir() string {
+	if os.Getenv("RDD_KEEP_LOGS") == "" {
+		return ""
+	}
+	return toLinuxPath(instance.LogDir())
 }
 
 // toLinuxPath converts a host path to a Linux-accessible path inside a Lima VM.

@@ -25,6 +25,7 @@ import (
 
 	"github.com/rancher-sandbox/rancher-desktop-daemon/pkg/apis/app/v1alpha1"
 	limav1alpha1 "github.com/rancher-sandbox/rancher-desktop-daemon/pkg/apis/lima/v1alpha1"
+	"github.com/rancher-sandbox/rancher-desktop-daemon/pkg/instance"
 )
 
 // fakeDiscovery satisfies ControllerDiscovery for unit tests.
@@ -627,6 +628,17 @@ func Test_networkSetupExtraArgs(t *testing.T) {
 		t.Setenv("RDD_KEEP_LOGS", "1")
 		t.Setenv("RDD_TRACE_PACKETS", "1")
 		assert.Equal(t, networkSetupExtraArgs(), "--vm-switch-logfile-append --trace-packets")
+	})
+}
+
+func Test_guestLogDir(t *testing.T) {
+	t.Run("unset RDD_KEEP_LOGS yields no log dir", func(t *testing.T) {
+		t.Setenv("RDD_KEEP_LOGS", "")
+		assert.Equal(t, guestLogDir(), "")
+	})
+	t.Run("set RDD_KEEP_LOGS yields the instance log dir", func(t *testing.T) {
+		t.Setenv("RDD_KEEP_LOGS", "1")
+		assert.Equal(t, guestLogDir(), toLinuxPath(instance.LogDir()))
 	})
 }
 
