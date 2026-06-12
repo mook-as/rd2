@@ -137,7 +137,7 @@ func (r *KubernetesReconciler) probe(ctx context.Context) (probeResult, error) {
 	return r.probeK3sAPI(ctx)
 }
 
-// checkNodeReady reports whether a node has reached Ready, so a scheduled
+// checkNodeReady reports whether any node has reached Ready, so a scheduled
 // workload has somewhere to run. It returns (ready, reason, message); reason
 // and message describe the blocking gate only when ready is false.
 // Workload-level readiness (coredns, traefik) is deliberately NOT gated here:
@@ -162,17 +162,18 @@ func (r *KubernetesReconciler) checkNodeReady(ctx context.Context) (ready bool, 
 		return false, appv1alpha1.AppKubernetesReasonWaitingForNode, "No node has registered yet"
 	}
 	for i := range nodes.Items {
-		if !nodeReady(&nodes.Items[i]) {
-			return false, appv1alpha1.AppKubernetesReasonWaitingForNode,
-				fmt.Sprintf("Node %q is not Ready", nodes.Items[i].Name)
+		if nodeReady(&nodes.Items[i]) {
+			return true, "", ""
 		}
 	}
 
-	return true, "", ""
+	return false, appv1alpha1.AppKubernetesReasonWaitingForNode, "No node is Ready yet"
 }
 
-// getClientset returns the injected fake client in tests or a real client
-// built from the instance kubeconfig in production.
+// getClientset returns a typed client for the k3s cluster inside the VM.
+// r.Client is no substitute: it talks to rdd's embedded control plane,
+// which hosts the App resource but no Nodes. Tests inject a fake via
+// clientsetFn.
 func (r *KubernetesReconciler) getClientset() (kubernetes.Interface, error) {
 	if r.clientsetFn != nil {
 		return r.clientsetFn()
@@ -320,9 +321,8 @@ func (r *KubernetesReconciler) Reconcile(ctx context.Context, _ ctrl.Request) (c
 
 	// /healthz answers before the node registers, so reporting Ready here
 	// would let `rdd set` return while `kubectl run` still sits Pending.
-	// Gate the first Ready on node Ready. Once Ready, API-server liveness
-	// alone keeps the condition True, so a transient node blip does not
-	// flap Settled.
+	// Gate the first Ready on node Ready. Once Ready, ignore the status of
+	// the node, so a transient node blip does not flap Settled.
 	if !apimeta.IsStatusConditionTrue(app.Status.Conditions, appv1alpha1.AppConditionKubernetesReady) {
 		ready, reason, message := r.checkNodeReady(ctx)
 		if !ready {

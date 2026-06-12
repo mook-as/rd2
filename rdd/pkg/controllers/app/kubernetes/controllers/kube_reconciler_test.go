@@ -279,6 +279,46 @@ func Test_Reconcile_KubernetesReady_GatedUntilNodeReady(t *testing.T) {
 	}
 }
 
+// Test_Reconcile_KubernetesReady_AnyReadyNodeSuffices checks that one Ready
+// node promotes the condition even while another node is not Ready: a
+// scheduled workload has somewhere to run as soon as any node is Ready.
+func Test_Reconcile_KubernetesReady_AnyReadyNodeSuffices(t *testing.T) {
+	dir := t.TempDir()
+	srcPath := fakeK3sServer(t, filepath.Join(dir, "k3s.yaml"), http.StatusOK)
+	isolateKubeconfig(t, dir)
+
+	scheme := newKubeScheme(t)
+	app := newAppRunning()
+	c := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(app).
+		WithStatusSubresource(app).
+		Build()
+
+	secondNode := notReadyNode()
+	secondNode.Name = "lima-rd-2"
+	r := &KubernetesReconciler{
+		Client:                 c,
+		K3sConfigPath:          srcPath,
+		InstanceKubeConfigPath: filepath.Join(dir, "kube.config"),
+		clientsetFn:            fakeClientset(readyNode(), secondNode),
+	}
+	t.Cleanup(func() { r.removeKubeContext(context.Background()) })
+
+	req := ctrl.Request{NamespacedName: client.ObjectKey{Name: appName}}
+	result, err := r.Reconcile(context.Background(), req)
+	assert.NilError(t, err)
+	assert.Equal(t, result.RequeueAfter, kubeHealthyRequeue)
+
+	got := &appv1alpha1.App{}
+	assert.NilError(t, c.Get(context.Background(), client.ObjectKey{Name: appName}, got))
+	cond := findKubeReady(got)
+	assert.Assert(t, cond != nil, "KubernetesReady condition missing")
+	assert.Equal(t, cond.Status, metav1.ConditionTrue,
+		"one Ready node should be enough; a not-Ready sibling must not block")
+	assert.Equal(t, cond.Reason, appv1alpha1.AppKubernetesReasonReady)
+}
+
 // Test_Reconcile_KubernetesReady_StaysReadyDespiteNodeBlip checks that the
 // node gate runs only on the path to the first Ready. Once Ready,
 // API-server liveness alone keeps the condition True, so a transient node
