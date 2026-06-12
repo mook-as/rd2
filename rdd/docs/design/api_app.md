@@ -114,10 +114,11 @@ status:
   | `ContainerEngineReady` | `True`    | `NotApplicable`  | Mirroring is not implemented for the current backend (e.g. `containerd`); forced `True` so `rdd set` can finish waiting |
   | `ContainerEngineReady` | `False`   | `ConnectFailed`  | Engine controller failed to connect to Docker                     |
   | `ContainerEngineReady` | `False`   | `Stopped`        | The VM is stopped; the engine watcher is not running              |
-  | `KubernetesReady`      | `True`    | `Ready`          | k3s API server is reachable; instance context merged into `~/.kube/config` |
+  | `KubernetesReady`      | `True`    | `Ready`          | API server answers, node Ready, context merged into `~/.kube/config`. Workload-level readiness (coredns, traefik) is not gated; wait for those Deployments directly when needed |
   | `KubernetesReady`      | `False`   | `NotApplicable`  | `spec.kubernetes.enabled` is false                                |
   | `KubernetesReady`      | `False`   | `NotRunning`     | VM is not running, so k3s cannot be healthy                       |
   | `KubernetesReady`      | `False`   | `Probing`        | Waiting for k3s API server to respond                             |
+  | `KubernetesReady`      | `False`   | `WaitingForNode` | API server answers but no node has reached Ready                  |
   | `KubernetesReady`      | `False`   | `MergeFailed`    | k3s is reachable but merging the instance kubeconfig failed (see `message`) |
   | `Settled`              | `True`    | `Settled`        | Reconcile chain has caught up with the current spec               |
   | `Settled`              | `False`   | `WaitingForLimaVM` | The App has no `Running` condition yet (nothing mirrored from LimaVM) |

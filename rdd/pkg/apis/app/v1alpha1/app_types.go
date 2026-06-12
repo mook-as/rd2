@@ -41,11 +41,13 @@ const (
 	// from a fresh one.
 	AppConditionContainerEngineReady = "ContainerEngineReady"
 
-	// AppConditionKubernetesReady goes True once the Kubernetes controller has
-	// confirmed that the k3s API server is reachable and has merged the
-	// rancher-desktop-{instance} context into ~/.kube/config. It is only
-	// meaningful when spec.kubernetes.enabled is true; when Kubernetes is
-	// disabled the condition is absent or False with reason NotApplicable.
+	// AppConditionKubernetesReady goes True once the k3s API server answers,
+	// the node is Ready, and the rancher-desktop-{instance} context is
+	// merged into ~/.kube/config. Workload-level readiness (coredns,
+	// traefik) is not gated; consumers that need it wait for those
+	// Deployments themselves. The condition is only meaningful when
+	// spec.kubernetes.enabled is true; when Kubernetes is disabled the
+	// condition is absent or False with reason NotApplicable.
 	AppConditionKubernetesReady = "KubernetesReady"
 
 	// AppConditionSettled reports whether the reconcile chain has
@@ -90,8 +92,8 @@ const (
 
 // Reasons for the KubernetesReady condition.
 const (
-	// AppKubernetesReasonReady means the k3s API server is reachable and the
-	// kubeconfig context has been merged into ~/.kube/config.
+	// AppKubernetesReasonReady means the API server answers, the node is
+	// Ready, and the kubeconfig context is merged into ~/.kube/config.
 	AppKubernetesReasonReady = "Ready"
 
 	// AppKubernetesReasonNotApplicable means spec.kubernetes.enabled is false;
@@ -106,6 +108,10 @@ const (
 	// AppKubernetesReasonProbing means the controller is still waiting for
 	// the k3s API server to respond.
 	AppKubernetesReasonProbing = "Probing"
+
+	// AppKubernetesReasonWaitingForNode means the API server answers but no
+	// node has reached Ready, so the cluster cannot schedule a workload.
+	AppKubernetesReasonWaitingForNode = "WaitingForNode"
 
 	// AppKubernetesReasonMergeFailed means the k3s API server is reachable
 	// but merging the instance kubeconfig into ~/.kube/config failed.
