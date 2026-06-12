@@ -206,6 +206,28 @@ jobs:
         output-dir: rdd/rdd-logs/_diag
       continue-on-error: true
 
+    - name: "Linux: size the app VM for the runner"
+      if: needs.check-paths.outputs.should-run && runner.os == 'Linux'
+      shell: bash
+      run: |
+        # The ubuntu runners also have 4 cores, and the host side idles at
+        # the 2-vCPU default; give the QEMU guest 3 and keep one core for
+        # the runner agent.
+        echo "RDD_VM_CPUS=3" >> "$GITHUB_ENV"
+
+    - name: "macOS: size the app VM for the runner"
+      if: needs.check-paths.outputs.should-run && runner.os == 'macOS'
+      shell: bash
+      run: |
+        # The 2-vCPU default starves the guest on the 4-core macos-15-intel
+        # runners: both vCPUs saturate during the k3s bootstrap and container
+        # creates take minutes. Give the VM all 4 cores: validation showed
+        # 4 vCPUs reaching pod-Running 2-3x faster than 3 and passing even
+        # the slowest runners, while the runner agent stayed scheduled
+        # through 0%-idle stretches. Drop to 3 if runs start losing their
+        # runner connection.
+        echo "RDD_VM_CPUS=4" >> "$GITHUB_ENV"
+
     - name: Configure BATS targets
       if: needs.check-paths.outputs.should-run
       shell: bash
