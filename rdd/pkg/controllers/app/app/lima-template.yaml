@@ -44,6 +44,45 @@ provision:
     KUBERNETES_ENABLED={{.Param.KUBERNETES_ENABLED}}
     KUBERNETES_VERSION={{.Param.KUBERNETES_VERSION}}
     KUBERNETES_PORT={{.Param.KUBERNETES_PORT}}
+# Redirect vm-switch's log to a host-mounted file (under the service log dir) so
+# it survives VM teardown and is collected with the other instance logs. The
+# distro's network-setup.service defaults VM_SWITCH_LOG to an in-guest path; this
+# drop-in overrides it. The unit runs only under WSL (ConditionVirtualization=wsl);
+# elsewhere this file is unused. Quote the whole assignment per systemd.exec so a
+# path with spaces stays one env var; quoting only the value would not.
+- mode: data
+  path: /etc/systemd/system/network-setup.service.d/log-path.conf
+  content: |
+    [Service]
+    Environment="VM_SWITCH_LOG={{.Param.VM_SWITCH_LOG}}"
+# Diagnostic vm-switch logging flags from networkSetupExtraArgs(); empty
+# (the distro default) when RDD_KEEP_LOGS is not set.
+- mode: data
+  path: /etc/systemd/system/network-setup.service.d/extra-args.conf
+  content: |
+    [Service]
+    Environment="NETWORK_SETUP_EXTRA_ARGS={{.Param.NETWORK_SETUP_EXTRA_ARGS}}"
+# Stream guest journals and lima-init.log (which die with the VM) to the host
+# log dir so CI artifacts carry them. Empty GUEST_LOG_DIR (no RDD_KEEP_LOGS)
+# makes this a no-op. The capture units are transient, restarted each boot.
+- mode: system
+  script: |
+    #!/bin/bash
+
+    set -o errexit -o nounset -o pipefail -o xtrace
+
+    if [[ -z $PARAM_GUEST_LOG_DIR ]]; then
+        exit 0
+    fi
+
+    if ! systemctl is-active --quiet rdd-journal-capture.service; then
+        systemd-run --collect --unit=rdd-journal-capture /bin/sh -c \
+            "journalctl --follow --no-tail --output=short-iso --unit=lima-init.service --unit=network-setup.service --unit=rancher-desktop-guest-agent.service --unit=rdd-guest.service --unit=wsl-proxy.service >> \"$PARAM_GUEST_LOG_DIR/guest-journal.log\""
+    fi
+    if ! systemctl is-active --quiet rdd-lima-init-capture.service; then
+        systemd-run --collect --unit=rdd-lima-init-capture /bin/sh -c \
+            "tail -c +0 -F /var/log/lima-init.log >> \"$PARAM_GUEST_LOG_DIR/lima-init.log\""
+    fi
 - mode: system
   script: |
     #!/bin/bash
