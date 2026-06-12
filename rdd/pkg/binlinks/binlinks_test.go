@@ -28,9 +28,21 @@ func TestInAppBundle(t *testing.T) {
 		},
 		{
 			name:     "Linux app bundle",
-			execPath: "/opt/rancher-desktop/Resources/linux/bin/rdd",
+			execPath: "/opt/rancher-desktop-2/resources/linux/bin/rdd",
 			goos:     "linux",
 			want:     true,
+		},
+		{
+			name:     "Linux path with macOS casing",
+			execPath: "/opt/rancher-desktop-2/Resources/linux/bin/rdd",
+			goos:     "linux",
+			want:     false,
+		},
+		{
+			name:     "macOS path with Linux casing",
+			execPath: "/Applications/Rancher Desktop.app/Contents/resources/darwin/bin/rdd",
+			goos:     "darwin",
+			want:     false,
 		},
 		{
 			name:     "standalone CLI install",
@@ -105,7 +117,8 @@ func TestLinkBinaries(t *testing.T) {
 
 // TestLinkBundledBinariesNoopWhenStandalone checks that LinkBundledBinaries is
 // a no-op outside the application bundle: the test binary's path never ends in
-// Resources/<goos>/bin/rdd, so the instance bin directory is never touched.
+// the bundled <resources>/<goos>/bin/rdd tail, so the instance bin directory is
+// never touched.
 func TestLinkBundledBinariesNoopWhenStandalone(t *testing.T) {
 	assert.NilError(t, LinkBundledBinaries())
 }

@@ -36,11 +36,16 @@ func LinkBundledBinaries() error {
 
 // inAppBundle reports whether execPath is the bundled rdd binary for the given
 // OS, as opposed to a standalone CLI install. The application stages its
-// per-platform resources under Resources/<goos>/bin/rdd. The leading separator
-// anchors the match, so an unrelated path ending in "Resources/<goos>/bin/rdd"
-// does not qualify.
+// per-platform resources under <resources>/<goos>/bin/rdd, where the directory
+// is "Resources" on macOS (the .app bundle convention) and lowercase
+// "resources" elsewhere. The leading separator anchors the match, so
+// an unrelated path ending in the same tail does not qualify.
 func inAppBundle(execPath, goos string) bool {
-	return strings.HasSuffix(execPath, "/Resources/"+goos+"/bin/rdd")
+	resources := "resources"
+	if goos == "darwin" {
+		resources = "Resources"
+	}
+	return strings.HasSuffix(execPath, "/"+resources+"/"+goos+"/bin/rdd")
 }
 
 // linkBinaries recreates binDir with symlinks to the bundled binaries and a

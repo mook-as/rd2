@@ -718,9 +718,9 @@ func NewServeCommand(ctx context.Context) *cobra.Command {
 			cliflag.PrintFlags(fs)
 
 			// Publish the application's bundled binaries to the instance bin
-			// directory. Only macOS and Linux do this. Best-effort: a failure
-			// must not block the control plane.
-			if runtime.GOOS == "darwin" || runtime.GOOS == "linux" {
+			// directory. Every platform except Windows does this. Best-effort: a
+			// failure must not block the control plane.
+			if runtime.GOOS != "windows" {
 				if err := binlinks.LinkBundledBinaries(); err != nil {
 					klog.Warningf("Failed to link bundled binaries: %v", err)
 				}
