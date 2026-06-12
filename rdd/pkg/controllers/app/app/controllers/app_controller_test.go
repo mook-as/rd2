@@ -454,6 +454,62 @@ func Test_applySpecToTemplate(t *testing.T) {
 	}
 }
 
+// Test_applyVMCPUsOverride is not parallel: t.Setenv forbids it.
+func Test_applyVMCPUsOverride(t *testing.T) {
+	template := "cpus: 2\nmemory: \"6442450944\"\n"
+
+	tests := []struct {
+		name    string
+		env     string
+		input   string
+		want    string
+		wantErr string
+	}{
+		{
+			name:  "unset env leaves the template unchanged",
+			env:   "",
+			input: template,
+			want:  template,
+		},
+		{
+			name:  "env rewrites the cpus line",
+			env:   "3",
+			input: template,
+			want:  "cpus: 3\nmemory: \"6442450944\"\n",
+		},
+		{
+			name:    "non-numeric value errors",
+			env:     "many",
+			input:   template,
+			wantErr: "invalid RDD_VM_CPUS",
+		},
+		{
+			name:    "zero errors",
+			env:     "0",
+			input:   template,
+			wantErr: "invalid RDD_VM_CPUS",
+		},
+		{
+			name:    "template without a cpus line errors",
+			env:     "3",
+			input:   "memory: \"6442450944\"\n",
+			wantErr: "no cpus line",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv(vmCPUsEnv, tt.env)
+			got, err := applyVMCPUsOverride(tt.input)
+			if tt.wantErr != "" {
+				assert.ErrorContains(t, err, tt.wantErr)
+				return
+			}
+			assert.NilError(t, err)
+			assert.Equal(t, got, tt.want)
+		})
+	}
+}
+
 // newTestScheme returns a scheme with all types the AppReconciler touches.
 func newTestScheme(t *testing.T) *k8sruntime.Scheme {
 	t.Helper()
