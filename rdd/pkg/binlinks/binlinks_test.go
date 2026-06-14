@@ -62,6 +62,30 @@ func TestInAppBundle(t *testing.T) {
 			goos:     "darwin",
 			want:     false,
 		},
+		{
+			name:     "Windows app bundle",
+			execPath: `C:\Program Files\Rancher Desktop\resources\windows\bin\rdd.exe`,
+			goos:     "windows",
+			want:     true,
+		},
+		{
+			name:     "Windows path without .exe suffix",
+			execPath: `C:\Program Files\Rancher Desktop\resources\windows\bin\rdd`,
+			goos:     "windows",
+			want:     false,
+		},
+		{
+			name:     "Windows path with forward slashes",
+			execPath: "C:/Program Files/Rancher Desktop/resources/windows/bin/rdd.exe",
+			goos:     "windows",
+			want:     false,
+		},
+		{
+			name:     "Windows standalone CLI install",
+			execPath: `C:\Users\me\bin\rdd.exe`,
+			goos:     "windows",
+			want:     false,
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -70,49 +94,67 @@ func TestInAppBundle(t *testing.T) {
 	}
 }
 
+// linkModes exercises both link kinds (symlink and the hardlink fallback) under
+// both name conventions (bare, and the .exe suffix Windows uses).
+var linkModes = []struct {
+	name       string
+	exe        string
+	useSymlink bool
+}{
+	{"symlinks", "", true},
+	{"hardlinks", "", false},
+	{"symlinks with exe suffix", ".exe", true},
+	{"hardlinks with exe suffix", ".exe", false},
+}
+
 func TestLinkBinaries(t *testing.T) {
-	srcDir := t.TempDir()
-	bundled := []string{"rdd", "docker", "helm"}
-	for _, name := range bundled {
-		assert.NilError(t, os.WriteFile(filepath.Join(srcDir, name), []byte("binary"), 0o755), "write %q", name)
+	for _, tc := range linkModes {
+		t.Run(tc.name, func(t *testing.T) {
+			srcDir := t.TempDir()
+			bundled := []string{"rdd" + tc.exe, "docker" + tc.exe, "helm" + tc.exe}
+			for _, name := range bundled {
+				assert.NilError(t, os.WriteFile(filepath.Join(srcDir, name), []byte("binary"), 0o755), "write %q", name)
+			}
+			// A subdirectory beside the executable must not be linked.
+			assert.NilError(t, os.Mkdir(filepath.Join(srcDir, "subdir"), 0o755))
+			execPath := filepath.Join(srcDir, "rdd"+tc.exe)
+
+			// Pre-populate binDir with a stale entry so the wipe can be verified.
+			binDir := filepath.Join(t.TempDir(), "bin")
+			assert.NilError(t, os.MkdirAll(binDir, 0o755))
+			assert.NilError(t, os.WriteFile(filepath.Join(binDir, "stale"), []byte("old"), 0o644))
+
+			assert.NilError(t, linkBinaries(execPath, binDir, tc.exe, tc.useSymlink))
+
+			// The stale entry from the previous install is gone.
+			_, err := os.Lstat(filepath.Join(binDir, "stale"))
+			assert.Assert(t, os.IsNotExist(err), "stale entry survived the wipe: %v", err)
+
+			// Every bundled file is linked to its source under the same name.
+			for _, name := range bundled {
+				assertLink(t, filepath.Join(binDir, name), filepath.Join(srcDir, name), tc.useSymlink)
+			}
+
+			// kubectl is linked to the rdd executable.
+			assertLink(t, filepath.Join(binDir, "kubectl"+tc.exe), execPath, tc.useSymlink)
+
+			// The subdirectory is not linked.
+			_, err = os.Lstat(filepath.Join(binDir, "subdir"))
+			assert.Assert(t, os.IsNotExist(err), "subdir was linked: %v", err)
+
+			// Only the bundled files plus kubectl are present.
+			entries, err := os.ReadDir(binDir)
+			assert.NilError(t, err)
+			var got []string
+			for _, e := range entries {
+				got = append(got, e.Name())
+			}
+			slices.Sort(got)
+			want := append([]string{"kubectl" + tc.exe}, bundled...)
+			slices.Sort(want)
+			assert.Assert(t, slices.Equal(got, want), "binDir contents = %v, want %v", got, want)
+		})
 	}
-	// A subdirectory beside the executable must not be linked.
-	assert.NilError(t, os.Mkdir(filepath.Join(srcDir, "subdir"), 0o755))
-	execPath := filepath.Join(srcDir, "rdd")
-
-	// Pre-populate binDir with a stale entry so the wipe can be verified.
-	binDir := filepath.Join(t.TempDir(), "bin")
-	assert.NilError(t, os.MkdirAll(binDir, 0o755))
-	assert.NilError(t, os.WriteFile(filepath.Join(binDir, "stale"), []byte("old"), 0o644))
-
-	assert.NilError(t, linkBinaries(execPath, binDir))
-
-	// The stale entry from the previous install is gone.
-	_, err := os.Lstat(filepath.Join(binDir, "stale"))
-	assert.Assert(t, os.IsNotExist(err), "stale entry survived the wipe: %v", err)
-
-	// Every bundled file is linked to its source under the same name.
-	for _, name := range bundled {
-		assertSymlink(t, filepath.Join(binDir, name), filepath.Join(srcDir, name))
-	}
-
-	// kubectl is linked to the rdd executable.
-	assertSymlink(t, filepath.Join(binDir, "kubectl"), execPath)
-
-	// The subdirectory is not linked.
-	_, err = os.Lstat(filepath.Join(binDir, "subdir"))
-	assert.Assert(t, os.IsNotExist(err), "subdir was linked: %v", err)
-
-	// Only the bundled files plus kubectl are present.
-	entries, err := os.ReadDir(binDir)
-	assert.NilError(t, err)
-	var got []string
-	for _, e := range entries {
-		got = append(got, e.Name())
-	}
-	slices.Sort(got)
-	want := []string{"docker", "helm", "kubectl", "rdd"}
-	assert.Assert(t, slices.Equal(got, want), "binDir contents = %v, want %v", got, want)
 }
 
 // TestEnsureSelfLinks checks the standalone path: a missing or dangling rdd or
@@ -138,7 +180,7 @@ func TestEnsureSelfLinks(t *testing.T) {
 	docker := filepath.Join(binDir, "docker")
 	assert.NilError(t, os.Symlink(filepath.Join(srcDir, "docker"), docker))
 
-	assert.NilError(t, ensureSelfLinks(execPath, binDir))
+	assert.NilError(t, ensureSelfLinks(execPath, binDir, "", true))
 
 	// The working rdd link is preserved, still pointing at the app binary.
 	assertSymlink(t, filepath.Join(binDir, "rdd"), appRdd)
@@ -152,15 +194,30 @@ func TestEnsureSelfLinks(t *testing.T) {
 // the app was never installed — gets one with rdd and kubectl linked to the
 // running rdd.
 func TestEnsureSelfLinksCreatesDir(t *testing.T) {
-	srcDir := t.TempDir()
-	execPath := filepath.Join(srcDir, "rdd")
-	assert.NilError(t, os.WriteFile(execPath, []byte("binary"), 0o755))
+	for _, tc := range linkModes {
+		t.Run(tc.name, func(t *testing.T) {
+			srcDir := t.TempDir()
+			execPath := filepath.Join(srcDir, "rdd"+tc.exe)
+			assert.NilError(t, os.WriteFile(execPath, []byte("binary"), 0o755))
 
-	binDir := filepath.Join(t.TempDir(), "bin")
-	assert.NilError(t, ensureSelfLinks(execPath, binDir))
+			binDir := filepath.Join(t.TempDir(), "bin")
+			assert.NilError(t, ensureSelfLinks(execPath, binDir, tc.exe, tc.useSymlink))
 
-	assertSymlink(t, filepath.Join(binDir, "rdd"), execPath)
-	assertSymlink(t, filepath.Join(binDir, "kubectl"), execPath)
+			assertLink(t, filepath.Join(binDir, "rdd"+tc.exe), execPath, tc.useSymlink)
+			assertLink(t, filepath.Join(binDir, "kubectl"+tc.exe), execPath, tc.useSymlink)
+		})
+	}
+}
+
+// assertLink fails unless path is the kind of link to want that link() creates
+// for useSymlink: a symlink pointing at want, or a hardlink sharing its file.
+func assertLink(t *testing.T, path, want string, useSymlink bool) {
+	t.Helper()
+	if useSymlink {
+		assertSymlink(t, path, want)
+		return
+	}
+	assertHardlink(t, path, want)
 }
 
 // assertSymlink fails unless path is a symlink that points at want.
@@ -172,4 +229,18 @@ func assertSymlink(t *testing.T, path, want string) {
 	target, err := os.Readlink(path)
 	assert.NilError(t, err, "readlink %q", path)
 	assert.Equal(t, target, want)
+}
+
+// assertHardlink fails unless path is a hardlink to want: not a symlink, and
+// sharing want's file identity.
+func assertHardlink(t *testing.T, path, want string) {
+	t.Helper()
+	link, err := os.Lstat(path)
+	assert.NilError(t, err, "lstat %q", path)
+	assert.Assert(t, link.Mode()&os.ModeSymlink == 0, "%q is a symlink, want a hardlink", path)
+	pathInfo, err := os.Stat(path)
+	assert.NilError(t, err, "stat %q", path)
+	wantInfo, err := os.Stat(want)
+	assert.NilError(t, err, "stat %q", want)
+	assert.Assert(t, os.SameFile(pathInfo, wantInfo), "%q is not a hardlink to %q", path, want)
 }
