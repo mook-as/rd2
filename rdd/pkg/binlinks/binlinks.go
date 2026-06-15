@@ -7,10 +7,10 @@
 // can put that directory on PATH. Each entry is a symlink, or a hardlink where
 // symlinks need privileges that are absent (Windows without developer mode).
 // Inside the application bundle rdd owns the directory and recreates it to
-// mirror the bundled binaries. Standalone, rdd repairs only its own rdd and
-// kubectl links, and only when they are missing or dangling, so links the
-// application installed survive and a CLI-only install still gets a usable rdd
-// and kubectl.
+// mirror the bundled binaries. Standalone, rdd repairs its own rdd and kubectl
+// links and prunes any symlink left dangling by an uninstalled application, so a
+// stale link cannot shadow a tool the user later installs on PATH; working links
+// and non-symlink entries survive.
 package binlinks
 
 import (
@@ -125,17 +125,48 @@ func link(target, linkPath string, useSymlink bool) error {
 	return os.Link(target, linkPath)
 }
 
-// ensureSelfLinks points the rdd and kubectl links in binDir at a standalone
-// rdd, so the instance bin directory stays usable when no application bundle
-// has published them. It repairs each link only when it is missing or dangling
-// and leaves every other entry, including a working link, untouched.
+// ensureSelfLinks keeps the instance bin directory usable when no application
+// bundle has published it. It first prunes symlinks left dangling by an
+// uninstalled application, then points the rdd and kubectl links at a standalone
+// rdd. Working links and non-symlink entries survive.
 func ensureSelfLinks(execPath, binDir, exe string, useSymlink bool) error {
 	if err := os.MkdirAll(binDir, 0o755); err != nil {
 		return fmt.Errorf("create %q: %w", binDir, err)
 	}
+	if err := pruneDanglingLinks(binDir); err != nil {
+		return err
+	}
 	for _, name := range []string{"rdd" + exe, "kubectl" + exe} {
 		if err := ensureSelfLink(filepath.Join(binDir, name), execPath, useSymlink); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+// pruneDanglingLinks removes symlinks in binDir whose target no longer resolves,
+// so a link left dangling by an uninstalled application cannot shadow a tool the
+// user later installs elsewhere on PATH; zsh stops at the broken link instead of
+// searching on. Working links and non-symlink entries stay. A hardlink from an
+// uninstalled application is not dangling and survives, so it still shadows;
+// detecting that needs the app install location (see #448).
+func pruneDanglingLinks(binDir string) error {
+	entries, err := os.ReadDir(binDir)
+	if err != nil {
+		return fmt.Errorf("read %q: %w", binDir, err)
+	}
+	for _, entry := range entries {
+		if entry.Type()&os.ModeSymlink == 0 {
+			continue
+		}
+		linkPath := filepath.Join(binDir, entry.Name())
+		if _, err := os.Stat(linkPath); err == nil {
+			continue
+		} else if !os.IsNotExist(err) {
+			return fmt.Errorf("stat %q: %w", linkPath, err)
+		}
+		if err := os.Remove(linkPath); err != nil {
+			return fmt.Errorf("remove dangling link %q: %w", linkPath, err)
 		}
 	}
 	return nil

@@ -176,9 +176,11 @@ func TestEnsureSelfLinks(t *testing.T) {
 	// A dangling kubectl link must be replaced.
 	assert.NilError(t, os.Symlink(filepath.Join(srcDir, "gone"), filepath.Join(binDir, "kubectl")))
 
-	// An unrelated entry must be left untouched.
+	// An unrelated working link must be left untouched.
+	dockerTarget := filepath.Join(srcDir, "docker")
+	assert.NilError(t, os.WriteFile(dockerTarget, []byte("binary"), 0o755))
 	docker := filepath.Join(binDir, "docker")
-	assert.NilError(t, os.Symlink(filepath.Join(srcDir, "docker"), docker))
+	assert.NilError(t, os.Symlink(dockerTarget, docker))
 
 	assert.NilError(t, ensureSelfLinks(execPath, binDir, "", true))
 
@@ -186,8 +188,8 @@ func TestEnsureSelfLinks(t *testing.T) {
 	assertSymlink(t, filepath.Join(binDir, "rdd"), appRdd)
 	// The dangling kubectl link now points at the running executable.
 	assertSymlink(t, filepath.Join(binDir, "kubectl"), execPath)
-	// The unrelated link is left as it was.
-	assertSymlink(t, docker, filepath.Join(srcDir, "docker"))
+	// The unrelated working link is left as it was.
+	assertSymlink(t, docker, dockerTarget)
 }
 
 // TestEnsureSelfLinksCreatesDir checks that an instance with no bin directory —
@@ -207,6 +209,41 @@ func TestEnsureSelfLinksCreatesDir(t *testing.T) {
 			assertLink(t, filepath.Join(binDir, "kubectl"+tc.exe), execPath, tc.useSymlink)
 		})
 	}
+}
+
+// TestEnsureSelfLinksPrunesDangling checks the uninstall path: a standalone rdd
+// removes symlinks left dangling by a removed app so they cannot shadow a tool
+// on PATH, while repairing its own rdd and kubectl links and leaving a working
+// link and a plain file alone.
+func TestEnsureSelfLinksPrunesDangling(t *testing.T) {
+	srcDir := t.TempDir()
+	execPath := filepath.Join(srcDir, "rdd")
+	assert.NilError(t, os.WriteFile(execPath, []byte("binary"), 0o755))
+
+	binDir := filepath.Join(t.TempDir(), "bin")
+	assert.NilError(t, os.MkdirAll(binDir, 0o755))
+
+	// A removed app leaves docker dangling, and rdd's own link dangling too.
+	assert.NilError(t, os.Symlink(filepath.Join(srcDir, "gone"), filepath.Join(binDir, "docker")))
+	assert.NilError(t, os.Symlink(filepath.Join(srcDir, "gone"), filepath.Join(binDir, "rdd")))
+	// A working tool link and a plain file must survive.
+	tool := filepath.Join(srcDir, "helm-real")
+	assert.NilError(t, os.WriteFile(tool, []byte("binary"), 0o755))
+	assert.NilError(t, os.Symlink(tool, filepath.Join(binDir, "helm")))
+	assert.NilError(t, os.WriteFile(filepath.Join(binDir, "notes"), []byte("keep"), 0o644))
+
+	assert.NilError(t, ensureSelfLinks(execPath, binDir, "", true))
+
+	// The dangling docker link is pruned, not repaired: rdd does not provide it.
+	_, err := os.Lstat(filepath.Join(binDir, "docker"))
+	assert.Assert(t, os.IsNotExist(err), "dangling docker link survived: %v", err)
+	// rdd and kubectl are repaired to the running standalone rdd.
+	assertSymlink(t, filepath.Join(binDir, "rdd"), execPath)
+	assertSymlink(t, filepath.Join(binDir, "kubectl"), execPath)
+	// The working link and the plain file survive.
+	assertSymlink(t, filepath.Join(binDir, "helm"), tool)
+	_, err = os.Lstat(filepath.Join(binDir, "notes"))
+	assert.NilError(t, err, "plain file was removed")
 }
 
 // assertLink fails unless path is the kind of link to want that link() creates

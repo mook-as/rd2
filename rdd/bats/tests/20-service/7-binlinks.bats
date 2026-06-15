@@ -105,6 +105,30 @@ assert_hardlink_to() { # <target> <link>
     assert_symlink_to "${FAKE_BIN}/docker${EXE}" "${DEST_DIR}/docker${EXE}"
 }
 
+@test 'prunes dangling tool links left after an uninstall' {
+    load_var DEST_DIR
+    # Publish from a throwaway bundle, then delete it so its links dangle — the
+    # uninstall case. Driving setup through rdd gives real symlinks the daemon
+    # recognizes (MSYS2 ln -s would not).
+    resources=resources
+    is_macos && resources=Resources
+    bundle="${BATS_TEST_TMPDIR}/Gone.app/Contents/${resources}/${OS}/bin"
+    mkdir -p "${bundle}"
+    cp "${PATH_REPO_ROOT}/bin/rdd${EXE}" "${bundle}/rdd${EXE}"
+    echo "stand-in docker" >"${bundle}/docker${EXE}"
+    "${bundle}/rdd${EXE}" svc start 3>&- 4>&-
+    "${bundle}/rdd${EXE}" svc stop 3>&- 4>&-
+    assert_symlink_to "${bundle}/docker${EXE}" "${DEST_DIR}/docker${EXE}"
+    rm -rf "${bundle}"
+    # A standalone rdd prunes the now-dangling docker link so it cannot shadow a
+    # tool on PATH, and repairs its own rdd and kubectl links to itself.
+    rdd svc start
+    assert_link_not_exist "${DEST_DIR}/docker${EXE}"
+    standalone="${PATH_REPO_ROOT}/bin/rdd${EXE}"
+    assert_symlink_to "${standalone}" "${DEST_DIR}/rdd${EXE}"
+    assert_symlink_to "${standalone}" "${DEST_DIR}/kubectl${EXE}"
+}
+
 @test 'publishes hardlinks when symlinks are disabled' {
     load_var FAKE_BIN DEST_DIR
     # RDD_NO_SYMLINKS forces the hardlink fallback that Windows hits without
