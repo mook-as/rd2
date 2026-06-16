@@ -350,11 +350,10 @@ jobs:
             rocky|rhel|centos|fedora)
               dnf install --assumeyes qemu-kvm
               # On RHEL/CentOS, the qemu exectuable is not actually exposed;
-              # make a symlink to qemu-kvm, even though it's unsupported.
+              # try to force qemu-kvm, even though it's unsupported.
               if ! command -v qemu-system-x86_64; then
-                ln -sf /usr/libexec/qemu-kvm /usr/local/bin/qemu-system-x86_64
+                echo "QEMU_SYSTEM_X86_64=/usr/libexec/qemu-kvm" >> $GITHUB_ENV
               fi
-              qemu-system-x86_64 --version
               exit 0;;
             debian|ubuntu)
               apt-get update
@@ -382,6 +381,7 @@ jobs:
           /usr/bin/env --chdir=$PWD \
             RD_DEBUG_ENABLED=1 RD_TEST=smoke \
             RDD_LOG_DIR=$RDD_LOG_DIR RDD_KEEP_LOGS=1 \
+            ${QEMU_SYSTEM_X86_64:+QEMU_SYSTEM_X86_64=${QEMU_SYSTEM_X86_64}} \
           script \
             --log-out $LOGS_DIR/appimage-${{ matrix.id }}.log \
             --return --command "${inner_command[*]@Q}" \
