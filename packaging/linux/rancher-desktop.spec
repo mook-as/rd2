@@ -16,7 +16,7 @@
 #
 
 
-Name:       rancher-desktop
+Name:       rancher-desktop-2
 Version:    0
 Release:    0
 Summary:    Kubernetes and container management on the desktop
