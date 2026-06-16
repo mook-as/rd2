@@ -81,7 +81,8 @@ runs:
       for id in $ID $ID_LIKE; do
         case $id in
           suse|opensuse)
-            ${{ steps.sudo.outputs.sudo }} zypper --non-interactive install \
+            ${{ steps.sudo.outputs.sudo }} zypper --non-interactive \
+              install --force-resolution \
               fuse gawk git GraphicsMagick gtk3-tools jq mozilla-nss \
               noto-sans-fonts password-store sudo xvfb-run xauth which
             if [[ ${GITHUB_JOB:-unknown} =~ appimage ]]; then
