@@ -28,6 +28,6 @@ export default async function * getWinCertificates(): AsyncIterable<string> {
   // one built into NodeJS.
 
   // TODO: Implement, if this is still needed.
-  await new Promise((resolve) => resolve);
+  await new Promise<void>((resolve) => resolve());
   yield * tls.rootCertificates;
 }
