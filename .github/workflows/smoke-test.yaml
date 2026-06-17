@@ -15,6 +15,18 @@ on:
           Download artifacts from release with this tag, rather than picking the
           first draft release.
         type: string
+      obs-project:
+        description: >
+          OpenSUSE Build Service project to download AppImage from, in the form
+          of "home:username:projectname". The default is the devel project used
+          in final pre-release smoke tests.
+        type: string
+        default: "isv:Rancher:dev"
+      skip-signing-checks:
+        description: >
+          Skip signature checks on downloaded artifacts (fails the tests).
+        type: boolean
+        default: false
 
 jobs:
   download-artifacts:
@@ -58,6 +70,8 @@ jobs:
 
     - name: Download AppImage
       run: |
+        # The OBS project needs to have a slash added after each colon.
+        OBS_DOWNLOAD_URL=https://download.opensuse.org/download/repositories/${OBS_PROJECT//:/:/}/AppImage/
         branch=$(cut -d. -f1,2 <<< "${RELEASE_TAG#v}")
         read -r artifact_name < <(
           curl "${OBS_DOWNLOAD_URL}?jsontable" \
@@ -68,7 +82,7 @@ jobs:
         sha512sum rancher-desktop.AppImage > rancher-desktop.AppImage.sha512sum
         chmod a+x rancher-desktop.AppImage
       env:
-        OBS_DOWNLOAD_URL: https://download.opensuse.org/download/repositories/isv:/Rancher:/dev/AppImage/
+        OBS_PROJECT: ${{ inputs.obs-project }}
 
     - name: Upload macOS aarch-64 artifacts
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -138,13 +152,24 @@ jobs:
         EXEC_COMMAND: >-
           exec xvfb-run --auto-servernum
           --server-args='-screen 0 1280x960x24'
+    - name: "Linux: Install Extra Packages"
+      if: runner.os == 'Linux'
+      run: |
+        set -o xtrace
+        sudo apt-get update
+        sudo apt-get install --yes --no-install-recommends \
+          ovmf qemu-system qemu-utils
 
     - name: Set log directory
       shell: bash
       # Use node here to do path manipulation to get correct Windows paths.
       run: >-
-        node --eval='console.log("RDD_LOG_DIR=" + require("path").join(process.cwd(), "logs"));'
-        >> "$GITHUB_ENV"
+        node --eval='
+        var join = require("path").join;
+        var l = join(process.cwd(), "logs");
+        console.log("LOGS_DIR=" + l);
+        console.log("RDD_LOG_DIR=" + join(l, "rd"));
+        ' >> "$GITHUB_ENV"
 
     - name: Download artifacts
       uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -152,6 +177,26 @@ jobs:
         name: application-${{ matrix.platform }}.zip
     - run: ${{ env.EXEC_COMMAND }} .github/workflows/smoke-test/smoke-test.sh
       shell: bash
+      env:
+        RD_SKIP_SIGNING_CHECKS: ${{ inputs.skip-signing-checks }}
+        RDD_KEEP_LOGS: '1'
+    - name: Collect Lima Logs
+      if: always()
+      shell: bash
+      run: |
+        # Lima should output its logs to the RD log directory, but it currently
+        # doesn't; collect them manually here.
+        set +o errexit
+        shopt -s nullglob
+        mkdir -p "${LOGS_DIR}/lima"
+        case "$(uname -o | tr 'A-Z' 'a-z')" in
+          msys)
+            # On Windows/MSYS, the home directory is USERPROFILE.
+            HOME="$(cygpath -u "$USERPROFILE")";;
+        esac
+        for file in "${HOME}"/.rd2/lima/rd/*.log; do
+          cp -v "$file" "$LOGS_DIR/lima/$(basename "$file")"
+        done
     - name: Upload logs
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       if: always()
@@ -176,6 +221,14 @@ jobs:
       image: ${{ matrix.image }}
       options: --privileged
     steps:
+    - name: Disable AppArmor User Namespace Restrictions
+      run: |
+        # This is needed because even though we run in a container for a
+        # different distribution, we're still running the Ubuntu kernel in the
+        # runner VM.  Filed as
+        # https://github.com/rancher-sandbox/rancher-desktop-2/issues/459
+        set +o errexit
+        echo 0 > /proc/sys/kernel/apparmor_restrict_unprivileged_userns
     - name: Install basic tools
       if: contains(matrix.id, 'opensuse')
       run: >-
@@ -199,11 +252,7 @@ jobs:
       run: .github/workflows/smoke-test/install-from-repo.sh
       env:
         RD_VERSION: ${{ needs.download-artifacts.outputs.release-tag }}
-    - name: "openSUSE Workaround for #9145"
-      if: contains(matrix.id, 'opensuse')
-      run: >-
-        zypper --non-interactive install
-        qemu-img qemu-hw-display-virtio-gpu
+        OBS_PROJECT: ${{ inputs.obs-project }}
     - name: Run smoke test
       shell: bash
       run: |
@@ -215,7 +264,8 @@ jobs:
         )
         sudo --user=ci-user --login --set-home --non-interactive \
           /usr/bin/env --chdir=$PWD \
-            RD_DEBUG_ENABLED=1 RD_TEST=smoke RD_SKIP_INSTALL=true RDD_LOG_DIR=$RDD_LOG_DIR \
+            RD_DEBUG_ENABLED=1 RD_TEST=smoke RD_SKIP_INSTALL=true \
+            RDD_LOG_DIR=$RDD_LOG_DIR RDD_KEEP_LOGS=1 \
           script \
             --log-out $LOGS_DIR/repo-${{ matrix.id }}.log \
             --return --command "${inner_command[*]@Q}"
@@ -239,6 +289,18 @@ jobs:
         export MAGICK_DEBUG=All # spellcheck-ignore-line
         gm import -window root -verbose $LOGS_DIR/screenshot-${{ matrix.id }}.png
 
+    - name: Collect Lima Logs
+      if: always()
+      shell: bash
+      run: |
+        # Lima should output its logs to the RD log directory, but it currently
+        # doesn't; collect them manually here.
+        set +o errexit
+        shopt -s nullglob
+        mkdir -p "${LOGS_DIR}/lima"
+        for file in ~ci-user/.rd2/lima/rd/*.log; do
+          cp --verbose "$file" "$LOGS_DIR/lima/$(basename "$file")"
+        done
     - name: Upload logs
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       if: always()
@@ -277,6 +339,32 @@ jobs:
       with:
         user: ci-user
 
+    - name: Install qemu
+      run: |
+        source /etc/os-release
+        for id in $ID $ID_LIKE; do
+          case $id in
+            suse|opensuse)
+              zypper --non-interactive install qemu-headless
+              exit 0;;
+            rocky|rhel|centos|fedora)
+              dnf install --assumeyes qemu-kvm
+              # On RHEL/CentOS, the qemu exectuable is not actually exposed;
+              # make a symlink to qemu-kvm, even though it's unsupported.
+              if ! command -v qemu-system-x86_64; then
+                ln -sf /usr/libexec/qemu-kvm /usr/local/bin/qemu-system-x86_64
+              fi
+              qemu-system-x86_64 --version
+              exit 0;;
+            debian|ubuntu)
+              apt-get update
+              apt-get install --yes ovmf qemu-system qemu-utils
+              exit 0;;
+          esac
+        done
+        printf "Could not find known distribution in [%s %s]\n" "$ID" "$ID_LIKE" >&2
+        exit 1
+
     - name: Download AppImage
       uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
       with:
@@ -292,7 +380,8 @@ jobs:
         )
         sudo --user=ci-user --login --set-home --non-interactive \
           /usr/bin/env --chdir=$PWD \
-            RD_DEBUG_ENABLED=1 RD_TEST=smoke RDD_LOG_DIR=$RDD_LOG_DIR \
+            RD_DEBUG_ENABLED=1 RD_TEST=smoke \
+            RDD_LOG_DIR=$RDD_LOG_DIR RDD_KEEP_LOGS=1 \
           script \
             --log-out $LOGS_DIR/appimage-${{ matrix.id }}.log \
             --return --command "${inner_command[*]@Q}" \
@@ -316,6 +405,18 @@ jobs:
         export MAGICK_DEBUG=All # spellcheck-ignore-line
         gm import -window root -verbose $LOGS_DIR/screenshot-${{ matrix.id }}.png
 
+    - name: Collect Lima Logs
+      if: always()
+      shell: bash
+      run: |
+        # Lima should output its logs to the RD log directory, but it currently
+        # doesn't; collect them manually here.
+        set +o errexit
+        shopt -s nullglob
+        mkdir -p "${LOGS_DIR}/lima"
+        for file in ~ci-user/.rd2/lima/rd/*.log; do
+          cp --verbose "$file" "$LOGS_DIR/lima/$(basename "$file")"
+        done
     - name: Upload logs
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       if: always()
@@ -323,3 +424,13 @@ jobs:
         name: logs-appimage-${{ matrix.id }}.zip
         path: ${{ github.workspace }}/logs
         if-no-files-found: warn
+
+  flag-skipped-signing-checks:
+    name: Flag that signing checks were skipped
+    needs: [smoke-test,repository-smoke-test,appimage-smoke-test]
+    runs-on: ubuntu-latest
+    if: inputs.skip-signing-checks
+    steps:
+    - run: |
+        echo "Force failing smoke tests because signature checks were skipped." >&2
+        exit 1

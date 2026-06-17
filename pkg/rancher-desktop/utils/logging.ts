@@ -202,6 +202,9 @@ export function clearLoggingDirectory(): void {
   if ((process.env.RD_TEST ?? '').includes('e2e') || process.type !== 'browser') {
     return;
   }
+  if (process.env.RDD_KEEP_LOGS) {
+    return;
+  }
 
   const entries = fs.readdirSync(paths.log_dir, { withFileTypes: true });
 
