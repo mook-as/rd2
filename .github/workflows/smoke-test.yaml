@@ -160,6 +160,12 @@ jobs:
         sudo apt-get install --yes --no-install-recommends \
           ovmf qemu-system qemu-utils
 
+    - name: "Windows: Install Dummy Distribution"
+      # Lima has a bug that fails the smoke test if no WSL distributions are
+      # installed; work around it by installing something.
+      if: runner.os == 'Windows'
+      run: wsl --install --no-launch Debian
+
     - name: Set log directory
       shell: bash
       # Use node here to do path manipulation to get correct Windows paths.
