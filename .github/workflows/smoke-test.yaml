@@ -347,14 +347,16 @@ jobs:
             suse|opensuse)
               zypper --non-interactive install qemu-headless
               exit 0;;
-            rocky|rhel|centos|fedora)
-              dnf install --assumeyes qemu-kvm
-              # On RHEL/CentOS, the qemu exectuable is not actually exposed;
-              # make a symlink to qemu-kvm, even though it's unsupported.
-              if ! command -v qemu-system-x86_64; then
-                ln -sf /usr/libexec/qemu-kvm /usr/local/bin/qemu-system-x86_64
-              fi
-              qemu-system-x86_64 --version
+            fedora)
+              dnf install --assumeyes qemu-img qemu-system-x86
+              exit 0;;
+            rocky|rhel|centos)
+              # On Rock/RHEL/CentOS, qemu is not available; we add a third-party
+              # repository to get it.
+              dnf --nogpg --assumeyes install \
+                https://mirror.ghettoforge.net/distributions/gf/gf-release-latest.gf.el${VERSION_ID%%.*}.noarch.rpm
+              dnf --assumeyes install epel-release
+              dnf --assumeyes install qemu-img qemu-system-x86
               exit 0;;
             debian|ubuntu)
               apt-get update
