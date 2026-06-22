@@ -59,5 +59,11 @@ test.describe('Main App Test', () => {
 
     await rdd('set', 'running=false', '--wait=false');
     await expect(navPage.progressBar).toBeVisible({ timeout: 1_000 });
+    // The text should be reflected from the status condition.
+    const rawApps = await rdd('ctl', 'get', 'apps', '--output=json');
+    const appList: rddClient.IoRancherdesktopAppV1alpha1AppList = JSON.parse(rawApps);
+    expect(appList.items).toHaveLength(1);
+    const condition = appList.items[0].status?.conditions?.find((c) => c.type === 'Settled');
+    await expect(navPage.progressBar).toHaveText(condition?.message ?? '<missing>');
   });
 });
