@@ -10,7 +10,9 @@ import { SnapshotsPage } from './snapshots-page';
 import { TroubleshootingPage } from './troubleshooting-page';
 import { VolumesPage } from './volumes-page';
 import { WSLIntegrationsPage } from './wsl-integrations-page';
-import { tool } from '../utils/TestUtils';
+import { rdd } from '../utils/TestUtils';
+
+import * as rddClient from '@rdd-client';
 
 import type { Locator, Page } from '@playwright/test';
 
@@ -43,77 +45,37 @@ export class NavPage {
     this.preferencesButton = page.getByTestId('preferences-button');
   }
 
-  protected async getBackendState(): Promise<string> {
+  protected async isAppSettled(): Promise<boolean> {
     try {
-      return JSON.parse(await tool('rdctl', 'api', '/v1/backend_state')).vmState;
+      const rawApps = await rdd('ctl', 'get', 'apps', '--output=json');
+      const appList: rddClient.IoRancherdesktopAppV1alpha1AppList = JSON.parse(rawApps);
+      const conditions = appList.items.flatMap(item => item.status?.conditions ?? []);
+      return conditions.some(condition => condition.type === 'Settled' && condition.status === 'True');
     } catch {
-      return 'NOT_READY';
-    }
-  }
-
-  protected async moveToNextState(currentState: string, timeout: number): Promise<string> {
-    const start = new Date().valueOf();
-    const expired = start + timeout;
-    const delay = 500; // msec
-
-    while (true) {
-      try {
-        const nextState = JSON.parse(await tool('rdctl', 'api', '/v1/backend_state')).vmState;
-
-        if (nextState !== currentState) {
-          return nextState;
-        }
-      } catch (e: any) {
-        console.log(`Error trying to get backend state: ${ e }`);
-      }
-      const now = new Date().valueOf();
-
-      if (now >= expired) {
-        throw new Error(`app watcher timed out at state ${ currentState } waiting for state change after ${ timeout / 1000 } seconds`);
-      }
-      await util.promisify(setTimeout)(delay);
+      return false;
     }
   }
 
   /**
-   * This process wait the progress bar to be visible and then
-   * waits until the progress bar be detached/hidden.
-   * This is a workaround until we implement:
-   * https://github.com/rancher-sandbox/rancher-desktop/issues/1217
+   * Wait for the backend app to be settled.
    */
-  /*
-    STOPPED = 'STOPPED', // The engine is not running.
-    STARTING = 'STARTING', // The engine is attempting to start.
-    STARTED = 'STARTED', // The engine is started; the dashboard is not yet ready.
-    STOPPING = 'STOPPING', // The engine is attempting to stop.
-    ERROR = 'ERROR', // There is an error and we cannot recover automatically.
-    DISABLED = 'DISABLED', // The container backend is ready but the Kubernetes engine is disabled.
-    NOT_READY = 'NOT_READY', // call to `rdctl api /v1/backend_state` failed, so assume the server isn't ready
-   */
+  async waitForAppSettled() {
+    // We are using the mock controller, so the progress should become ready
+    // fairly quickly.
 
-  // Implement a state-machine based on the backend states until we hit STOPPED, DISABLED, or ERROR, or timeout
-  // Then verify the progress bar is gone
-  async progressBecomesReady() {
-    const timeout = 900_000;
-    const maxAllowedStateChanges = 20;
-    let i;
-    let backendState = await this.getBackendState();
-    const finalStates = ['STARTED', 'ERROR', 'DISABLED'];
-
-    for (i = 0; i < maxAllowedStateChanges && !finalStates.includes(backendState); i++) {
-      if (backendState !== 'STARTING') {
-        console.log(`Backend is currently at state ${ backendState }, waiting for a change...`);
+    let timedOut = false;
+    setTimeout(() => { timedOut = true }, 30_000);
+    const delay = 500; // msec
+    // eslint-disable-next-line no-unmodified-loop-condition -- Flag updated by timer.
+    while (!timedOut) {
+      if (await this.isAppSettled()) {
+        return;
       }
-      backendState = await this.moveToNextState(backendState, timeout);
-    }
-    if (i === maxAllowedStateChanges && !finalStates.includes(backendState)) {
-      throw new Error(`The backend is stuck in state ${ backendState }; doesn't look good`);
+      await util.promisify(setTimeout)(delay);
     }
 
-    // Wait until progress bar be detached. With that we can make sure the services were started
-    // This seems to sometimes return too early; actually check the result.
-    while (await this.progressBar.count() > 0) {
-      await this.progressBar.waitFor({ state: 'detached', timeout: Math.round(timeout * 0.6) });
+    if (timedOut) {
+      throw new Error('Backend did not settle within 30 seconds');
     }
   }
 
