@@ -76,6 +76,7 @@ import (
 	"github.com/rancher-sandbox/rancher-desktop-daemon/pkg/service/readiness"
 	"github.com/rancher-sandbox/rancher-desktop-daemon/pkg/util/logfile"
 	"github.com/rancher-sandbox/rancher-desktop-daemon/pkg/util/process"
+	"github.com/rancher-sandbox/rancher-desktop-daemon/pkg/util/wsl"
 )
 
 // API groups that RDD requires and enables.
@@ -588,20 +589,14 @@ func unregisterInstanceDistros(ctx context.Context) {
 	for _, distroName := range instanceDistroNames(instance.LimaHome()) {
 		// Terminating is a best-effort precursor — the distro is usually already
 		// stopped — so log its failure at debug.
-		termCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-		err := exec.CommandContext(termCtx, "wsl.exe", "--terminate", distroName).Run()
-		cancel()
-		if err != nil {
+		if err := wsl.Terminate(ctx, distroName); err != nil {
 			logrus.WithError(err).WithField("distro", distroName).Debug("wsl --terminate failed during delete")
 		}
 
 		// A failed unregister is the failure that matters: it leaves behind the
 		// stale registration this cleanup exists to prevent, so log it at warn.
 		// (A distro that was never imported also fails here, harmlessly.)
-		unregCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-		err = exec.CommandContext(unregCtx, "wsl.exe", "--unregister", distroName).Run()
-		cancel()
-		if err != nil {
+		if err := wsl.Unregister(ctx, distroName); err != nil {
 			logrus.WithError(err).WithField("distro", distroName).Warn("Failed to unregister WSL2 distro; a stale registration may remain")
 		}
 	}
@@ -626,7 +621,7 @@ func instanceDistroNames(limaHome string) []string {
 		if !entry.IsDir() || strings.HasPrefix(name, "_") || strings.HasPrefix(name, ".") {
 			continue
 		}
-		names = append(names, "lima-"+name)
+		names = append(names, wsl.DistroName(name))
 	}
 	return names
 }

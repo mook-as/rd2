@@ -8,7 +8,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -33,6 +32,7 @@ import (
 	"github.com/rancher-sandbox/rancher-desktop-daemon/pkg/instance"
 	"github.com/rancher-sandbox/rancher-desktop-daemon/pkg/util/logfile"
 	"github.com/rancher-sandbox/rancher-desktop-daemon/pkg/util/process"
+	"github.com/rancher-sandbox/rancher-desktop-daemon/pkg/util/wsl"
 )
 
 // hostSwitchRetryInterval is the minimum time between restarts of a host-switch
@@ -812,38 +812,18 @@ func stopInstanceForcibly(ctx context.Context, logger logr.Logger, inst *limatyp
 	}
 }
 
-// terminateWSL2Distro sends `wsl.exe --terminate` for the Lima distro with
-// the given instance name. No-op on non-Windows. Best-effort with a
-// 10-second timeout: wsl.exe can hang if the WSL subsystem is degraded.
+// terminateWSL2Distro terminates the WSL2 distro backing instName, logging any
+// failure. No-op on non-Windows.
 func terminateWSL2Distro(ctx context.Context, logger logr.Logger, instName string) {
-	if runtime.GOOS != "windows" {
-		return
-	}
-	distroName := "lima-" + instName
-	wslCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-	if err := exec.CommandContext(wslCtx, "wsl.exe", "--terminate", distroName).Run(); err != nil {
-		logger.V(1).Info("Failed to terminate WSL2 distro", "distro", distroName, "error", err)
+	if err := wsl.Terminate(ctx, wsl.DistroName(instName)); err != nil {
+		logger.V(1).Info("Failed to terminate WSL2 distro", "instance", instName, "error", err)
 	}
 }
 
-// unregisterWSL2Distro sends `wsl.exe --unregister` for the Lima distro with
-// the given instance name, returning nil on non-Windows. This removes the WSL2
-// registration and deletes the distro's ext4.vhdx, allowing Lima to import a
-// fresh distro on the next Prepare. It uses a 30-second timeout (unregister is
-// slower than terminate and can hang if WSL2 is degraded) and leaves the
-// failure handling to the caller.
+// unregisterWSL2Distro unregisters the WSL2 distro backing instName, returning
+// the failure for the caller to handle. No-op on non-Windows.
 func unregisterWSL2Distro(ctx context.Context, instName string) error {
-	if runtime.GOOS != "windows" {
-		return nil
-	}
-	distroName := "lima-" + instName
-	wslCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-	if err := exec.CommandContext(wslCtx, "wsl.exe", "--unregister", distroName).Run(); err != nil {
-		return fmt.Errorf("unregister WSL2 distro %q: %w", distroName, err)
-	}
-	return nil
+	return wsl.Unregister(ctx, wsl.DistroName(instName))
 }
 
 // removeStaleInstance removes a stale Lima instance directory left behind by
@@ -857,7 +837,7 @@ func removeStaleInstance(ctx context.Context, logger logr.Logger, instName, inst
 	// forceStopForDeletion guards against. Both calls are no-ops off Windows.
 	terminateWSL2Distro(ctx, logger, instName)
 	if err := unregisterWSL2Distro(ctx, instName); err != nil {
-		logger.V(1).Info("Failed to unregister WSL2 distro", "instance", instName, "error", err)
+		logger.Error(err, "Failed to unregister WSL2 distro; a stale registration may remain", "instance", instName)
 	}
 	return os.RemoveAll(instanceDir)
 }
