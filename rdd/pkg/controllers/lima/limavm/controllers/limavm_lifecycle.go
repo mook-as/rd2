@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -38,6 +39,10 @@ import (
 // that exited unexpectedly, and the delay before handleWatchedState re-checks
 // afterward.
 const hostSwitchRetryInterval = 15 * time.Second
+
+// wsl2RootDisk is the root-disk filename Lima's WSL2 driver creates when it
+// imports a distro with `wsl.exe --import`.
+const wsl2RootDisk = "ext4.vhdx"
 
 func (r *LimaVMReconciler) handleDeletion(ctx context.Context, limaVM *v1alpha1.LimaVM) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
@@ -344,6 +349,19 @@ func (r *LimaVMReconciler) handleRestartNeeded(ctx context.Context, limaVM *v1al
 	}
 }
 
+// wsl2RegistrationIsOrphaned reports whether inst is a WSL2 distro still
+// registered with WSL but missing its root disk — a state Lima cannot recover
+// on its own, because its WSL2 driver only re-imports a distro that is absent
+// from `wsl --list`. It arises when an instance directory is removed without
+// `wsl --unregister`. Always false off Windows, where VMType is never WSL2.
+func wsl2RegistrationIsOrphaned(inst *limatype.Instance) bool {
+	if inst.VMType != limatype.WSL2 || inst.Status == limatype.StatusUninitialized {
+		return false
+	}
+	_, err := os.Stat(filepath.Join(inst.Dir, wsl2RootDisk))
+	return errors.Is(err, os.ErrNotExist)
+}
+
 // startInstance launches the hostagent and starts a watcher goroutine to track
 // its lifecycle. The watcher triggers reconciles as the hostagent progresses
 // through Starting → Running → Stopped, so no polling is needed.
@@ -361,6 +379,27 @@ func (r *LimaVMReconciler) startInstance(ctx context.Context, limaVM *v1alpha1.L
 	if err := r.updateCondition(ctx, limaVM, ConditionRunning, metav1.ConditionFalse, ReasonStarting, "Lima instance is starting"); err != nil {
 		logger.Error(err, "Failed to update starting condition")
 		return ctrl.Result{}, err
+	}
+
+	// Heal an orphaned WSL2 registration before the hostagent boots it (see
+	// wsl2RegistrationIsOrphaned). Unregistering makes Lima's Start (below, in
+	// the hostagent) treat the distro as uninitialized and re-import basedisk,
+	// instead of booting a missing disk into ERROR_FILE_NOT_FOUND forever.
+	if wsl2RegistrationIsOrphaned(inst) {
+		logger.Info("WSL2 distro is registered but its root disk is missing; unregistering to force re-import",
+			"instance", limaVM.Name, "disk", wsl2RootDisk)
+		// Terminate before unregistering: wsl.exe --unregister can deadlock on a
+		// distro that still holds kernel state. Both are no-ops off Windows.
+		terminateWSL2Distro(ctx, logger, limaVM.Name)
+		if err := unregisterWSL2Distro(ctx, limaVM.Name); err != nil {
+			// Booting now would hit ERROR_FILE_NOT_FOUND again, so fail the start
+			// and requeue to retry the unregister.
+			logger.Error(err, "Failed to unregister orphaned WSL2 distro", "instance", limaVM.Name)
+			if updateErr := r.updateCondition(ctx, limaVM, ConditionRunning, metav1.ConditionFalse, ReasonStartFailed, err.Error()); updateErr != nil {
+				logger.Error(updateErr, "Failed to update status after unregister failure")
+			}
+			return ctrl.Result{}, err
+		}
 	}
 
 	// Get the path to our own executable (rdd) to use as the hostagent launcher
@@ -789,20 +828,22 @@ func terminateWSL2Distro(ctx context.Context, logger logr.Logger, instName strin
 }
 
 // unregisterWSL2Distro sends `wsl.exe --unregister` for the Lima distro with
-// the given instance name. No-op on non-Windows. This removes the WSL2
+// the given instance name, returning nil on non-Windows. This removes the WSL2
 // registration and deletes the distro's ext4.vhdx, allowing Lima to import a
-// fresh distro on the next Prepare. Best-effort with a 30-second timeout
-// (unregister is slower than terminate and can hang if WSL2 is degraded).
-func unregisterWSL2Distro(ctx context.Context, logger logr.Logger, instName string) {
+// fresh distro on the next Prepare. It uses a 30-second timeout (unregister is
+// slower than terminate and can hang if WSL2 is degraded) and leaves the
+// failure handling to the caller.
+func unregisterWSL2Distro(ctx context.Context, instName string) error {
 	if runtime.GOOS != "windows" {
-		return
+		return nil
 	}
 	distroName := "lima-" + instName
 	wslCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	if err := exec.CommandContext(wslCtx, "wsl.exe", "--unregister", distroName).Run(); err != nil {
-		logger.V(1).Info("Failed to unregister WSL2 distro", "distro", distroName, "error", err)
+		return fmt.Errorf("unregister WSL2 distro %q: %w", distroName, err)
 	}
+	return nil
 }
 
 // removeStaleInstance removes a stale Lima instance directory left behind by
@@ -815,7 +856,9 @@ func removeStaleInstance(ctx context.Context, logger logr.Logger, instName, inst
 	// deadlock on a distro that still holds kernel state, the same hazard
 	// forceStopForDeletion guards against. Both calls are no-ops off Windows.
 	terminateWSL2Distro(ctx, logger, instName)
-	unregisterWSL2Distro(ctx, logger, instName)
+	if err := unregisterWSL2Distro(ctx, instName); err != nil {
+		logger.V(1).Info("Failed to unregister WSL2 distro", "instance", instName, "error", err)
+	}
 	return os.RemoveAll(instanceDir)
 }
 
