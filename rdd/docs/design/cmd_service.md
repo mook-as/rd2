@@ -116,8 +116,8 @@ directory.
 
 On Windows it also unregisters each Lima instance's WSL2 distro before removing
 the Lima home, because deleting the directory drops the distro's `ext4.vhdx` but
-leaves the `wsl --list` registration behind, which the next `rdd service create`
-would boot against a missing disk.
+leaves the `wsl --list` registration behind, which would cause the next
+`rdd service create` to boot against a missing disk.
 
 Delete always waits for the control plane to exit before removing files, because
 removing the instance directory under a live process corrupts it on Windows and

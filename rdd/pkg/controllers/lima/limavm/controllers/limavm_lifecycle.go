@@ -388,10 +388,7 @@ func (r *LimaVMReconciler) startInstance(ctx context.Context, limaVM *v1alpha1.L
 	if wsl2RegistrationIsOrphaned(inst) {
 		logger.Info("WSL2 distro is registered but its root disk is missing; unregistering to force re-import",
 			"instance", limaVM.Name, "disk", wsl2RootDisk)
-		// Terminate before unregistering: wsl.exe --unregister can deadlock on a
-		// distro that still holds kernel state. Both are no-ops off Windows.
-		terminateWSL2Distro(ctx, logger, limaVM.Name)
-		if err := unregisterWSL2Distro(ctx, limaVM.Name); err != nil {
+		if err := wsl.Unregister(ctx, wsl.DistroName(limaVM.Name)); err != nil {
 			// Booting now would hit ERROR_FILE_NOT_FOUND again, so fail the start
 			// and requeue to retry the unregister.
 			logger.Error(err, "Failed to unregister orphaned WSL2 distro", "instance", limaVM.Name)
@@ -820,12 +817,6 @@ func terminateWSL2Distro(ctx context.Context, logger logr.Logger, instName strin
 	}
 }
 
-// unregisterWSL2Distro unregisters the WSL2 distro backing instName, returning
-// the failure for the caller to handle. No-op on non-Windows.
-func unregisterWSL2Distro(ctx context.Context, instName string) error {
-	return wsl.Unregister(ctx, wsl.DistroName(instName))
-}
-
 // removeStaleInstance removes a stale Lima instance directory left behind by
 // a previous service run whose cleanup failed. On Windows, the WSL2 distro is
 // terminated and then unregistered (removing its ext4.vhdx and releasing any
@@ -836,7 +827,7 @@ func removeStaleInstance(ctx context.Context, logger logr.Logger, instName, inst
 	// deadlock on a distro that still holds kernel state, the same hazard
 	// forceStopForDeletion guards against. Both calls are no-ops off Windows.
 	terminateWSL2Distro(ctx, logger, instName)
-	if err := unregisterWSL2Distro(ctx, instName); err != nil {
+	if err := wsl.Unregister(ctx, wsl.DistroName(instName)); err != nil {
 		logger.Error(err, "Failed to unregister WSL2 distro; a stale registration may remain", "instance", instName)
 	}
 	return os.RemoveAll(instanceDir)
