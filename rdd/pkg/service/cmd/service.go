@@ -76,6 +76,7 @@ import (
 	"github.com/rancher-sandbox/rancher-desktop-daemon/pkg/service/readiness"
 	"github.com/rancher-sandbox/rancher-desktop-daemon/pkg/util/logfile"
 	"github.com/rancher-sandbox/rancher-desktop-daemon/pkg/util/process"
+	"github.com/rancher-sandbox/rancher-desktop-daemon/pkg/util/wsl"
 )
 
 // API groups that RDD requires and enables.
@@ -561,6 +562,11 @@ func Delete(ctx context.Context, timeout time.Duration) error {
 	if os.Getenv("RDD_KEEP_LOGS") == "" {
 		_ = os.RemoveAll(instance.LogDir())
 	}
+	// Unregister each WSL2 distro before dropping its directory: removing the
+	// directory deletes the distro's ext4.vhdx but orphans the `wsl --list`
+	// registration, which the next `rdd svc create` would boot against a
+	// missing disk.
+	wsl.UnregisterInstanceDistros(ctx, instance.LimaHome())
 	_ = os.RemoveAll(instance.ShortDir())
 	return os.RemoveAll(instance.Dir())
 }
