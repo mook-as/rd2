@@ -14,12 +14,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -140,54 +138,22 @@ func Exists() bool {
 const PIDNotFound = 0
 
 // PID returns the process ID of the running service, or PIDNotFound if it is
-// not running. On Windows it walks the candidate process's PEB to read its
-// command line (see process.IsOurProcessWithArg), so callers that poll it in a
-// tight loop pay a cross-process read each call.
+// not running. On Windows it confirms the PID via the daemon's interrupt event
+// (process.IsOurProcess); on Unix it checks the PID is live.
 func PID() int {
 	pidStr, err := os.ReadFile(instance.PIDFile())
 	if err != nil {
 		return PIDNotFound
 	}
 	pid, err := strconv.Atoi(string(pidStr))
-	if err == nil {
-		var proc *os.Process
-		proc, err = os.FindProcess(pid)
-		if err == nil {
-			// on non-Windows, FindProcess may return without the process being
-			// alive; on Windows, the result encapsulates a valid handle.
-			if runtime.GOOS != "windows" {
-				err = proc.Signal(syscall.Signal(0))
-			}
-			_ = proc.Release()
-		}
-		// On Windows, FindProcess succeeds for any live PID, including one the
-		// OS recycled after a crash left our PID file behind. Confirm the PID
-		// still runs our control plane, so a recycled PID reads as not-running.
-		// IsOurProcessWithArg is a no-op (true) on other platforms.
-		//
-		// Match "serve" as a whole command-line argument, not a substring: the
-		// daemon runs as `service serve` (the canonical self-spawn) or `svc serve`
-		// (the alias), so "serve" is always an argument and no other rdd subcommand
-		// is. Whole-argument matching ignores argv[0], so an install path that
-		// happens to contain "serve" cannot make an unrelated rdd process — a CLI
-		// command or a hostagent — read as the control plane.
-		//
-		// "serve" carries no instance name, so this confirms the PID runs a
-		// control plane, not specifically this instance's. A PID recycled to a
-		// *different* instance's control plane would pass. That needs concurrent
-		// instances (dev/test only); a lone instance never recycles a PID into
-		// another control plane.
-		//
-		// IsOurProcessWithArg returns false for any state it cannot confirm — a
-		// denied OpenProcess or a short PEB read on a live control plane included.
-		// Such a false negative reads as not-running and removes the PID file
-		// below; we accept that as the cost of the guard, which needs only the low
-		// query rights a same-user process always grants.
-		if err == nil && !process.IsOurProcessWithArg(pid, "serve") {
-			err = fmt.Errorf("pid %d is not our control plane", pid)
-		}
-	}
 	if err != nil {
+		// Unusable pidfile; drop it.
+		_ = os.Remove(instance.PIDFile())
+		return PIDNotFound
+	}
+	// Drop the file unless it names our live control plane. A dead, recycled, or
+	// unrelated PID is not running, and the next Start writes a fresh file.
+	if !process.IsOurProcess(process.ServeInterruptKey, pid) {
 		_ = os.Remove(instance.PIDFile())
 		return PIDNotFound
 	}
@@ -466,28 +432,21 @@ func Wait(ctx context.Context) error {
 // timeout 0 to wait indefinitely (bounded only by ctx).
 func StopWithWait(ctx context.Context, wait bool, timeout time.Duration) error {
 	// Read the PID once and reject PIDNotFound before signalling. A second PID()
-	// call (the old Running()-then-PID() pattern) can return PIDNotFound when the
-	// daemon exits, a concurrent stop removes the file, or the identity check
-	// transiently fails between the two reads; signalling 0 then broadcasts —
-	// GenerateConsoleCtrlEvent(CTRL_BREAK, 0) reaches every process sharing the
-	// console on Windows, and kill(0) the caller's whole process group on Unix.
+	// call can return PIDNotFound when the daemon exits, a concurrent stop removes
+	// the file, or the identity check fails between the two reads; signalling 0
+	// would then misfire — kill(0) hits the caller's whole process group on Unix.
+	// (On Windows Interrupt(0) only fails to open a per-PID event, but reading
+	// once is still the simpler contract.)
 	pid := PID()
 	if pid == PIDNotFound {
 		return fmt.Errorf("%q control plane is not running", instance.Name())
 	}
 
-	// Try graceful shutdown first. On Unix, Kill already sends SIGTERM which
-	// triggers the Go signal handler. On Windows, Kill uses TerminateProcess
-	// which bypasses all handlers, so we send Interrupt (CTRL_BREAK_EVENT)
-	// first to let the service run its shutdown path (shutdownAllHostagents).
-	//
-	// On Unix, Interrupt (SIGINT) always succeeds for a valid PID, so the
-	// Kill fallback never fires. On Windows, Interrupt uses
-	// GenerateConsoleCtrlEvent, which fails when caller and target lack a
-	// shared console; Kill (TerminateProcess) then bypasses graceful shutdown.
-	// Hostagents survive in their own process groups and self-heal on the
-	// next service start via killOrphanedHostagent.
-	if err := process.Interrupt(pid); err != nil {
+	// Try graceful shutdown first; Interrupt asks the daemon to run its orderly
+	// shutdown. Kill is the fallback when Interrupt fails. A hard kill skips the
+	// controller-manager drain, so hostagents survive in their own process groups
+	// and self-heal on the next service start via killOrphanedHostagent.
+	if err := process.Interrupt(process.ServeInterruptKey, pid); err != nil {
 		if err := process.Kill(pid); err != nil {
 			return fmt.Errorf("failed to stop %q control plane with pid %d: %w", instance.Name(), pid, err)
 		}
@@ -537,7 +496,7 @@ func StopWithWait(ctx context.Context, wait bool, timeout time.Duration) error {
 // Delete removes all instance data. Callers must verify Exists() first; Delete
 // assumes the instance exists. If the service is running, Delete waits up to
 // timeout for it to exit before removing files; removing instance.Dir() while
-// the serve process holds rdd.pid, rdd.sqlite3, and log files corrupts the
+// the serve process holds rdd.pid, db/state.db, and log files corrupts the
 // directory on Windows and breaks PID-file mutual exclusion on Unix.
 // Pass timeout 0 to wait indefinitely (bounded only by ctx).
 func Delete(ctx context.Context, timeout time.Duration) error {
@@ -558,6 +517,18 @@ func Delete(ctx context.Context, timeout time.Duration) error {
 			}
 		}
 	}
+
+	// Probe the datastore lock before anything destructive. state.db is the file a
+	// still-running control plane holds open; remove it alone first, so a lock
+	// error aborts the delete before os.RemoveAll could strip the -wal/-shm
+	// sidecars or rdd.pid out from under a live daemon and orphan it. Once state.db
+	// is gone the daemon is confirmed stopped, so clearing the rest is safe.
+	dbDir := filepath.Join(instance.Dir(), "db")
+	if err := os.Remove(filepath.Join(dbDir, "state.db")); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("failed to remove datastore for %q; the control plane may still be running: %w", instance.Name(), err)
+	}
+	_ = os.RemoveAll(dbDir)
+
 	preserveAllInstanceLogs()
 	if os.Getenv("RDD_KEEP_LOGS") == "" {
 		_ = os.RemoveAll(instance.LogDir())
@@ -708,6 +679,20 @@ func NewServeCommand(ctx context.Context) *cobra.Command {
 				}
 			}
 
+			// Register the interrupt event before writing the PID file so a peer can
+			// confirm our identity (`process.IsOurProcess`) as soon as the file exists.
+			// On failure, bail before the PID file exists rather than run a daemon that
+			// `rdd svc stop` cannot find. The daemon's shutdown runs when the event
+			// fires; no-op on Unix.
+			ctx := genericapiserver.SetupSignalContext()
+			ctx, cancel := context.WithCancel(ctx)
+			defer cancel()
+			releaseInterrupt, err := process.RegisterInterruptHandler(process.ServeInterruptKey, cancel)
+			if err != nil {
+				return fmt.Errorf("failed to register interrupt handler: %w", err)
+			}
+			defer releaseInterrupt()
+
 			pid := []byte(strconv.Itoa(os.Getpid()))
 			if err := os.WriteFile(instance.PIDFile(), pid, 0o600); err != nil {
 				return fmt.Errorf("failed to write %q: %w", instance.PIDFile(), err)
@@ -740,7 +725,6 @@ func NewServeCommand(ctx context.Context) *cobra.Command {
 
 			// add feature enablement metrics
 			utilfeature.DefaultMutableFeatureGate.AddMetrics()
-			ctx := genericapiserver.SetupSignalContext()
 
 			// change into instance dir because kine will create the db relative to the current dir
 			if err := os.Chdir(instance.Dir()); err != nil {
