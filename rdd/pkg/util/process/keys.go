@@ -9,7 +9,7 @@ package process
 // process is ours but that it plays the expected role. Only long-lived processes
 // that record a PID register a handler: the control-plane daemon and each
 // hostagent. On Windows the key becomes part of the event name; on Unix the key
-// is ignored (Interrupt sends SIGINT and IsOurProcess is a no-op).
+// is ignored (Interrupt sends SIGINT and IsOurProcess checks only liveness).
 
 // ServeInterruptKey is the interrupt key for the control-plane daemon
 // (`rdd service serve`).

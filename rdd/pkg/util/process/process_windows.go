@@ -34,12 +34,9 @@ func SetGroup(cmd *exec.Cmd) {
 
 // interruptEventName returns the name of the event Interrupt signals to ask the
 // process identified by (key, pid) to shut down gracefully. The Local\ namespace
-// scopes the event to the current session, which is where the control plane and
-// the CLI run (same user, interactive session); a daemon running as a session-0
-// Windows service would need the Global\ namespace. instance.Suffix() namespaces
-// the event by rdd instance and key by role (see ServeInterruptKey /
-// HostagentInterruptKey), so a PID recycled to a different instance or role
-// creates no matching event and IsOurProcess can confirm both.
+// scopes it to the current session, where the control plane and CLI both run.
+// instance.Suffix() namespaces the event by rdd instance and key by role, so a
+// PID recycled to a different instance or role has no matching event.
 func interruptEventName(key string, pid int) string {
 	return fmt.Sprintf(`Local\rdd-%s-interrupt-%s-%d`, instance.Suffix(), key, pid)
 }
@@ -56,15 +53,11 @@ func openInterruptEvent(key string, pid int) (windows.Handle, error) {
 }
 
 // Interrupt asks the process identified by (key, pid) to shut down gracefully by
-// signalling its named interrupt event (see RegisterInterruptHandler). A named
-// event reaches the target regardless of which console either party is attached
-// to, so `rdd svc delete` can gracefully stop a daemon the GUI app started in
-// another console.
-//
-// It is also inherently safe against PID reuse: only an RDD process that called
-// RegisterInterruptHandler with this key creates the event, so OpenEvent fails
-// for a recycled or unrelated PID and Interrupt returns an error rather than
-// disturbing it. Callers fall back to Kill/KillTree on error.
+// signalling its named interrupt event (see RegisterInterruptHandler). The event
+// reaches the target regardless of which console either party is attached to, so
+// `rdd svc stop` can stop a daemon the GUI app started elsewhere. OpenEvent fails
+// for a recycled, unrelated, or exited PID, so Interrupt returns an error rather
+// than disturbing it.
 func Interrupt(key string, pid int) error {
 	handle, err := openInterruptEvent(key, pid)
 	if err != nil {
@@ -89,7 +82,7 @@ func RegisterInterruptHandler(key string, onInterrupt func()) (func(), error) {
 	// Manual-reset so the signal latches: the watcher cannot miss a caller's
 	// SetEvent by racing it, and a later look still sees the event set.
 	evt, err := windows.CreateEvent(nil, 1, 0, name)
-	if err != nil && !errors.Is(err, windows.ERROR_ALREADY_EXISTS) {
+	if err != nil {
 		return nil, fmt.Errorf("create interrupt event: %w", err)
 	}
 	// Unnamed companion event, used only to wake the watcher on release.
@@ -123,33 +116,20 @@ func RegisterInterruptHandler(key string, onInterrupt func()) (func(), error) {
 
 // IsOurProcess reports whether pid is a live RDD process that registered an
 // interrupt handler under key — that is, whether its per-process interrupt event
-// exists. Only the daemon (ServeInterruptKey) and hostagents
-// (HostagentInterruptKey) register, so a match confirms both that the process is
-// ours and that it plays the expected role; a recycled or unrelated PID has no
-// such event. It never errors: anything it cannot positively confirm reads as
-// false ("not ours"). On non-Windows it is a no-op that returns true.
+// exists. Only the daemon and hostagents register, so a match confirms the
+// process is ours and plays the expected role. It never errors; anything it
+// cannot positively confirm reads as not-ours. On non-Windows it checks only
+// that the PID is live.
 func IsOurProcess(key string, pid int) bool {
+	if pid <= 0 {
+		return false
+	}
 	handle, err := openInterruptEvent(key, pid)
 	if err != nil {
 		return false
 	}
 	_ = windows.CloseHandle(handle)
 	return true
-}
-
-// IsAlive reports whether a process with the given PID currently exists. It is
-// used to decide whether a recorded PID is merely stale (the process is gone, so
-// its PID file can be cleaned up) or still running (leave the file alone). A
-// process we may open but not synchronize on (a higher-integrity one) counts as
-// alive.
-func IsAlive(pid int) bool {
-	handle, err := windows.OpenProcess(windows.SYNCHRONIZE, false, uint32(pid))
-	if err != nil {
-		return errors.Is(err, windows.ERROR_ACCESS_DENIED)
-	}
-	defer func() { _ = windows.CloseHandle(handle) }()
-	result, err := windows.WaitForSingleObject(handle, 0)
-	return err == nil && result == uint32(windows.WAIT_TIMEOUT)
 }
 
 // Kill terminates the process with the given PID.

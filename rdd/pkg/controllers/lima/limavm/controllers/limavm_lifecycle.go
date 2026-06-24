@@ -634,7 +634,7 @@ func (r *LimaVMReconciler) killOrphanedHostagent(ctx context.Context, inst *lima
 	// confirms it is still our hostagent; stopInstanceForcibly re-screens before
 	// the forced stop below, because the PID can be recycled during the graceful
 	// wait.
-	if inst.HostAgentPID > 0 && process.IsOurProcess(process.HostagentInterruptKey(inst.Name), inst.HostAgentPID) {
+	if process.IsOurProcess(process.HostagentInterruptKey(inst.Name), inst.HostAgentPID) {
 		if err := process.Interrupt(process.HostagentInterruptKey(inst.Name), inst.HostAgentPID); err != nil {
 			logger.V(1).Info("Could not signal orphaned hostagent", "pid", inst.HostAgentPID, "error", err)
 		} else {
@@ -675,17 +675,13 @@ func waitForInstanceStopped(ctx context.Context, name string) bool {
 
 // clearRecycledHostAgentPID zeroes inst.HostAgentPID unless it still names our
 // live hostagent, so a force-stop's taskkill cannot reach an unrelated process
-// that recycled the PID. The stored PID comes from on-disk state a previous
-// service wrote, which Windows may have reassigned after the hostagent exited;
-// on other platforms IsOurProcess is a no-op, so the PID is kept. DriverPID is
-// not screened here — IsOurProcess matches our registered interrupt event, which
-// the qemu/wsl driver never creates — so a recycled DriverPID is still
-// taskkilled by the caller.
+// that recycled the PID. DriverPID is not screened — the qemu/wsl driver
+// registers no interrupt event — so a recycled DriverPID is still taskkilled.
 //
 // TODO: track the hostagent and driver in a Windows Job Object so termination
-// no longer trusts a stored DriverPID that the OS may have recycled.
+// no longer trusts a stored DriverPID the OS may have recycled.
 func clearRecycledHostAgentPID(inst *limatype.Instance) {
-	if inst.HostAgentPID > 0 && !process.IsOurProcess(process.HostagentInterruptKey(inst.Name), inst.HostAgentPID) {
+	if !process.IsOurProcess(process.HostagentInterruptKey(inst.Name), inst.HostAgentPID) {
 		inst.HostAgentPID = 0
 	}
 }

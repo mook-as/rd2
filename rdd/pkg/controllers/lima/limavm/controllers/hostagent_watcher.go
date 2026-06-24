@@ -197,11 +197,9 @@ func (r *LimaVMReconciler) waitForProcessExit(ctx context.Context, name string) 
 	}
 }
 
-// signalHostagent sends a graceful shutdown signal to the hostagent process.
-// Uses process.Interrupt, which sends SIGINT on Unix and signals the hostagent's
-// named interrupt event on Windows (keyed by instance and PID).
-// Returns false if no watcher exists, the process has already been reaped (its
-// PID may be reused on Windows), or the signal could not be delivered.
+// signalHostagent sends a graceful shutdown signal (process.Interrupt) to the
+// hostagent process. Returns false if no watcher exists, the process has already
+// been reaped, or the signal could not be delivered.
 func (r *LimaVMReconciler) signalHostagent(name string) bool {
 	r.instanceStatesMu.RLock()
 	state, ok := r.instanceStates[name]
@@ -209,10 +207,9 @@ func (r *LimaVMReconciler) signalHostagent(name string) bool {
 	if !ok || state.cmd == nil || state.cmd.Process == nil {
 		return false
 	}
-	// Skip a process that has already been reaped: once procExited is closed,
-	// cmd.Wait() has released the OS handle and the PID may be reused. The named
-	// interrupt event makes a reused PID harmless — a recycled process has no such
-	// event, so Interrupt simply fails — but there is nothing to signal here.
+	// Skip a process that has already been reaped. Once procExited is closed,
+	// cmd.Wait() has released the OS handle and the PID may be reused, so there is
+	// nothing safe to signal here.
 	select {
 	case <-state.procExited:
 		return false

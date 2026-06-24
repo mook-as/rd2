@@ -38,28 +38,19 @@ func RegisterInterruptHandler(_ string, _ func()) (func(), error) {
 	return func() {}, nil
 }
 
-// IsOurProcess reports whether pid is a live process we may signal under key. On
-// Unix it is always true: a deliberate no-op, not a guard, so the parameters go
-// unused. They exist for signature parity with the Windows build, where the
-// check confirms a PID belongs to one of our processes (by named-event
-// registration) before a caller acts on it. Unix needs no such confirmation:
-// Interrupt/Kill use signals, and PID reuse is far less aggressive than on
-// Windows.
+// IsOurProcess reports whether pid is one of our live processes. On Unix the key
+// is unused and this checks only liveness, since PID reuse is far less aggressive
+// than on Windows, where the key confirms the process registered our interrupt
+// event. A non-positive PID is never ours.
 //
-// Residual risk: callers that read an on-disk PID (ha.pid from a previous
-// service) can, after a crash or reboot leaves the file behind, act on a PID
-// the OS recycled to an unrelated live process — SIGINT on the signal path,
-// SIGKILL of its process group on the forced path. We accept it because Unix
-// recycles PIDs only after the counter wraps, far less aggressively than
-// Windows.
-func IsOurProcess(_ string, _ int) bool {
-	return true
-}
-
-// IsAlive reports whether a process with the given PID currently exists. A
-// process that exists but cannot be signalled by this user (EPERM) still counts
-// as alive.
-func IsAlive(pid int) bool {
+// Residual risk: a caller acting on an on-disk PID (ha.pid from a previous
+// service) can, after a crash leaves the file behind, reach a PID the OS recycled
+// to an unrelated live process. We accept it because Unix recycles PIDs only
+// after the counter wraps.
+func IsOurProcess(_ string, pid int) bool {
+	if pid <= 0 {
+		return false
+	}
 	err := unix.Kill(pid, 0)
 	return err == nil || errors.Is(err, unix.EPERM)
 }

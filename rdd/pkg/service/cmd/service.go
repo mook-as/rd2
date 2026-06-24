@@ -139,7 +139,7 @@ const PIDNotFound = 0
 
 // PID returns the process ID of the running service, or PIDNotFound if it is
 // not running. On Windows it confirms the PID via the daemon's interrupt event
-// (process.IsOurProcess), a cheap OpenEvent that callers may poll in a loop.
+// (process.IsOurProcess); on Unix it checks the PID is live.
 func PID() int {
 	pidStr, err := os.ReadFile(instance.PIDFile())
 	if err != nil {
@@ -147,27 +147,14 @@ func PID() int {
 	}
 	pid, err := strconv.Atoi(string(pidStr))
 	if err != nil {
-		// Unparseable content: the file is unusable, so drop it.
+		// Unusable pidfile; drop it.
 		_ = os.Remove(instance.PIDFile())
 		return PIDNotFound
 	}
-	// Self-heal a genuinely stale file: if no process exists under the recorded
-	// PID, remove it. If a process is alive but not our control plane — a
-	// recycled PID, or (on Windows) a daemon that never registered its interrupt
-	// event — leave the file: it is never acted on while unconfirmed and the next
-	// Start overwrites it, whereas deleting it could strip a live daemon's record
-	// and orphan it (the failure that left state.db locked and undeletable).
-	if !process.IsAlive(pid) {
-		_ = os.Remove(instance.PIDFile())
-		return PIDNotFound
-	}
-	// Confirm the live PID is our control plane via the interrupt event the
-	// daemon registers at startup; a recycled PID running something else has no
-	// such event. ServeInterruptKey carries no instance, so a PID recycled to a
-	// *different* instance's control plane would pass — that needs concurrent
-	// instances (dev/test only). IsOurProcess is a no-op (true) on non-Windows,
-	// where IsAlive above is the liveness check.
+	// Drop the file unless it names our live control plane. A dead, recycled, or
+	// unrelated PID is not running, and the next Start writes a fresh file.
 	if !process.IsOurProcess(process.ServeInterruptKey, pid) {
+		_ = os.Remove(instance.PIDFile())
 		return PIDNotFound
 	}
 	return pid
@@ -455,19 +442,10 @@ func StopWithWait(ctx context.Context, wait bool, timeout time.Duration) error {
 		return fmt.Errorf("%q control plane is not running", instance.Name())
 	}
 
-	// Try graceful shutdown first. Interrupt asks the daemon to run its orderly
-	// shutdown (drain the controller manager, which stops the hostagents): on
-	// Unix via SIGINT, on Windows by signalling the daemon's named interrupt
-	// event (process.RegisterInterruptHandler), which reaches the daemon even
-	// when the CLI runs in a different console, e.g. a daemon the GUI app started.
-	//
-	// Kill (SIGTERM on Unix, TerminateProcess on Windows) is the fallback when
-	// Interrupt fails. On Unix it rarely does, since SIGINT succeeds for any live
-	// PID. On Windows a failure means the target has no interrupt event — it is
-	// gone, recycled, or not ours — so terminating its single PID cannot reach an
-	// unrelated process. A hard kill skips the controller-manager drain, so
-	// hostagents survive in their own process groups and self-heal on the next
-	// service start via killOrphanedHostagent.
+	// Try graceful shutdown first; Interrupt asks the daemon to run its orderly
+	// shutdown. Kill is the fallback when Interrupt fails. A hard kill skips the
+	// controller-manager drain, so hostagents survive in their own process groups
+	// and self-heal on the next service start via killOrphanedHostagent.
 	if err := process.Interrupt(process.ServeInterruptKey, pid); err != nil {
 		if err := process.Kill(pid); err != nil {
 			return fmt.Errorf("failed to stop %q control plane with pid %d: %w", instance.Name(), pid, err)
@@ -543,10 +521,8 @@ func Delete(ctx context.Context, timeout time.Duration) error {
 	// Probe the datastore lock before anything destructive. state.db is the file a
 	// still-running control plane holds open; remove it alone first, so a lock
 	// error aborts the delete before os.RemoveAll could strip the -wal/-shm
-	// sidecars or rdd.pid out from under a live daemon and orphan it — the exact
-	// failure this guards against. (os.RemoveAll records the first error but keeps
-	// deleting siblings, so it cannot be the probe.) Once state.db is gone the
-	// daemon is confirmed stopped, so clearing the rest is safe.
+	// sidecars or rdd.pid out from under a live daemon and orphan it. Once state.db
+	// is gone the daemon is confirmed stopped, so clearing the rest is safe.
 	dbDir := filepath.Join(instance.Dir(), "db")
 	if err := os.Remove(filepath.Join(dbDir, "state.db")); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("failed to remove datastore for %q; the control plane may still be running: %w", instance.Name(), err)
@@ -704,8 +680,8 @@ func NewServeCommand(ctx context.Context) *cobra.Command {
 			}
 
 			// Register the interrupt event before writing the PID file so a peer can
-			// confirm our identity (IsOurProcess) as soon as the file exists. On
-			// failure, bail before the PID file exists rather than run a daemon that
+			// confirm our identity (`process.IsOurProcess`) as soon as the file exists.
+			// On failure, bail before the PID file exists rather than run a daemon that
 			// `rdd svc stop` cannot find. The daemon's shutdown runs when the event
 			// fires; no-op on Unix.
 			ctx := genericapiserver.SetupSignalContext()

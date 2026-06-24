@@ -633,12 +633,10 @@ func (r *LimaVMReconciler) shutdownAllHostagents() {
 		return
 	}
 
-	// Send graceful shutdown signal to all hostagents in parallel. Skip any whose
-	// process has already been reaped: once cmd.Wait() closes procExited it has
-	// released the OS process handle, freeing the PID for reuse. The named
-	// interrupt event keyed by instance and PID makes a recycled PID harmless (it
-	// has no such event, so Interrupt fails), but there is nothing to signal once
-	// the process is reaped.
+	// Send a graceful shutdown signal to all hostagents in parallel. Skip any whose
+	// process has already been reaped; once cmd.Wait() closes procExited it has
+	// released the OS handle and the PID may be reused, so there is nothing to
+	// signal.
 	for name, state := range states {
 		if state.cmd == nil || state.cmd.Process == nil {
 			continue
