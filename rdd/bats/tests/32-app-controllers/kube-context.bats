@@ -10,7 +10,6 @@ load '../../helpers/load'
 # KubernetesReady condition on the App resource.
 
 APP_NAME="app"
-VM_NAME="rd"
 K3S_VERSION="1.32.0"
 CONTEXT_NAME="rancher-desktop-${RDD_INSTANCE}"
 
@@ -117,12 +116,27 @@ kube_current_context_is() { # <expected-context>
 }
 
 @test "rdd run targets the instance Kubernetes context" {
-    # rdd run points KUBECONFIG at a throwaway file whose current context
-    # is the instance, so a client talks to this cluster regardless of the
-    # user's selected context. config current-context reads the file
-    # without contacting the cluster. The user's kubeconfig is untouched.
+    # rdd run points KUBECONFIG at a separate kubeconfig it maintains, whose
+    # current context is the instance, so a client talks to this cluster
+    # regardless of the user's selected context. config current-context reads
+    # the file without contacting the cluster. The user's kubeconfig is untouched.
     run_e -0 rdd run rdd kubectl config current-context
     assert_output "${CONTEXT_NAME}"
+}
+
+@test "rdd run kubectl reaches the instance cluster" {
+    # current-context (above) proves the maintained kubeconfig names the
+    # instance, not that it reaches the right cluster. The kube-system
+    # namespace UID is a stable per-cluster identity: read it through the
+    # known-good shared context and through rdd run's maintained config, and
+    # require the two to match.
+    run -0 rdd kubectl --context "${CONTEXT_NAME}" \
+        get namespace kube-system -o jsonpath='{.metadata.uid}'
+    expected_uid=${output}
+
+    run_e -0 rdd run rdd kubectl get namespace kube-system \
+        -o jsonpath='{.metadata.uid}'
+    assert_output "${expected_uid}"
 }
 
 @test "rdd run prepends the instance bin directory to PATH" {
@@ -153,6 +167,37 @@ kube_current_context_is() { # <expected-context>
 
     run -0 kube_current_context
     assert_output "${CONTEXT_NAME}"
+}
+
+# --- Host connectivity ---
+
+@test "NodePort service is reachable from the host" {
+    # Deploy nginx behind a NodePort service and reach it from the host. k3s
+    # opens the NodePort on the node's 0.0.0.0; the Lima template forwards
+    # that port to the host, so localhost:<nodePort> reaches the application.
+
+    # Pull nginx ahead of the rollout so the cold pull doesn't count against its
+    # --timeout; this helps on slow CI runners. With the default moby backend
+    # k3s pulls through cri-dockerd from dockerd; use rdd run docker to ensure we
+    # are using the correct docker context.
+    rdd run docker pull --quiet nginx
+
+    rdd kubectl --context "${CONTEXT_NAME}" create deployment test-connect --image=nginx
+    rdd kubectl --context "${CONTEXT_NAME}" expose deployment test-connect \
+        --name=test-connect --port=80 --type=NodePort
+    rdd kubectl --context "${CONTEXT_NAME}" rollout status deployment/test-connect --timeout=240s
+
+    run -0 rdd kubectl --context "${CONTEXT_NAME}" get service test-connect \
+        -o jsonpath='{.spec.ports[0].nodePort}'
+    node_port=${output}
+
+    # The pod must become an endpoint, kube-proxy must program the NodePort,
+    # and Lima must forward it to the host; poll until nginx answers.
+    try --max 40 --delay 3 -- \
+        assert_http_body "http://localhost:${node_port}" --partial "Welcome to nginx"
+
+    rdd kubectl --context "${CONTEXT_NAME}" delete service test-connect
+    rdd kubectl --context "${CONTEXT_NAME}" delete deployment test-connect
 }
 
 @test "KubernetesReady=NotApplicable when kubernetes is disabled" {
