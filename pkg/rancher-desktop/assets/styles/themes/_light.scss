@@ -314,9 +314,6 @@ $selected: rgba(#3D98D3, .5);
   --nav-width                  : 230px;
   --nav-bg                     : #{$lightest};
   --nav-active                 : #{$light};
-  // Beta marker: the selected nav item shares the app icon's diagonal stripes.
-  // Defined once here (light is the base :root); dark/suse inherit it unchanged.
-  --nav-active-stripes         : repeating-linear-gradient(-45deg, #0081be 0, #0081be 12px, #72b9db 12px, #72b9db 20px);
   --nav-hover                  : #{$medium};
   --nav-expander-hover         : #{darken($medium, 10%)};
   --nav-border                 : #{$medium};
@@ -544,4 +541,13 @@ $selected: rgba(#3D98D3, .5);
 
   --button-icon                : #{$dark};
   --button-icon-bg             : #{$secondary};
+}
+
+// Pre-release builds (development, alpha, beta) stripe the selected nav item to
+// match the striped app icon; entry/index.ts adds this class.  The custom
+// properties cascade into the scoped nav components, so one definition covers
+// every theme.
+BODY.prerelease {
+  --nav-active-bg              : repeating-linear-gradient(-45deg, #0081be 0, #0081be 12px, #72b9db 12px, #72b9db 20px);
+  --nav-active-fg              : #fff;
 }
