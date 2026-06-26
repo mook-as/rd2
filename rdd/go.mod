@@ -19,7 +19,7 @@ require (
 	github.com/mattn/go-isatty v0.0.22
 	github.com/mikefarah/yq/v4 v4.53.3
 	github.com/moby/moby/api v1.55.0
-	github.com/moby/moby/client v0.4.1
+	github.com/moby/moby/client v0.5.0
 	github.com/muesli/reflow v0.3.0
 	github.com/nxadm/tail v1.4.11
 	github.com/sirupsen/logrus v1.9.4
