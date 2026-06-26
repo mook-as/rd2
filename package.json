@@ -129,6 +129,7 @@
     "ejs": "6.0.1",
     "electron": "42.5.1",
     "electron-builder": "26.14.0",
+    "electron-devtools-installer": "4.0.0",
     "eslint": "10.6.0",
     "eslint-plugin-vue": "10.9.2",
     "extract-zip": "2.0.1",

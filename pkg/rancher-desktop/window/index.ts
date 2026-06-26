@@ -7,7 +7,6 @@ import Electron, {
 
 import { getSettings } from '@pkg/config/settingsImpl';
 import { IpcRendererEvents } from '@pkg/typings/electron-ipc';
-import { isDevBuild } from '@pkg/utils/environment';
 import Logging from '@pkg/utils/logging';
 import paths from '@pkg/utils/paths';
 import { CommandOrControl, Shortcuts } from '@pkg/utils/shortcuts';
@@ -22,7 +21,7 @@ const console = Logging[`window_${ process.type || 'unknown' }`];
  */
 export const windowMapping: Record<string, number> = {};
 
-export const webRoot = `app://${ isDevBuild ? '' : '.' }`;
+export const webRoot = `http://localhost:8888`;
 
 /**
  * Restore or focus a window if it is already open
@@ -101,7 +100,7 @@ export function createWindow(name: string, url: string, options: Electron.Browse
   return window;
 }
 
-const mainUrl = process.env.RD_ENV_PLUGINS_DEV ? 'https://localhost:8888' : `${ webRoot }/index.html`;
+const mainUrl = webRoot;
 
 /**
  * Open the main window; if it is already open, focus it.
