@@ -568,20 +568,21 @@ class Watcher<
   K extends string,
   T extends RDDClient.KubernetesObject,
 > {
-  #type:           K;
-  #path:           () => string;
-  #listFn:         () => Promise<RDDClient.KubernetesListObject<T>>;
-  #doneFn:         (error?: any) => void;
-  #watch:          RDDClient.Watch;
-  #commit:         Commit<any>;
-  #namespace?:     string;
-  #labelSelector?: () => string | undefined;
-  #fieldSelector?: () => string | undefined;
-  #items:          readonly T[] = [];
+  #type:               K;
+  #path:               () => string;
+  #listFn:             () => Promise<RDDClient.KubernetesListObject<T>>;
+  #doneFn:             (error?: any) => void;
+  #watch:              RDDClient.Watch;
+  #commit:             Commit<any>;
+  #namespace?:         string;
+  #labelSelector?:     () => string | undefined;
+  #fieldSelector?:     () => string | undefined;
+  #items:              readonly T[] = [];
   #loaded = Latch();
-  #notifyDelay:    ReturnType<typeof setTimeout> | undefined;
-  #watcher:        RDDClient.ListWatch<T> | undefined;
-  #restartTimeout: ReturnType<typeof setTimeout> | undefined;
+  #notifyDelay:        ReturnType<typeof setTimeout> | undefined;
+  #watcher:            RDDClient.ListWatch<T> | undefined;
+  #restartTimeout:     ReturnType<typeof setTimeout> | undefined;
+  #initialListTimeout: ReturnType<typeof setTimeout> | undefined;
 
   /**
    * Create a new watcher.
@@ -634,10 +635,16 @@ class Watcher<
       }
     });
     watcher.on('connect', () => {
-      // Only trigger a change if this is the current watcher.
-      if (Object.is(watcher, this.#watcher)) {
-        this.onChange();
-      }
+      // If there are no existing resources, we should still eventually call the
+      // change handler at some point.  However, we need an extra long timeout
+      // here because the initial list could take a while.
+      clearTimeout(this.#initialListTimeout);
+      this.#initialListTimeout = setTimeout(() => {
+        // Only trigger a change if this is the current watcher.
+        if (Object.is(watcher, this.#watcher)) {
+          this.onChange();
+        }
+      }, 1_000);
     });
     watcher.on('error', (err) => {
       if (!Object.is(watcher, this.#watcher)) {
@@ -645,6 +652,7 @@ class Watcher<
         return;
       }
       clearTimeout(this.#restartTimeout);
+      clearTimeout(this.#initialListTimeout);
       this.#loaded.reset();
       this.#loaded.catch(() => { /* ignore */ });
       if (Object.is(err, errorManuallyStopped)) {
@@ -686,6 +694,7 @@ class Watcher<
   }
 
   protected onChange() {
+    clearTimeout(this.#initialListTimeout);
     // ListWatch calls this synchronously once per element, but we only need to
     // batch the results, so set up a delay that gets triggered soon.  Ideally
     // we'd use `queueMicrotask`, but that doesn't allow us to check if it's
@@ -706,6 +715,8 @@ class Watcher<
     clearTimeout(this.#restartTimeout);
     clearTimeout(this.#notifyDelay);
     this.#notifyDelay = undefined;
+    clearTimeout(this.#initialListTimeout);
+    this.#initialListTimeout = undefined;
     this.#loaded.reset();
     this.#loaded.catch(() => { /* ignore */ });
     return this.#watcher?.stop(errorManuallyStopped);
