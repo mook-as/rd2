@@ -41,7 +41,7 @@ export default async function setupNetworking() {
   http.globalAgent = proxyAgent;
   https.globalAgent = proxyAgent;
 
-  mainEvents.handle('rdd/kube-config-ready', (kubeConfigStr) => {
+  mainEvents.emit('rdd/certificate-callback', (kubeConfigStr) => {
     const kubeConfig = new KubeConfig();
     kubeConfig.loadFromString(kubeConfigStr);
     configureRDDAuthentication(kubeConfig);
@@ -61,10 +61,10 @@ export default async function setupNetworking() {
       verifyCertificate.bind(null, kubeCerts, getSystemCertificates));
 
     mainEvents.emit('network-ready');
-
-    return Promise.resolve();
   });
-  // Trigger RDD config loading, ignoring the result.
+  // Trigger RDD config loading, ignoring the result.  This lets us move the
+  // certificate handling setup outside of a potential hot path.  If this has
+  // already occurred, it would just ignore the cached result.
   mainEvents.invoke('rdd/kube-config').catch(console.error);
 }
 

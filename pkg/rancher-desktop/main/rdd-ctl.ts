@@ -4,16 +4,19 @@ import stream from 'node:stream';
 import Electron from 'electron';
 
 import { getIpcMainProxy } from '@pkg/main/ipcMain';
-import mainEvents, { NoMainEventsHandlerError } from '@pkg/main/mainEvents';
+import mainEvents from '@pkg/main/mainEvents';
 import { spawnFile, SpawnError } from '@pkg/utils/childProcess';
+import Latch from '@pkg/utils/latch';
 import Logging from '@pkg/utils/logging';
 import { getRDDPath } from '@pkg/utils/paths';
 
 const console = Logging.rdd;
 const CodeIncompatibleServer = 5;
 
+const certificateCallback = Latch<(kubeConfig: string) => void>();
 let fetchConfigPromise: Promise<string> | undefined;
-let missingReadyCallback = false;
+
+mainEvents.on('rdd/certificate-callback', certificateCallback.resolve);
 
 /**
  * fetchConfig returns the kubeconfig for accessing RDD.
@@ -26,7 +29,7 @@ async function fetchConfigWithoutCache(): Promise<string> {
 
   // Loop until the control plane is ready.
   while (true) {
-    // stderr friom the `service config` command, in case there is a JSON error
+    // stderr from the `service config` command, in case there is a JSON error
     // message we can parse.
     let stderr = '';
     let lastStderrLine = '';
@@ -69,17 +72,15 @@ async function fetchConfigWithoutCache(): Promise<string> {
       // control the output, that should be safe.
       if (stdout.includes('apiVersion')) {
         // Notify the networking code that the kubeconfig is ready, to configure
-        // the certificate handling.
+        // the certificate handling.  This must happen before we return so that
+        // the caller will not get certificate errors when making requests.
         try {
-          await mainEvents.invoke('rdd/kube-config-ready', stdout);
+          (await certificateCallback)(stdout);
         } catch (err) {
-          if (err instanceof NoMainEventsHandlerError) {
-            // The callback hasn't been registered yet.
-            missingReadyCallback = true;
-          } else {
-            // Retrying to get the config will not help.
-            console.error('Error processing new RDD configuration', err);
-          }
+          // Retrying to get the config will not help; just log the error so we
+          // can debug it later.  The user will see other errors and need to
+          // restart.
+          console.error('Error processing new RDD configuration', err);
         }
 
         // Log the RDD version for debugging purposes; no need to do that
@@ -133,17 +134,6 @@ async function fetchConfigWithoutCache(): Promise<string> {
  */
 function fetchConfig(): Promise<string> {
   fetchConfigPromise ??= fetchConfigWithoutCache();
-
-  if (missingReadyCallback) {
-    // The callback for `rdd/kube-config-ready` was not registered by the time
-    // the initial `fetchConfig` call was made.  Call that now (because the
-    // kube config must have been ready for that flag to be set).
-    fetchConfigPromise.then(kubeConfigStr => {
-      mainEvents.invoke('rdd/kube-config-ready', kubeConfigStr)
-        .catch(err => console.error('Error processing new RDD configuration', err));
-    });
-    missingReadyCallback = false;
-  }
 
   return fetchConfigPromise;
 }

@@ -126,17 +126,16 @@ interface MainEventNames {
   'dialog-info'(args: Record<string, string>): void;
 
   /**
-   * Get the KubeConfig used for Rancher Desktop Daemon.  This may synchronously
-   * trigger `rdd/kube-config-ready` before returning.
+   * Get the KubeConfig used for Rancher Desktop Daemon.
+   * @note This will block until `rdd/certificate-callback` has been called at
+   * least once.
    */
   'rdd/kube-config'(): Promise<string>;
 
   /**
-   * Emitted when the KubeConfig used for Rancher Desktop Daemon has been
-   * fetched.  This should only be handled by the networking code.
-   * @param kubeConfig The KubeConfig string.
+   * Register a callback that will be called when the KubeConfig is ready.
    */
-  'rdd/kube-config-ready'(kubeConfig: string): Promise<void>;
+  'rdd/certificate-callback'(callback: (kubeConfig: string) => void): void;
 }
 
 /**
