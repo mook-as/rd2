@@ -9,7 +9,7 @@ export class RDD implements Dependency {
     const importDir = import.meta.dirname;
     const rddDir = path.join(importDir, '..', '..', 'rdd');
 
-    await simpleSpawn('make', ['build-rdd'], {
+    await simpleSpawn('make', ['build-rdd', 'build-mock-controller'], {
       cwd: rddDir,
       env: {
         ...process.env,

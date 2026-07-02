@@ -18,9 +18,10 @@ import paths from '@pkg/utils/paths';
 import { RecursivePartial, RecursiveTypes } from '@pkg/utils/typeUtils';
 
 let currentTest: undefined | {
-  file:      string,
-  startTime: number,
-  options:   startRancherDesktopOptions,
+  file:            string,
+  startTime:       number,
+  options:         startRancherDesktopOptions,
+  mockController?: childProcess.ChildProcess;
 };
 
 /**
@@ -150,12 +151,18 @@ export async function teardownApp(app: ElectronApplication) {
   }
 }
 
-export async function teardown(app: ElectronApplication, testInfo: TestInfo) {
-  const context = app.context();
+export async function teardown(app: ElectronApplication | undefined, testInfo: TestInfo) {
+  // The app may be undefined if the app failed to launch; we still need to tear
+  // down in that case, as RDD may be running.
+  const context = app?.context();
   const { file: filename } = testInfo;
 
-  await context.tracing.stop({ path: reportAsset(testInfo) });
-  await teardownApp(app);
+  if (context) {
+    await context.tracing.stop({ path: reportAsset(testInfo) });
+  }
+  if (app) {
+    await teardownApp(app);
+  }
 
   const logsDir = reportAsset(testInfo, 'log');
   const rddLogs = (await fs.promises.open(path.join(logsDir, 'rdd-exec.log'), 'a')).createWriteStream();
@@ -169,10 +176,17 @@ export async function teardown(app: ElectronApplication, testInfo: TestInfo) {
       .resolves.toBeUndefined();
   }
   try {
-    const attachment = testInfo.attachments.find(a => a.name === 'mock-controller-pid')?.body?.toString();
-    const pid = parseInt(attachment ?? '0', 10);
-    if (pid) {
-      process.kill(pid);
+    const { mockController } = currentTest ?? {};
+    if (mockController) {
+      if (typeof mockController?.exitCode !== 'number') {
+        const promise = new Promise<void>((resolve) => {
+          mockController.once('exit', () => resolve());
+        });
+        mockController.kill();
+        await promise;
+      }
+      const { exitCode: exit, signalCode: signal } = mockController;
+      expect({ exit, signal }, 'mock controller exited').toEqual({ exit: 0, signal: null });
     }
   } catch (ex) {
     // Ignore the error if the process is already gone, but log it otherwise.
@@ -241,13 +255,13 @@ export async function tool(tool: string, ...args: string[]): Promise<string> {
   }
 }
 
+export const rddExe = path.join(import.meta.dirname, '..', '..', 'rdd', 'bin', exeName('rdd'));
+
 /**
  * Run `rdd` with given arguments.
  * @returns standard output of the command.
  */
 export async function rdd(...args: string[]): Promise<string> {
-  const rddExe = path.join(import.meta.dirname, '..', '..', 'rdd', 'bin', exeName('rdd'));
-
   return await tool(rddExe, ...args);
 }
 
@@ -338,15 +352,17 @@ export async function startRancherDesktop(testInfo: TestInfo, options: startRanc
   }
 
   // The mock controller does not daemonize; launch it in the background.
+  try {
+    if (typeof currentTest.mockController?.exitCode !== 'number') {
+      currentTest.mockController?.kill();
+    }
+  } catch { /* Ignore errors killing stale controllers */ }
   const controller = childProcess.spawn(
     path.join(topSrcDir, 'rdd', 'bin', exeName('mock-controller')),
     ['-v', '2', '--logtostderr=false', `-log_file=${ path.join(logsDir, 'mock-controller.log') }`],
     { env, stdio: 'ignore' });
-  controller.on('error', (err) => {
-    expect(err, 'mock controller exited with error').toBeUndefined();
-  });
-  // Stash controller PID in testInfo so we can kill it in teardown().
-  testInfo.attach('mock-controller-pid', { body: `${ controller.pid }`, contentType: 'text/plain' });
+  // Stash controller PID so we can kill it in teardown().
+  currentTest.mockController = controller;
   controller.unref(); // Don't block test if we fail to clean up.
 
   const args = [

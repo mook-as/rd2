@@ -10,8 +10,9 @@ import { SnapshotsPage } from './snapshots-page';
 import { TroubleshootingPage } from './troubleshooting-page';
 import { VolumesPage } from './volumes-page';
 import { WSLIntegrationsPage } from './wsl-integrations-page';
-import { rdd } from '../utils/TestUtils';
+import { rdd, rddExe } from '../utils/TestUtils';
 
+import { spawnFile } from '@/pkg/rancher-desktop/utils/childProcess';
 import * as rddClient from '@rdd-client';
 
 const pageConstructors = {
@@ -44,16 +45,28 @@ export class NavPage {
   }
 
   protected async isAppSettled(): Promise<boolean> {
-    // Check CRDs first, to avoid error messages when apps are not registered yet.
-    const AppsCRDSuffix = '/apps.app.rancherdesktop.io';
-    const crds = await rdd('ctl', 'get', 'crds', '--output=name');
-    if (!crds.split('\n').some(line => line.trim().endsWith(AppsCRDSuffix))) {
+    try {
+      // Ensure RDD has finished starting.  We do not have a parsable output yet...
+      const { stderr } = await spawnFile(rddExe,
+        ['service', 'status', '--log-format=json'],
+        { stdio: ['ignore', 'ignore', 'pipe'] });
+      if (!stderr.includes('has been started: true')) {
+        return false;
+      }
+      // Check CRDs first, to avoid error messages when apps are not registered yet.
+      const AppsCRDSuffix = '/apps.app.rancherdesktop.io';
+      const crds = await rdd('ctl', 'get', 'crds', '--output=name');
+      if (!crds.split('\n').some(line => line.trim().endsWith(AppsCRDSuffix))) {
+        return false;
+      }
+      const rawApps = await rdd('ctl', 'get', 'apps', '--output=json');
+      const appList: rddClient.IoRancherdesktopAppV1alpha1AppList = JSON.parse(rawApps);
+      const conditions = appList.items.flatMap(item => item.status?.conditions ?? []);
+      return conditions.some(condition => condition.type === 'Settled' && condition.status === 'True');
+    } catch {
+      // This should not happen, but just retry if it does.
       return false;
     }
-    const rawApps = await rdd('ctl', 'get', 'apps', '--output=json');
-    const appList: rddClient.IoRancherdesktopAppV1alpha1AppList = JSON.parse(rawApps);
-    const conditions = appList.items.flatMap(item => item.status?.conditions ?? []);
-    return conditions.some(condition => condition.type === 'Settled' && condition.status === 'True');
   }
 
   /**
