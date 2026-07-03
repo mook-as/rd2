@@ -464,14 +464,9 @@ func (r *KubernetesReconciler) manageKubeContext(ctx context.Context) error {
 
 	r.contextProbeWg.Add(1)
 	go func() {
-		// Use sync.Once so contextProbeWg.Done() fires exactly once, either
-		// explicitly after the HTTP probe or via defer on early return.
-		// Crucially, Done() must be called BEFORE setCurrentKubeContext so that
-		// removeKubeContext.Wait() is not held hostage by a slow or blocking
-		// write to ~/.kube/config.
-		var wgDone sync.Once
-		signalDone := func() { wgDone.Do(r.contextProbeWg.Done) }
-		defer signalDone()
+		// Done fires after the kubeconfig write below, so removeKubeContext.Wait()
+		// covers that write instead of racing it.
+		defer r.contextProbeWg.Done()
 		defer func() {
 			r.contextMu.Lock()
 			if r.contextProbeGen == myGen {
@@ -488,10 +483,6 @@ func (r *KubernetesReconciler) manageKubeContext(ctx context.Context) error {
 		}
 
 		healthy := probeCurrentKubeContext(probeCtx, current)
-
-		// Signal the WaitGroup before writing to ~/.kube/config so that
-		// removeKubeContext.Wait() is not blocked by a slow file write.
-		signalDone()
 
 		// Guard against writing after removeKubeContext cancelled probeCtx.
 		if !healthy && probeCtx.Err() == nil {
