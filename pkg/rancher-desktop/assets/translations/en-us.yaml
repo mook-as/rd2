@@ -4954,6 +4954,11 @@ preferences:
   incompatibleTypeWarningPostSelected: 'to be selected.'
   incompatibleTypeWarningPostDisabled: 'to be unselected.'
   incompatiblePrefWarningOr: 'or'
+  validation:
+    containerEngine:
+      name:
+        FieldValueNotSupported: Container engine {current} is not valid
+
 ##############################
 ### Integrations Page
 ##############################
