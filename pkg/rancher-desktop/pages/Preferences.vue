@@ -1,8 +1,7 @@
-<script lang="ts">
-import os from 'os';
+<script lang="ts" setup>
 
-import { defineComponent } from 'vue';
-import { mapGetters, mapState } from 'vuex';
+import { computed, onBeforeMount, onBeforeUnmount, Transition } from 'vue';
+import { useStore } from 'vuex';
 
 import EmptyState from '@pkg/components/EmptyState.vue';
 import PreferencesBody from '@pkg/components/Preferences/ModalBody.vue';
@@ -10,159 +9,101 @@ import PreferencesFooter from '@pkg/components/Preferences/ModalFooter.vue';
 import PreferencesHeader from '@pkg/components/Preferences/ModalHeader.vue';
 import PreferencesNav from '@pkg/components/Preferences/ModalNav.vue';
 import { ipcRenderer } from '@pkg/utils/ipcRenderer';
-import { Direction, RecursivePartial } from '@pkg/utils/typeUtils';
-import { preferencesNavItems } from '@pkg/window/preferenceConstants';
+import { Direction } from '@pkg/utils/typeUtils';
+import { preferencesNavItemName, preferencesNavItems } from '@pkg/window/preferenceConstants';
 
-export default defineComponent({
-  name:       'preferences-modal',
-  components: {
-    PreferencesHeader, PreferencesNav, PreferencesBody, PreferencesFooter, EmptyState,
-  },
+defineOptions({
+  name:   'preferences-modal',
   layout: 'preferences',
-  data() {
-    return { preferencesLoaded: false };
-  },
-  computed: {
-    ...mapGetters('preferences', ['getPreferences', 'hasError']),
-    ...mapGetters('transientSettings', ['getCurrentNavItem']),
-    ...mapState('credentials', ['credentials']),
-    navItems(): string[] {
-      return preferencesNavItems.map(({ name }) => name);
-    },
-  },
-  async beforeMount() {
-    await this.$store.dispatch('preferences/fetchPreferences');
-    await this.$store.dispatch('preferences/fetchLocked');
-    this.preferencesLoaded = true;
+});
 
-    this.$store.dispatch('preferences/setPlatformWindows', os.platform().startsWith('win'));
+const store = useStore();
 
-    ipcRenderer.on('route', async(event, args) => {
-      await this.navigateToTab(args);
-    });
+const navigation = computed(() => store.state['transient-preferences'].navigation);
+const committed = computed(() => store.getters['preferences/committed']);
+const hasPreferences = computed(() => Object.keys(committed.value).length > 0);
+const navItems = computed(() => preferencesNavItems.map(({ name }) => name));
+const currentNavItem = computed(() => navigation.value.preferences.top);
 
-    ipcRenderer.invoke('versions/macOs').then((macOsVersion) => {
-      // TODO: Implement.
-    });
+async function navChanged(current: preferencesNavItemName) {
+  await store.dispatch('transient-preferences/navigate', { 'preferences.top': current });
+}
+async function closePreferences() {
+  // Clear any uncommitted changes, so the next time we open the window we
+  // reset any modifications.
+  await store.dispatch('preferences/clear');
+  window.close();
+}
+async function applyPreferences() {
+  if (await store.dispatch('preferences/commit')) {
+    window.close();
+  }
+}
+async function navigateToTab(_event: Electron.IpcRendererEvent, args: { name?: preferencesNavItemName, direction?: Direction }) {
+  const { name, direction } = args;
 
-    ipcRenderer.invoke('host/isArm').then((isArm) => {
-      // TODO: Implement.
-    });
-  },
-  beforeUnmount() {
-    /**
-     * Removing the listeners resolves the issue of receiving duplicated messages from 'route' channel.
-     * Originated by: https://github.com/rancher-sandbox/rancher-desktop/issues/3232
-     */
-    ipcRenderer.removeAllListeners('route');
-  },
-  methods: {
-    async navChanged(current: string) {
-      await this.commitNavItem(current);
-    },
-    async commitNavItem(current: string) {
-      // TODO: Implement.
-    },
-    closePreferences() {
-      ipcRenderer.send('preferences-close');
-    },
-    async applyPreferences() {
-      const resetAccepted = await this.proposePreferences();
+  if (name) {
+    await store.dispatch('transient-preferences/navigate', { 'preferences.top': name });
 
-      if (!resetAccepted) {
-        return;
-      }
+    return;
+  }
 
-      await this.$store.dispatch('preferences/commitPreferences');
-      this.closePreferences();
-    },
-    async proposePreferences() {
-      const { reset } = await this.$store.dispatch('preferences/proposePreferences');
+  if (direction) {
+    const dir = (direction === 'forward' ? 1 : -1);
+    const idx = (navItems.value.length + navItems.value.indexOf(currentNavItem.value) + dir) % navItems.value.length;
 
-      if (!reset) {
-        return true;
-      }
+    await store.dispatch('transient-preferences/navigate', { 'preferences.top': navItems.value[idx] });
+  }
+}
 
-      const cancelPosition = 1;
-
-      const result = await ipcRenderer.invoke('show-message-box', {
-        title:    'Rancher Desktop - Reset Kubernetes',
-        type:     'warning',
-        message:  'Apply preferences and reset Kubernetes?',
-        detail:   'These changes will reset the Kubernetes cluster, which will result in a loss of workloads and container images.',
-        cancelId: cancelPosition,
-        buttons:  [
-          'Apply and reset',
-          'Cancel',
-        ],
-      });
-
-      return result.response !== cancelPosition;
-    },
-    reloadPreferences() {
-      window.location.reload();
-    },
-    async navigateToTab(args: { name?: string, direction?: Direction }) {
-      const { name, direction } = args;
-
-      if (name) {
-        await this.commitNavItem(name);
-
-        return;
-      }
-
-      if (direction) {
-        const dir = (direction === 'forward' ? 1 : -1);
-        const idx = (this.navItems.length + this.navItems.indexOf(this.getCurrentNavItem) + dir) % this.navItems.length;
-
-        await this.commitNavItem(this.navItems[idx]);
-      }
-    },
-  },
+onBeforeMount(() => {
+  store.dispatch('rdd/watchResources', ['apps']);
+  ipcRenderer.on('route', navigateToTab);
+});
+onBeforeUnmount(() => {
+  ipcRenderer.removeListener('route', navigateToTab);
+  store.dispatch('rdd/unwatchResources', ['apps']);
+  store.dispatch('preferences/clear');
 });
 </script>
 
+<!--
+  To make the components easier, we show an error to the user until the
+  preferences have been loaded.  This way the components that actually use the
+  preferences (i.e. nav bar, body) can assume it is fully loaded.
+-->
 <template>
-  <div
-    v-if="preferencesLoaded"
-    class="modal-grid"
-  >
+  <div class="modal-grid">
     <preferences-header
       class="preferences-header"
     />
+    <transition
+      v-if="!hasPreferences"
+      name="empty-state-fade"
+      appear
+    >
+      <!-- Use a fade transition to avoid a flash on initial load. -->
+      <div class="preferences-error">
+        <empty-state
+          icon="icon-warning"
+          heading="Unable to fetch preferences"
+          body="Reopen the window to try again."
+        />
+      </div>
+    </transition>
     <preferences-nav
-      v-if="!hasError"
+      v-if="hasPreferences"
       class="preferences-nav"
-      :current-nav-item="getCurrentNavItem"
+      :current-nav-item="currentNavItem"
       :nav-items="navItems"
       @nav-changed="navChanged"
     />
     <preferences-body
+      v-if="hasPreferences"
       v-bind="$attrs"
       class="preferences-body"
-      :current-nav-item="getCurrentNavItem"
-      :preferences="getPreferences"
-    >
-      <div
-        v-if="hasError"
-        class="preferences-error"
-      >
-        <empty-state
-          icon="icon-warning"
-          heading="Unable to fetch preferences"
-          body="Reload Preferences to try again."
-        >
-          <template #primary-action>
-            <button
-              class="btn role-primary"
-              @click="reloadPreferences"
-            >
-              Reload preferences
-            </button>
-          </template>
-        </empty-state>
-      </div>
-    </preferences-body>
+      :current-nav-item="currentNavItem"
+    />
     <preferences-footer
       class="preferences-footer"
       @cancel="closePreferences"
@@ -210,8 +151,20 @@ export default defineComponent({
     height: 100%;
     display: flex;
     flex-direction: row;
+    grid-column-start: span 2;
     justify-content: center;
     align-items: center;
     padding-bottom: 6rem;
+  }
+
+  /* Set up the fade transition for the no-prefs error screen. */
+  .empty-state-fade-enter-from {
+    opacity: 0;
+  }
+  .empty-state-fade-enter-to {
+    opacity: 1;
+  }
+  .empty-state-fade-enter-active {
+    transition: opacity 0.5s;
   }
 </style>

@@ -1,34 +1,35 @@
-<script lang="ts">
-import { defineComponent } from 'vue';
-import { mapGetters } from 'vuex';
+<script lang="ts" setup>
+import { computed, defineComponent } from 'vue';
+import { useStore } from 'vuex';
 
 import PreferencesAlert from '@pkg/components/Preferences/Alert.vue';
 
-export default defineComponent({
-  name:       'preferences-footer',
-  components: { PreferencesAlert },
-  computed:   {
-    ...mapGetters('preferences', ['canApply']),
-    isDisabled(): boolean {
-      return !this.canApply;
-    },
-  },
-  methods: {
-    cancel() {
-      this.$emit('cancel');
-    },
-    apply() {
-      this.$emit('apply');
-    },
-  },
-});
+defineOptions({ name: 'preferences-footer' });
+
+const emit = defineEmits<{
+  apply:  [],
+  cancel: [],
+}>();
+
+const store = useStore();
+const canApply = computed(() => store.getters['preferences/canApply']);
+
+function cancel() {
+  emit('cancel');
+}
+
+function apply() {
+  emit('apply');
+}
 </script>
 
 <template>
   <div class="preferences-footer">
+    <!--
     <div class="preferences-alert">
       <preferences-alert />
     </div>
+    -->
     <div class="preferences-actions">
       <button
         data-test="preferences-cancel"
@@ -39,7 +40,7 @@ export default defineComponent({
       </button>
       <button
         class="btn role-primary"
-        :disabled="isDisabled"
+        :disabled="!canApply"
         @click="apply"
       >
         Apply

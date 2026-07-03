@@ -114,6 +114,9 @@ export const getters = {
     }
     return modified as Required<RecursiveReadonly<AppSpec>>;
   },
+  canApply: (state) => {
+    return Object.keys(state.changes).length > 0 && !state.errorStatus;
+  },
   isPreferenceLocked: () => (key: RecursiveLeafKeys<AppSpec>) => {
     // TODO: deployment profiles https://github.com/rancher-sandbox/rancher-desktop-2/issues/513
     return false;
@@ -178,7 +181,7 @@ export const actions = {
    */
   async commit(context): Promise<boolean> {
     const { state, rootGetters } = context;
-    const appliedChanges = structuredClone(state.changes);
+    const appliedChanges = structuredClone(toRaw(state.changes));
     pendingCommit.reset();
 
     // Clear any in-flight validation calls.

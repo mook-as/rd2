@@ -1,4 +1,4 @@
-import type { preferencesNavItemName } from '@pkg/window/preferenceConstants';
+import { preferencesNavItems } from '@pkg/window/preferenceConstants';
 
 /**
  * TransientPreferencesState is the state for the transient preferences; it
@@ -14,7 +14,7 @@ const defaultTransientPreferences = {
   /** navigation state, e.g. which tab is selected */
   navigation: {
     preferences: {
-      top:                'Kubernetes' as preferencesNavItemName,
+      top:                preferencesNavItems[0].name,
       application:        'general' as 'general' | 'behavior' | 'environment',
       'virtual-machine':  'hardware' as 'hardware' | 'volumes' | 'emulation',
       wsl:                'integrations' as 'integrations' | 'proxy',
