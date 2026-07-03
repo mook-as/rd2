@@ -12,7 +12,7 @@ export const state = () => { return structuredClone(defaultTransientPreferences)
 
 export const mutations = {
   SET_ALL(state, preferences: Partial<RecursiveReadonly<TransientPreferencesState>>) {
-    Object.assign(state, preferences);
+    _.merge(state, preferences);
   },
   /**
    * @note This should not be used directly; use the `navigate` action instead.
