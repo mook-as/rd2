@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import { computed, defineComponent } from 'vue';
+import { computed } from 'vue';
 import { useStore } from 'vuex';
 
 import PreferencesAlert from '@pkg/components/Preferences/Alert.vue';
@@ -13,6 +13,7 @@ const emit = defineEmits<{
 
 const store = useStore();
 const canApply = computed(() => store.getters['preferences/canApply']);
+const errorStatus = computed(() => store.state.preferences.errorStatus);
 
 function cancel() {
   emit('cancel');
@@ -25,11 +26,11 @@ function apply() {
 
 <template>
   <div class="preferences-footer">
-    <!--
     <div class="preferences-alert">
-      <preferences-alert />
+      <preferences-alert
+        v-if="errorStatus"
+      />
     </div>
-    -->
     <div class="preferences-actions">
       <button
         data-test="preferences-cancel"
