@@ -154,6 +154,35 @@ type KubernetesSpec struct {
 	Version string `json:"version,omitempty"`
 }
 
+// ApplicationSpec defines settings for the Rancher Desktop App (the Electron
+// frontend).  RDD generally does not do anything with these.
+type ApplicationSpec struct {
+	// updates specifies application update settings.
+	// +optional
+	Updates ApplicationUpdatesSpec `json:"updates,omitempty"`
+	// telemetry specifies application telemetry settings.
+	// +optional
+	Telemetry ApplicationTelemetrySpec `json:"telemetry,omitempty"`
+}
+
+// ApplicationUpdatesSpec defines settings for the Rancher Desktop App's update
+// mechanism.  RDD generally does not do anything with these.
+type ApplicationUpdatesSpec struct {
+	// enabled specifies whether the App should check for updates.
+	// +optional
+	// +kubebuilder:default=true
+	Enabled *bool `json:"enabled,omitempty"`
+}
+
+// ApplicationTelemetrySpec defines settings for the Rancher Desktop App's telemetry
+// mechanism.  RDD generally does not do anything with these.
+type ApplicationTelemetrySpec struct {
+	// enabled specifies whether the App should send anonymous usage statistics.
+	// +optional
+	// +kubebuilder:default=false
+	Enabled *bool `json:"enabled,omitempty"`
+}
+
 // AppSpec defines the desired state of App.
 type AppSpec struct {
 	// running specifies whether the VM should be running.
@@ -174,6 +203,9 @@ type AppSpec struct {
 	// kubernetes specifies the Kubernetes configuration.
 	// +optional
 	Kubernetes KubernetesSpec `json:"kubernetes,omitempty"`
+	// Application specifies the settings for the Rancher Desktop App.
+	// +optional
+	Application ApplicationSpec `json:"application,omitempty"`
 }
 
 // AppStatus defines the observed state of App.
