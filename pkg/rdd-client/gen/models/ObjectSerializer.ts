@@ -12,6 +12,9 @@ export * from '../models/EventsV1EventSeries';
 export * from '../models/IoRancherdesktopAppV1alpha1App';
 export * from '../models/IoRancherdesktopAppV1alpha1AppList';
 export * from '../models/IoRancherdesktopAppV1alpha1AppSpec';
+export * from '../models/IoRancherdesktopAppV1alpha1AppSpecApplication';
+export * from '../models/IoRancherdesktopAppV1alpha1AppSpecApplicationTelemetry';
+export * from '../models/IoRancherdesktopAppV1alpha1AppSpecApplicationUpdates';
 export * from '../models/IoRancherdesktopAppV1alpha1AppSpecContainerEngine';
 export * from '../models/IoRancherdesktopAppV1alpha1AppSpecKubernetes';
 export * from '../models/IoRancherdesktopAppV1alpha1AppStatus';
@@ -78,6 +81,7 @@ export * from '../models/V1APIServiceSpec';
 export * from '../models/V1APIServiceStatus';
 export * from '../models/V1APIVersions';
 export * from '../models/V1AggregationRule';
+export * from '../models/V1ApplyConfiguration';
 export * from '../models/V1AuditAnnotation';
 export * from '../models/V1BoundObjectReference';
 export * from '../models/V1ClusterRole';
@@ -106,6 +110,7 @@ export * from '../models/V1ExternalDocumentation';
 export * from '../models/V1FieldSelectorAttributes';
 export * from '../models/V1FieldSelectorRequirement';
 export * from '../models/V1GroupVersionForDiscovery';
+export * from '../models/V1JSONPatch';
 export * from '../models/V1JSONSchemaProps';
 export * from '../models/V1LabelSelector';
 export * from '../models/V1LabelSelectorAttributes';
@@ -119,9 +124,16 @@ export * from '../models/V1LocalSubjectAccessReview';
 export * from '../models/V1ManagedFieldsEntry';
 export * from '../models/V1MatchCondition';
 export * from '../models/V1MatchResources';
+export * from '../models/V1MutatingAdmissionPolicy';
+export * from '../models/V1MutatingAdmissionPolicyBinding';
+export * from '../models/V1MutatingAdmissionPolicyBindingList';
+export * from '../models/V1MutatingAdmissionPolicyBindingSpec';
+export * from '../models/V1MutatingAdmissionPolicyList';
+export * from '../models/V1MutatingAdmissionPolicySpec';
 export * from '../models/V1MutatingWebhook';
 export * from '../models/V1MutatingWebhookConfiguration';
 export * from '../models/V1MutatingWebhookConfigurationList';
+export * from '../models/V1Mutation';
 export * from '../models/V1NamedRuleWithOperations';
 export * from '../models/V1Namespace';
 export * from '../models/V1NamespaceCondition';
@@ -161,6 +173,7 @@ export * from '../models/V1SelfSubjectRulesReviewSpec';
 export * from '../models/V1ServerAddressByClientCIDR';
 export * from '../models/V1ServiceAccount';
 export * from '../models/V1ServiceAccountList';
+export * from '../models/V1ShardInfo';
 export * from '../models/V1Status';
 export * from '../models/V1StatusCause';
 export * from '../models/V1StatusDetails';
@@ -204,6 +217,9 @@ import { EventsV1EventSeries } from '../models/EventsV1EventSeries';
 import { IoRancherdesktopAppV1alpha1App } from '../models/IoRancherdesktopAppV1alpha1App';
 import { IoRancherdesktopAppV1alpha1AppList } from '../models/IoRancherdesktopAppV1alpha1AppList';
 import { IoRancherdesktopAppV1alpha1AppSpec } from '../models/IoRancherdesktopAppV1alpha1AppSpec';
+import { IoRancherdesktopAppV1alpha1AppSpecApplication } from '../models/IoRancherdesktopAppV1alpha1AppSpecApplication';
+import { IoRancherdesktopAppV1alpha1AppSpecApplicationTelemetry } from '../models/IoRancherdesktopAppV1alpha1AppSpecApplicationTelemetry';
+import { IoRancherdesktopAppV1alpha1AppSpecApplicationUpdates } from '../models/IoRancherdesktopAppV1alpha1AppSpecApplicationUpdates';
 import { IoRancherdesktopAppV1alpha1AppSpecContainerEngine, IoRancherdesktopAppV1alpha1AppSpecContainerEngineNameEnum   } from '../models/IoRancherdesktopAppV1alpha1AppSpecContainerEngine';
 import { IoRancherdesktopAppV1alpha1AppSpecKubernetes } from '../models/IoRancherdesktopAppV1alpha1AppSpecKubernetes';
 import { IoRancherdesktopAppV1alpha1AppStatus } from '../models/IoRancherdesktopAppV1alpha1AppStatus';
@@ -270,6 +286,7 @@ import { V1APIServiceSpec } from '../models/V1APIServiceSpec';
 import { V1APIServiceStatus } from '../models/V1APIServiceStatus';
 import { V1APIVersions } from '../models/V1APIVersions';
 import { V1AggregationRule } from '../models/V1AggregationRule';
+import { V1ApplyConfiguration } from '../models/V1ApplyConfiguration';
 import { V1AuditAnnotation } from '../models/V1AuditAnnotation';
 import { V1BoundObjectReference } from '../models/V1BoundObjectReference';
 import { V1ClusterRole } from '../models/V1ClusterRole';
@@ -298,6 +315,7 @@ import { V1ExternalDocumentation } from '../models/V1ExternalDocumentation';
 import { V1FieldSelectorAttributes } from '../models/V1FieldSelectorAttributes';
 import { V1FieldSelectorRequirement } from '../models/V1FieldSelectorRequirement';
 import { V1GroupVersionForDiscovery } from '../models/V1GroupVersionForDiscovery';
+import { V1JSONPatch } from '../models/V1JSONPatch';
 import { V1JSONSchemaProps } from '../models/V1JSONSchemaProps';
 import { V1LabelSelector } from '../models/V1LabelSelector';
 import { V1LabelSelectorAttributes } from '../models/V1LabelSelectorAttributes';
@@ -311,9 +329,16 @@ import { V1LocalSubjectAccessReview } from '../models/V1LocalSubjectAccessReview
 import { V1ManagedFieldsEntry } from '../models/V1ManagedFieldsEntry';
 import { V1MatchCondition } from '../models/V1MatchCondition';
 import { V1MatchResources , V1MatchResourcesMatchPolicyEnum      } from '../models/V1MatchResources';
+import { V1MutatingAdmissionPolicy } from '../models/V1MutatingAdmissionPolicy';
+import { V1MutatingAdmissionPolicyBinding } from '../models/V1MutatingAdmissionPolicyBinding';
+import { V1MutatingAdmissionPolicyBindingList } from '../models/V1MutatingAdmissionPolicyBindingList';
+import { V1MutatingAdmissionPolicyBindingSpec } from '../models/V1MutatingAdmissionPolicyBindingSpec';
+import { V1MutatingAdmissionPolicyList } from '../models/V1MutatingAdmissionPolicyList';
+import { V1MutatingAdmissionPolicySpec, V1MutatingAdmissionPolicySpecFailurePolicyEnum      , V1MutatingAdmissionPolicySpecReinvocationPolicyEnum    } from '../models/V1MutatingAdmissionPolicySpec';
 import { V1MutatingWebhook  , V1MutatingWebhookFailurePolicyEnum   , V1MutatingWebhookMatchPolicyEnum     , V1MutatingWebhookReinvocationPolicyEnum   , V1MutatingWebhookSideEffectsEnum    } from '../models/V1MutatingWebhook';
 import { V1MutatingWebhookConfiguration } from '../models/V1MutatingWebhookConfiguration';
 import { V1MutatingWebhookConfigurationList } from '../models/V1MutatingWebhookConfigurationList';
+import { V1Mutation  , V1MutationPatchTypeEnum   } from '../models/V1Mutation';
 import { V1NamedRuleWithOperations  , V1NamedRuleWithOperationsOperationsEnum    , V1NamedRuleWithOperationsScopeEnum   } from '../models/V1NamedRuleWithOperations';
 import { V1Namespace } from '../models/V1Namespace';
 import { V1NamespaceCondition } from '../models/V1NamespaceCondition';
@@ -353,6 +378,7 @@ import { V1SelfSubjectRulesReviewSpec } from '../models/V1SelfSubjectRulesReview
 import { V1ServerAddressByClientCIDR } from '../models/V1ServerAddressByClientCIDR';
 import { V1ServiceAccount } from '../models/V1ServiceAccount';
 import { V1ServiceAccountList } from '../models/V1ServiceAccountList';
+import { V1ShardInfo } from '../models/V1ShardInfo';
 import { V1Status } from '../models/V1Status';
 import { V1StatusCause } from '../models/V1StatusCause';
 import { V1StatusDetails } from '../models/V1StatusDetails';
@@ -401,10 +427,13 @@ let enumsMap: Set<string> = new Set<string>([
     "IoRancherdesktopContainersV1alpha1ContainerStatusLastActionActionEnum",
     "IoRancherdesktopContainersV1alpha1ContainerStatusLastActionStateEnum",
     "V1MatchResourcesMatchPolicyEnum",
+    "V1MutatingAdmissionPolicySpecFailurePolicyEnum",
+    "V1MutatingAdmissionPolicySpecReinvocationPolicyEnum",
     "V1MutatingWebhookFailurePolicyEnum",
     "V1MutatingWebhookMatchPolicyEnum",
     "V1MutatingWebhookReinvocationPolicyEnum",
     "V1MutatingWebhookSideEffectsEnum",
+    "V1MutationPatchTypeEnum",
     "V1NamedRuleWithOperationsOperationsEnum",
     "V1NamedRuleWithOperationsScopeEnum",
     "V1NamespaceStatusPhaseEnum",
@@ -436,6 +465,9 @@ let typeMap: {[index: string]: any} = {
     "IoRancherdesktopAppV1alpha1App": IoRancherdesktopAppV1alpha1App,
     "IoRancherdesktopAppV1alpha1AppList": IoRancherdesktopAppV1alpha1AppList,
     "IoRancherdesktopAppV1alpha1AppSpec": IoRancherdesktopAppV1alpha1AppSpec,
+    "IoRancherdesktopAppV1alpha1AppSpecApplication": IoRancherdesktopAppV1alpha1AppSpecApplication,
+    "IoRancherdesktopAppV1alpha1AppSpecApplicationTelemetry": IoRancherdesktopAppV1alpha1AppSpecApplicationTelemetry,
+    "IoRancherdesktopAppV1alpha1AppSpecApplicationUpdates": IoRancherdesktopAppV1alpha1AppSpecApplicationUpdates,
     "IoRancherdesktopAppV1alpha1AppSpecContainerEngine": IoRancherdesktopAppV1alpha1AppSpecContainerEngine,
     "IoRancherdesktopAppV1alpha1AppSpecKubernetes": IoRancherdesktopAppV1alpha1AppSpecKubernetes,
     "IoRancherdesktopAppV1alpha1AppStatus": IoRancherdesktopAppV1alpha1AppStatus,
@@ -502,6 +534,7 @@ let typeMap: {[index: string]: any} = {
     "V1APIServiceStatus": V1APIServiceStatus,
     "V1APIVersions": V1APIVersions,
     "V1AggregationRule": V1AggregationRule,
+    "V1ApplyConfiguration": V1ApplyConfiguration,
     "V1AuditAnnotation": V1AuditAnnotation,
     "V1BoundObjectReference": V1BoundObjectReference,
     "V1ClusterRole": V1ClusterRole,
@@ -530,6 +563,7 @@ let typeMap: {[index: string]: any} = {
     "V1FieldSelectorAttributes": V1FieldSelectorAttributes,
     "V1FieldSelectorRequirement": V1FieldSelectorRequirement,
     "V1GroupVersionForDiscovery": V1GroupVersionForDiscovery,
+    "V1JSONPatch": V1JSONPatch,
     "V1JSONSchemaProps": V1JSONSchemaProps,
     "V1LabelSelector": V1LabelSelector,
     "V1LabelSelectorAttributes": V1LabelSelectorAttributes,
@@ -543,9 +577,16 @@ let typeMap: {[index: string]: any} = {
     "V1ManagedFieldsEntry": V1ManagedFieldsEntry,
     "V1MatchCondition": V1MatchCondition,
     "V1MatchResources": V1MatchResources,
+    "V1MutatingAdmissionPolicy": V1MutatingAdmissionPolicy,
+    "V1MutatingAdmissionPolicyBinding": V1MutatingAdmissionPolicyBinding,
+    "V1MutatingAdmissionPolicyBindingList": V1MutatingAdmissionPolicyBindingList,
+    "V1MutatingAdmissionPolicyBindingSpec": V1MutatingAdmissionPolicyBindingSpec,
+    "V1MutatingAdmissionPolicyList": V1MutatingAdmissionPolicyList,
+    "V1MutatingAdmissionPolicySpec": V1MutatingAdmissionPolicySpec,
     "V1MutatingWebhook": V1MutatingWebhook,
     "V1MutatingWebhookConfiguration": V1MutatingWebhookConfiguration,
     "V1MutatingWebhookConfigurationList": V1MutatingWebhookConfigurationList,
+    "V1Mutation": V1Mutation,
     "V1NamedRuleWithOperations": V1NamedRuleWithOperations,
     "V1Namespace": V1Namespace,
     "V1NamespaceCondition": V1NamespaceCondition,
@@ -585,6 +626,7 @@ let typeMap: {[index: string]: any} = {
     "V1ServerAddressByClientCIDR": V1ServerAddressByClientCIDR,
     "V1ServiceAccount": V1ServiceAccount,
     "V1ServiceAccountList": V1ServiceAccountList,
+    "V1ShardInfo": V1ShardInfo,
     "V1Status": V1Status,
     "V1StatusCause": V1StatusCause,
     "V1StatusDetails": V1StatusDetails,
