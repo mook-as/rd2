@@ -61,7 +61,7 @@ async function run() {
 
   await fs.promises.rm(outDir, { recursive: true, force: true });
   await fs.promises.mkdir(outDir, { recursive: true });
-  await execFile(rddPath, ['service', 'start']);
+  await execFile(rddPath, ['set', 'running=true', 'containerEngine.name=moby', '--wait']);
 
   try {
     const proxy = childProcess.spawn(rddPath, ['ctl', 'proxy', `--port=${ port }`]);
