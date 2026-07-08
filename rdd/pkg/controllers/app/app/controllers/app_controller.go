@@ -9,11 +9,9 @@ package controllers
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	goruntime "runtime"
 	"slices"
 	"strconv"
@@ -116,64 +114,30 @@ func (r *AppReconciler) kubernetesEnabled(ctx context.Context) bool {
 	return slices.Contains(enabled, v1alpha1.KubernetesControllerName)
 }
 
-// vmCPUsEnv overrides the VM's cpu count from the environment. Kept for CI
-// backward compatibility; spec.virtualMachine.cpus takes precedence when set.
-const vmCPUsEnv = "RDD_VM_CPUS"
-
-var (
-	reCPUs   = regexp.MustCompile(`(?m)^cpus: \d+$`)
-	reMemory = regexp.MustCompile(`(?m)^memory: "\d+"$`)
-)
-
-// applyVMResources rewrites the template's cpus and memory lines from the App
-// spec. When spec values are unset it falls back to the RDD_VM_CPUS env var
-// (cpus only) and finally the template default.
-func applyVMResources(template string, spec v1alpha1.AppSpec) (string, error) {
-	// CPUs: spec takes priority over the env-var override.
-	cpus := spec.VirtualMachine.CPUs
-	if cpus == 0 {
-		if val := os.Getenv(vmCPUsEnv); val != "" {
-			n, err := strconv.Atoi(val)
-			if err != nil || n < 1 {
-				return "", fmt.Errorf("invalid %s value %q: want a positive integer", vmCPUsEnv, val)
-			}
-			cpus = n
-		}
-	}
-	if cpus > 0 {
-		if !reCPUs.MatchString(template) {
-			return "", errors.New("lima template has no cpus line to override")
-		}
-		template = reCPUs.ReplaceAllString(template, fmt.Sprintf("cpus: %d", cpus))
-	}
-
-	// Memory: spec value only; no env-var equivalent.
-	if mem := spec.VirtualMachine.Memory; mem != nil {
-		if !reMemory.MatchString(template) {
-			return "", errors.New("lima template has no memory line to override")
-		}
-		template = reMemory.ReplaceAllString(template, fmt.Sprintf(`memory: "%d"`, mem.Value()))
-	}
-
-	return template, nil
-}
-
 func applySpecToTemplate(baseTemplate string, spec v1alpha1.AppSpec, kubernetesPort int) (string, error) {
 	hostHome, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("failed to get host home directory: %w", err)
-	}
-	baseTemplate, err = applyVMResources(baseTemplate, spec)
-	if err != nil {
-		return "", err
 	}
 	// vm-switch writes its logfile under LogDir() (passed below as VM_SWITCH_LOG)
 	// and fails to start if the directory is missing, so create it before the VM.
 	if err := os.MkdirAll(instance.LogDir(), 0o700); err != nil {
 		return "", fmt.Errorf("failed to create log directory: %w", err)
 	}
-	return strings.Join([]string{
-		baseTemplate,
+
+	// cpus and memory are appended here rather than baked into the template so
+	// the spec drives them directly. Lima falls back to its own default when a
+	// key is absent, which covers the unset case (cpus 0, memory nil).
+	lines := []string{baseTemplate}
+	if cpus := spec.VirtualMachine.CPUs; cpus > 0 {
+		lines = append(lines, fmt.Sprintf("cpus: %d", cpus))
+	}
+	if mem := spec.VirtualMachine.Memory; mem != nil {
+		lines = append(lines, fmt.Sprintf("memory: %q", strconv.FormatInt(mem.Value(), 10)))
+	}
+
+	lines = append(lines,
+		"",
 		"param:",
 		fmt.Sprintf("  CONTAINER_ENGINE: %s", spec.ContainerEngine.Name),
 		fmt.Sprintf("  HOST_DOCKER_SOCKET: %q", instance.DockerSocket()),
@@ -186,7 +150,8 @@ func applySpecToTemplate(baseTemplate string, spec v1alpha1.AppSpec, kubernetesP
 		fmt.Sprintf("  KUBERNETES_VERSION: %s", spec.Kubernetes.Version),
 		fmt.Sprintf("  KUBERNETES_PORT: %d", kubernetesPort),
 		"",
-	}, "\n"), nil
+	)
+	return strings.Join(lines, "\n"), nil
 }
 
 // networkSetupExtraArgs returns the diagnostic vm-switch logging flags under
@@ -713,27 +678,8 @@ func runningLimaVMMessage(runningCond *metav1.Condition, desired string) string 
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *AppReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	if err := mgr.Add(r); err != nil {
-		return fmt.Errorf("failed to register host-info startup runnable: %w", err)
-	}
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha1.App{}, builder.WithPredicates(predicates.WatchEventLogger("app"))).
 		Owns(&limav1alpha1.LimaVM{}).
 		Complete(r)
 }
-
-// Start implements manager.Runnable. It creates or updates the rdd-host-info
-// ConfigMap once the cache is ready, so the GUI and validators can read the
-// host's CPU count and memory limit.
-func (r *AppReconciler) Start(ctx context.Context) error {
-	if err := CreateOrUpdateHostInfoConfigMap(ctx, r.Client); err != nil {
-		// Non-fatal: log and continue. Validation still works via the values
-		// passed to the webhook at construction time.
-		logf.FromContext(ctx).Error(err, "Failed to write host-info ConfigMap")
-	}
-	return nil
-}
-
-// NeedLeaderElection implements manager.LeaderElectionRunnable. The host-info
-// ConfigMap should only be written by the leader to avoid concurrent writes.
-func (r *AppReconciler) NeedLeaderElection() bool { return true }

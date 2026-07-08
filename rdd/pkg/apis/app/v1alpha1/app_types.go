@@ -141,13 +141,13 @@ const (
 type VirtualMachineSpec struct {
 	// cpus is the number of vCPUs to allocate to the VM.
 	// Must be no greater than the number of CPUs on the host.
-	// When unset (0), the Lima template default is used.
+	// When unset (0), the admission controller fills in the default count.
 	// +optional
 	CPUs int `json:"cpus,omitempty"`
 	// memory is the amount of RAM to allocate to the VM, as a Kubernetes
 	// resource quantity (e.g. "4Gi", "2048Mi"). Must be at least 2Gi and no
-	// greater than the total memory on the host. When unset, the Lima
-	// template default is used.
+	// greater than the total memory on the host. When unset, the admission
+	// controller fills in the default amount.
 	// +optional
 	Memory *resource.Quantity `json:"memory,omitempty"`
 }

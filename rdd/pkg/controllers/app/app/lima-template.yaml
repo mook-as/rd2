@@ -1,5 +1,3 @@
-cpus: 2
-memory: "6442450944"
 mounts:
 - location: "~"
   writable: true

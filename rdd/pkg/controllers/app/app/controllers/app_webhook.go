@@ -15,7 +15,12 @@ import (
 	"github.com/rancher-sandbox/rancher-desktop-daemon/pkg/apis/app/v1alpha1"
 )
 
-const minMemoryBytes = 2 * 1024 * 1024 * 1024 // 2 GiB
+const (
+	minMemoryBytes = 2 * 1024 * 1024 * 1024 // 2 GiB
+	// maxDefaultMemoryBytes caps the memory the defaulter picks. The defaulter
+	// uses 25% of host memory but never more than this (matching RD1 settings).
+	maxDefaultMemoryBytes = 6 * 1024 * 1024 * 1024 // 6 GiB
+)
 
 // AppValidator validates App resources via admission webhook.
 type AppValidator struct {
@@ -70,10 +75,14 @@ func (v *AppValidator) validate(app *v1alpha1.App) (ctrlwebhookadmission.Warning
 }
 
 func (v *AppValidator) validateVirtualMachine(vm v1alpha1.VirtualMachineSpec) error {
-	if vm.CPUs != 0 {
-		if v.hostInfo.CPUs > 0 && vm.CPUs > v.hostInfo.CPUs {
-			return fmt.Errorf("spec.virtualMachine.cpus %d exceeds the host CPU count of %d", vm.CPUs, v.hostInfo.CPUs)
-		}
+	if vm.CPUs < 0 {
+		return fmt.Errorf("spec.virtualMachine.cpus %d must not be negative", vm.CPUs)
+	}
+	// cpus == 0 only reaches the validator when the mutating webhook is bypassed;
+	// normally AppDefaulter fills in a concrete count first. Only an explicit
+	// positive request is checked against the host.
+	if vm.CPUs > 0 && v.hostInfo.CPUs > 0 && vm.CPUs > v.hostInfo.CPUs {
+		return fmt.Errorf("spec.virtualMachine.cpus %d exceeds the host CPU count of %d", vm.CPUs, v.hostInfo.CPUs)
 	}
 
 	if vm.Memory != nil {

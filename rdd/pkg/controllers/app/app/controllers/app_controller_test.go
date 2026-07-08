@@ -460,71 +460,65 @@ func Test_applySpecToTemplate(t *testing.T) {
 	}
 }
 
-// Test_applyVMResources is not parallel: t.Setenv forbids it.
-func Test_applyVMResources(t *testing.T) {
-	template := "cpus: 2\nmemory: \"6442450944\"\n"
+// Test_applySpecToTemplate_VMResources checks that cpus and memory are appended
+// only when set, since they are no longer part of the base template.
+func Test_applySpecToTemplate_VMResources(t *testing.T) {
+	t.Parallel()
 
 	tests := []struct {
-		name    string
-		env     string
-		spec    v1alpha1.AppSpec
-		input   string
-		want    string
-		wantErr string
+		name       string
+		spec       v1alpha1.AppSpec
+		wantCPUs   string // expected "cpus:" line, or "" if none should appear
+		wantMemory string // expected "memory:" line, or "" if none should appear
 	}{
 		{
-			name:  "unset env and spec leaves the template unchanged",
-			input: template,
-			want:  template,
+			name:       "unset cpus and memory append no lines",
+			spec:       v1alpha1.AppSpec{},
+			wantCPUs:   "",
+			wantMemory: "",
 		},
 		{
-			name:  "env rewrites the cpus line",
-			env:   "3",
-			input: template,
-			want:  "cpus: 3\nmemory: \"6442450944\"\n",
+			name:     "spec cpus appends a cpus line",
+			spec:     v1alpha1.AppSpec{VirtualMachine: v1alpha1.VirtualMachineSpec{CPUs: 4}},
+			wantCPUs: "cpus: 4",
 		},
 		{
-			name:  "spec cpus take priority over env",
-			env:   "3",
-			spec:  v1alpha1.AppSpec{VirtualMachine: v1alpha1.VirtualMachineSpec{CPUs: 4}},
-			input: template,
-			want:  "cpus: 4\nmemory: \"6442450944\"\n",
+			name:       "spec memory appends a memory line in bytes",
+			spec:       v1alpha1.AppSpec{VirtualMachine: v1alpha1.VirtualMachineSpec{Memory: mustParseQuantity("4Gi")}},
+			wantMemory: `memory: "4294967296"`,
 		},
 		{
-			name:  "spec memory rewrites the memory line",
-			spec:  v1alpha1.AppSpec{VirtualMachine: v1alpha1.VirtualMachineSpec{Memory: mustParseQuantity("4Gi")}},
-			input: template,
-			want:  "cpus: 2\nmemory: \"4294967296\"\n",
-		},
-		{
-			name:    "non-numeric env value errors",
-			env:     "many",
-			input:   template,
-			wantErr: "invalid RDD_VM_CPUS",
-		},
-		{
-			name:    "zero env errors",
-			env:     "0",
-			input:   template,
-			wantErr: "invalid RDD_VM_CPUS",
-		},
-		{
-			name:    "template without a cpus line errors when cpus is set",
-			env:     "3",
-			input:   "memory: \"6442450944\"\n",
-			wantErr: "no cpus line",
+			name: "spec cpus and memory append both lines",
+			spec: v1alpha1.AppSpec{VirtualMachine: v1alpha1.VirtualMachineSpec{
+				CPUs:   4,
+				Memory: mustParseQuantity("6Gi"),
+			}},
+			wantCPUs:   "cpus: 4",
+			wantMemory: `memory: "6442450944"`,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Setenv(vmCPUsEnv, tt.env)
-			got, err := applyVMResources(tt.input, tt.spec)
-			if tt.wantErr != "" {
-				assert.ErrorContains(t, err, tt.wantErr)
-				return
-			}
+			t.Parallel()
+
+			got, err := applySpecToTemplate("base", tt.spec, 0)
 			assert.NilError(t, err)
-			assert.Equal(t, got, tt.want)
+
+			if tt.wantCPUs == "" {
+				assert.Assert(t, !strings.Contains(got, "cpus:"),
+					"expected no cpus line, got:\n%s", got)
+			} else {
+				assert.Assert(t, strings.Contains(got, tt.wantCPUs),
+					"expected output to contain %q, got:\n%s", tt.wantCPUs, got)
+			}
+
+			if tt.wantMemory == "" {
+				assert.Assert(t, !strings.Contains(got, "memory:"),
+					"expected no memory line, got:\n%s", got)
+			} else {
+				assert.Assert(t, strings.Contains(got, tt.wantMemory),
+					"expected output to contain %q, got:\n%s", tt.wantMemory, got)
+			}
 		})
 	}
 }

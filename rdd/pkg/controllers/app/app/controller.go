@@ -120,7 +120,8 @@ func (c *controller) GetWebhookManagers() []base.WebhookManager {
 // webhook resolves Kubernetes version channels (e.g. "stable") to concrete
 // versions before the validating webhook checks them.
 func (c *controller) setupWebhook(mgr ctrl.Manager) error {
-	defaulter, err := controllers.NewAppDefaulter(k3sVersionsData)
+	hostInfo := controllers.DetectHostInfo()
+	defaulter, err := controllers.NewAppDefaulter(k3sVersionsData, hostInfo)
 	if err != nil {
 		return err
 	}
@@ -141,7 +142,7 @@ func (c *controller) setupWebhook(mgr ctrl.Manager) error {
 	}
 	c.webhookManagers = append(c.webhookManagers, managers...)
 
-	validator, err := controllers.NewAppValidator(k3sVersionsData, controllers.DetectHostInfo())
+	validator, err := controllers.NewAppValidator(k3sVersionsData, hostInfo)
 	if err != nil {
 		return err
 	}
