@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -27,6 +28,44 @@ func mkSymlink(t *testing.T, target, link string) {
 		t.Skipf("cannot create symlink: %v", err)
 	}
 	assert.NilError(t, err)
+}
+
+// mkUnreachableSymlink returns a link to a file inside a directory the caller
+// cannot traverse.
+func mkUnreachableSymlink(t *testing.T, dir string) string {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("directory permissions do not block traversal on Windows")
+	}
+	if os.Geteuid() == 0 {
+		t.Skip("root traverses directories regardless of their mode")
+	}
+	secret := filepath.Join(dir, "secret")
+	assert.NilError(t, os.Mkdir(secret, 0o700))
+	target := filepath.Join(secret, "real-config")
+	assert.NilError(t, os.WriteFile(target, []byte("real"), 0o600))
+	link := filepath.Join(dir, "link-config")
+	mkSymlink(t, target, link)
+	assert.NilError(t, os.Chmod(secret, 0o000))
+	t.Cleanup(func() { _ = os.Chmod(secret, 0o700) })
+	return link
+}
+
+// eachWriter runs fn against both entry points to test behavior they share.
+func eachWriter(t *testing.T, fn func(t *testing.T, write func(path string) error)) {
+	t.Helper()
+	t.Run("Write", func(t *testing.T) {
+		fn(t, func(path string) error {
+			return Write(path, []byte("content"), 0o600)
+		})
+	})
+	t.Run("Update", func(t *testing.T) {
+		fn(t, func(path string) error {
+			return Update(path, 0o600, func([]byte) ([]byte, error) {
+				return []byte("content"), nil
+			})
+		})
+	})
 }
 
 func assertMode(t *testing.T, path string, want os.FileMode) {
@@ -220,6 +259,36 @@ func TestWriteCreatesDanglingSymlinkTarget(t *testing.T) {
 	data, err := os.ReadFile(target)
 	assert.NilError(t, err)
 	assert.Equal(t, string(data), "content")
+}
+
+func TestSymlinkLoopIsRefused(t *testing.T) {
+	eachWriter(t, func(t *testing.T, write func(string) error) {
+		dir := t.TempDir()
+		first := filepath.Join(dir, "first")
+		second := filepath.Join(dir, "second")
+		mkSymlink(t, second, first)
+		mkSymlink(t, first, second)
+
+		assert.ErrorContains(t, write(first), "resolve")
+
+		fi, err := os.Lstat(first)
+		assert.NilError(t, err)
+		assert.Assert(t, fi.Mode()&os.ModeSymlink != 0, "link was replaced by a regular file")
+	})
+}
+
+func TestUnreachableSymlinkTargetIsRefused(t *testing.T) {
+	eachWriter(t, func(t *testing.T, write func(string) error) {
+		link := mkUnreachableSymlink(t, t.TempDir())
+
+		err := write(link)
+		assert.ErrorContains(t, err, "resolve")
+		assert.Assert(t, errors.Is(err, fs.ErrPermission))
+
+		fi, err := os.Lstat(link)
+		assert.NilError(t, err)
+		assert.Assert(t, fi.Mode()&os.ModeSymlink != 0, "link was replaced by a regular file")
+	})
 }
 
 func TestWriteLeavesNoTempFileOnSuccess(t *testing.T) {

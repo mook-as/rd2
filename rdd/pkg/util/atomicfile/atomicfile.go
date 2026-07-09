@@ -29,15 +29,20 @@ var pathLocks sync.Map
 //
 // Update follows symlinks and replaces the target, so a symlinked file (a
 // dotfiles-managed kubeconfig or shell profile) keeps its link; a dangling
-// link gets its target created. The temporary file lands in the target's
-// directory, so the rename never crosses filesystems. An existing target
-// keeps its mode and, where supported, its ownership; a new file gets perm.
+// link gets its target created. Update reports an error for a link it cannot
+// resolve, such as a symlink loop or an unreadable parent directory. The
+// temporary file lands in the target's directory, so the rename never crosses
+// filesystems. An existing target keeps its mode and, where supported, its
+// ownership; a new file gets perm.
 //
 // On Windows the rename fails with a sharing violation while another process
 // holds the destination open (Go opens files without FILE_SHARE_DELETE);
 // callers for whom this matters must retry.
 func Update(path string, perm os.FileMode, modify func(current []byte) ([]byte, error)) error {
-	target := resolveTarget(path)
+	target, err := resolveTarget(path)
+	if err != nil {
+		return err
+	}
 	mu := lockPath(target)
 	mu.Lock()
 	defer mu.Unlock()
@@ -45,7 +50,7 @@ func Update(path string, perm os.FileMode, modify func(current []byte) ([]byte, 
 	current, err := os.ReadFile(target)
 	if err != nil {
 		if !os.IsNotExist(err) {
-			return fmt.Errorf("read %s: %w", path, err)
+			return err
 		}
 		current = nil
 	}
@@ -63,7 +68,10 @@ func Update(path string, perm os.FileMode, modify func(current []byte) ([]byte, 
 // contents. Writing identical contents is a no-op. See Update for the
 // serialization, symlink, and metadata behavior, which Write shares.
 func Write(path string, data []byte, perm os.FileMode) error {
-	target := resolveTarget(path)
+	target, err := resolveTarget(path)
+	if err != nil {
+		return err
+	}
 	mu := lockPath(target)
 	mu.Lock()
 	defer mu.Unlock()
@@ -117,16 +125,18 @@ func replace(target string, data []byte, perm os.FileMode) (err error) {
 }
 
 // resolveTarget follows symlinks to the file the write must replace. For a
-// missing file or dangling link, EvalSymlinks fails with fs.ErrNotExist and
-// its PathError carries the path of the missing target.
-func resolveTarget(path string) string {
+// missing file or dangling link, EvalSymlinks fails with fs.ErrNotExist, and
+// its PathError carries the path of the missing target. Any other failure —
+// a symlink loop, an unreadable parent — leaves the target unknown, so
+// resolveTarget reports it rather than let the caller replace the symlink.
+func resolveTarget(path string) (string, error) {
 	resolved, err := filepath.EvalSymlinks(path)
 	if err == nil {
-		return resolved
+		return resolved, nil
 	}
 	var pathErr *fs.PathError
 	if errors.Is(err, fs.ErrNotExist) && errors.As(err, &pathErr) {
-		return pathErr.Path
+		return pathErr.Path, nil
 	}
-	return path
+	return "", fmt.Errorf("resolve %s: %w", path, err)
 }
