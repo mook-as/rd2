@@ -67,7 +67,8 @@ export default defineComponent({
         },
       ],
       loading: true,
-      busy:    {} as Record<string, boolean>,
+
+      busy: {},
     };
   },
   computed: {
@@ -89,9 +90,8 @@ export default defineComponent({
         moreInfo:    this.extensionLink(extension),
       }));
     },
-    ...mapGetters('extensions', ['installedExtensions']) as {
-      installedExtensions: () => ExtensionState[],
-    },
+
+    ...mapGetters('extensions', ['installedExtensions']),
   },
   async beforeMount() {
     ipcRenderer.on('extensions/changed', () => {

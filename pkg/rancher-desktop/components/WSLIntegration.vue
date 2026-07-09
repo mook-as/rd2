@@ -41,7 +41,7 @@ export default defineComponent({
     },
     integrations: {
       type:    Object as PropType<Record<string, boolean | string>>,
-      default: () => ({} as Record<string, boolean | string>),
+      default: () => ({}),
     },
   },
 
@@ -52,7 +52,8 @@ export default defineComponent({
        * A mapping to temporarily disable a selection while work happens
        * asynchronously, to prevent the user from retrying to toggle too quickly.
        */
-      busy: {} as Record<string, boolean>,
+
+      busy: {},
     };
   },
 

@@ -35,10 +35,11 @@ async function fetchWithRetry(url: string) {
       return await fetch(url, { redirect: 'follow' });
     } catch (ex: any) {
       if (ex?.errno === 'EAI_AGAIN') {
-        console.log(`Recoverable error downloading ${ url }, retrying...`);
+        console.log(`Recoverable error downloading ${ url } (${ ex }), retrying...`);
+        await new Promise<void>(resolve => setTimeout(resolve, 1_000));
         continue;
       }
-      console.dir(ex);
+      console.log(`Failed to download ${ url }: ${ ex }`);
       throw ex;
     }
   }

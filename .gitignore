@@ -1,6 +1,7 @@
 *.exe
 /coverage/
 /dist/
+/e2e/e2e/test-results/.last-run.json
 /e2e/reports/
 /.github/actions/spelling/expect/golang-generated.txt
 /go.work.sum
@@ -13,5 +14,6 @@
 /resources/preload.js*
 /resources/win32/
 /screenshots/output/
-/e2e/e2e/test-results/.last-run.json
+/src/go/i18n-report/i18n-report
+/src/go/rdctl/pkg/options/generated/*.go
 /.yarn/
