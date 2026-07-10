@@ -16,10 +16,8 @@ export default defineComponent({
   },
   computed: {
     ...mapGetters('preferences', ['getPreferences']),
-    ...mapGetters('extensions', ['installedExtensions', 'marketData']) as {
-      installedExtensions: () => ExtensionState[],
-      marketData:          () => MarketplaceData[],
-    },
+
+    ...mapGetters('extensions', ['installedExtensions', 'marketData']),
     containerEngine(): string {
       return this.getPreferences.containerEngine.name;
     },

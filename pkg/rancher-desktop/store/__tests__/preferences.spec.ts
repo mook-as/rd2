@@ -296,7 +296,7 @@ describe('actions', () => {
       const context = makeContext({ state: _.merge(stateFn(), { changes: { running: true } }) });
       const resultApp = { metadata: { name: 'test', generation: 3 } };
 
-      client.patchApp.mockResolvedValue(resultApp as any);
+      client.patchApp.mockResolvedValue(resultApp);
 
       let watchCallback: (gen: number) => void = () => { };
       const unwatch = jest.fn();
