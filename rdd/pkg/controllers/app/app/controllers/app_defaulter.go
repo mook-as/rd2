@@ -81,17 +81,18 @@ func (d *AppDefaulter) defaultKubernetesVersion(k8s *v1alpha1.KubernetesSpec) {
 // the reconciler treat cpus/memory as plain values instead of special-casing the
 // zero value.
 func (d *AppDefaulter) defaultVirtualMachine(vm *v1alpha1.VirtualMachineSpec) error {
-	if err := defaultVMCPUCount(vm); err != nil {
+	if err := defaultVMCPUCount(vm, d.hostInfo); err != nil {
 		return err
 	}
-	defaultVMMemory(vm, d.hostInfo)
-	return nil
+	return defaultVMMemory(vm, d.hostInfo)
 }
 
 // defaultVMCPUCount writes a concrete cpu count into an unset (0)
 // spec.virtualMachine.cpus. RDD_VM_CPUS overrides the built-in default for CI;
-// an explicit cpus wins over both.
-func defaultVMCPUCount(vm *v1alpha1.VirtualMachineSpec) error {
+// an explicit cpus wins over both. The resolved default is clamped to the host
+// CPU count so the mutating webhook never writes a value the validating webhook
+// would reject (e.g. the default 2 on a single-vCPU host).
+func defaultVMCPUCount(vm *v1alpha1.VirtualMachineSpec, hostInfo HostInfo) error {
 	if vm.CPUs != 0 {
 		return nil
 	}
@@ -103,17 +104,27 @@ func defaultVMCPUCount(vm *v1alpha1.VirtualMachineSpec) error {
 		}
 		cpus = n
 	}
+	if hostInfo.CPUs > 0 && cpus > hostInfo.CPUs {
+		cpus = hostInfo.CPUs
+	}
 	vm.CPUs = cpus
 	return nil
 }
 
 // defaultVMMemory writes a concrete memory value into an unset
 // spec.virtualMachine.memory. Following RD1 (not Lima) settings, it picks 25% of
-// host memory, clamped to [minMemoryBytes, maxDefaultMemoryBytes]. The lower
-// clamp keeps the default at or above the validator's minimum on small hosts.
-func defaultVMMemory(vm *v1alpha1.VirtualMachineSpec, hostInfo HostInfo) {
+// host memory, clamped to [minMemoryBytes, maxDefaultMemoryBytes]. A host with
+// less than minMemoryBytes cannot satisfy the validator's minimum, so it returns
+// a distinct error rather than writing a default the validating webhook would
+// reject as exceeding host memory.
+func defaultVMMemory(vm *v1alpha1.VirtualMachineSpec, hostInfo HostInfo) error {
 	if vm.Memory != nil {
-		return
+		return nil
+	}
+	if hostInfo.Memory > 0 && hostInfo.Memory < minMemoryBytes {
+		minQ := resource.NewQuantity(minMemoryBytes, resource.BinarySI)
+		hostQ := resource.NewQuantity(hostInfo.Memory, resource.BinarySI)
+		return fmt.Errorf("host memory %v is below the %v minimum", hostQ, minQ)
 	}
 	memBytes := hostInfo.Memory / 4
 	if memBytes > maxDefaultMemoryBytes {
@@ -123,4 +134,5 @@ func defaultVMMemory(vm *v1alpha1.VirtualMachineSpec, hostInfo HostInfo) {
 		memBytes = minMemoryBytes
 	}
 	vm.Memory = resource.NewQuantity(memBytes, resource.BinarySI)
+	return nil
 }

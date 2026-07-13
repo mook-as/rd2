@@ -44,6 +44,5 @@ func (c *controller) RegisterWithManager(mgr ctrl.Manager) error {
 	}
 	return (&controllers.HostInfoReconciler{
 		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
 	}).SetupWithManager(mgr)
 }

@@ -119,6 +119,7 @@ func Test_AppDefaulter_defaultsVMCPUs(t *testing.T) {
 	tests := []struct {
 		name     string
 		env      string
+		hostCPUs int
 		specCPUs int
 		wantCPUs int
 		wantErr  string
@@ -139,6 +140,17 @@ func Test_AppDefaulter_defaultsVMCPUs(t *testing.T) {
 			wantCPUs: 4,
 		},
 		{
+			name:     "built-in default is clamped to the host cpu count",
+			hostCPUs: 1,
+			wantCPUs: 1,
+		},
+		{
+			name:     "env override is clamped to the host cpu count",
+			env:      "8",
+			hostCPUs: 4,
+			wantCPUs: 4,
+		},
+		{
 			name:    "non-numeric env value errors",
 			env:     "many",
 			wantErr: "invalid RDD_VM_CPUS",
@@ -150,19 +162,19 @@ func Test_AppDefaulter_defaultsVMCPUs(t *testing.T) {
 		},
 	}
 
-	d, err := NewAppDefaulter(testK3sVersions, HostInfo{})
-	assert.NilError(t, err)
-
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Setenv(vmCPUsEnv, tt.env)
+
+			d, err := NewAppDefaulter(testK3sVersions, HostInfo{CPUs: tt.hostCPUs})
+			assert.NilError(t, err)
 
 			app := &v1alpha1.App{
 				Spec: v1alpha1.AppSpec{
 					VirtualMachine: v1alpha1.VirtualMachineSpec{CPUs: tt.specCPUs},
 				},
 			}
-			err := d.Default(context.Background(), app)
+			err = d.Default(context.Background(), app)
 			if tt.wantErr != "" {
 				assert.ErrorContains(t, err, tt.wantErr)
 				return
@@ -186,6 +198,7 @@ func Test_AppDefaulter_defaultsVMMemory(t *testing.T) {
 		hostMemory int64
 		specMemory *resource.Quantity
 		wantBytes  int64
+		wantErr    string
 	}{
 		{
 			name:       "quarter of host memory when within bounds",
@@ -213,6 +226,11 @@ func Test_AppDefaulter_defaultsVMMemory(t *testing.T) {
 			specMemory: explicit,
 			wantBytes:  explicit.Value(),
 		},
+		{
+			name:       "errors when host memory is below the minimum",
+			hostMemory: 1 * 1024 * 1024 * 1024,
+			wantErr:    "below the",
+		},
 	}
 
 	for _, tt := range tests {
@@ -228,6 +246,10 @@ func Test_AppDefaulter_defaultsVMMemory(t *testing.T) {
 				},
 			}
 			err = d.Default(context.Background(), app)
+			if tt.wantErr != "" {
+				assert.ErrorContains(t, err, tt.wantErr)
+				return
+			}
 			assert.NilError(t, err)
 			assert.Assert(t, app.Spec.VirtualMachine.Memory != nil)
 			assert.Equal(t, app.Spec.VirtualMachine.Memory.Value(), tt.wantBytes)

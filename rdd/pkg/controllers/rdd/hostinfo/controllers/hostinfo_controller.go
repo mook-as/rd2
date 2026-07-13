@@ -8,13 +8,13 @@ package controllers
 
 import (
 	"context"
+	"fmt"
 	goruntime "runtime"
 
 	"github.com/pbnjay/memory"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
@@ -28,7 +28,6 @@ const SingletonName = "system"
 // HostInfoReconciler reconciles the HostInfo singleton.
 type HostInfoReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
 }
 
 // +kubebuilder:rbac:groups=rdd.rancherdesktop.io,resources=hostinfos,verbs=get;list;watch;create;update;patch;delete
@@ -40,6 +39,13 @@ func (r *HostInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 	var hi rddv1alpha1.HostInfo
 	if err := r.Get(ctx, req.NamespacedName, &hi); err != nil {
+		if apierrors.IsNotFound(err) && req.Name == SingletonName {
+			// The singleton was deleted (or its initial bootstrap failed).
+			// Recreate it so its Status is repopulated; the create schedules
+			// another reconcile that lands in the Status.Patch path below.
+			log.Info("HostInfo singleton missing; recreating it")
+			return ctrl.Result{}, r.bootstrapSingleton(ctx)
+		}
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
@@ -60,14 +66,22 @@ func (r *HostInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 // Start implements manager.Runnable. It bootstraps the HostInfo singleton
 // once the cache is ready so that the reconciler loop can populate its Status.
-// Only the leader runs this to avoid concurrent creates.
+// Only the leader runs this to avoid concurrent creates. A bootstrap failure is
+// returned so the manager surfaces it (the daemon exits and is restarted) rather
+// than silently leaving the singleton absent; a runtime delete is instead
+// recovered by Reconcile.
 func (r *HostInfoReconciler) Start(ctx context.Context) error {
+	return r.bootstrapSingleton(ctx)
+}
+
+// bootstrapSingleton creates the HostInfo singleton, treating an existing object
+// as success so it is safe to call from both Start and Reconcile.
+func (r *HostInfoReconciler) bootstrapSingleton(ctx context.Context) error {
 	hi := &rddv1alpha1.HostInfo{
 		ObjectMeta: metav1.ObjectMeta{Name: SingletonName},
 	}
 	if err := r.Create(ctx, hi); err != nil && !apierrors.IsAlreadyExists(err) {
-		// Non-fatal: log and continue. The next reconcile will retry.
-		logf.FromContext(ctx).Error(err, "Failed to bootstrap HostInfo singleton")
+		return fmt.Errorf("failed to bootstrap HostInfo singleton: %w", err)
 	}
 	return nil
 }

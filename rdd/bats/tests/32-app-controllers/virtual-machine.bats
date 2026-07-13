@@ -70,9 +70,8 @@ local_setup_file() {
 }
 
 @test "webhook rejects cpus exceeding host count" {
-    local host_cpus
-    host_cpus="$(rdd ctl get hostinfo system -o jsonpath='{.status.cpus}')"
-    local excessive=$((host_cpus + 1))
+    run -0 rdd ctl get hostinfo system -o jsonpath='{.status.cpus}'
+    excessive=$((output + 1))
 
     run -1 rdd ctl patch app "${APP_NAME}" \
         --type='merge' --dry-run=server \
@@ -94,7 +93,7 @@ local_setup_file() {
 
     run -0 get_app_field '.spec.virtualMachine.cpus'
     # The mutating webhook replaces the unset 0 with a concrete count.
-    assert [ "${output}" -ge 1 ]
+    assert_output_ge 1
 }
 
 @test "webhook rejects a negative cpu count" {
@@ -111,17 +110,17 @@ local_setup_file() {
     run -0 get_app_field '.spec.virtualMachine.memory'
     # The mutating webhook replaces the cleared memory with a concrete default
     # (RD1 settings), so it must not fall back to Lima's own default of empty.
-    assert [ -n "${output}" ]
+    assert_output
 }
 
 @test "webhook accepts valid cpus and memory" {
-    run -0 rdd ctl patch app "${APP_NAME}" \
+    rdd ctl patch app "${APP_NAME}" \
         --type='merge' --dry-run=server \
         -p='{"spec":{"virtualMachine":{"cpus":1,"memory":"2Gi"}}}'
 }
 
 @test "webhook accepts cpus=0 and defaults it" {
-    run -0 rdd ctl patch app "${APP_NAME}" \
+    rdd ctl patch app "${APP_NAME}" \
         --type='merge' --dry-run=server \
         -p='{"spec":{"virtualMachine":{"cpus":0}}}'
 }
