@@ -10,25 +10,7 @@ permissions:
   contents: read
 
 jobs:
-  get-token:
-    # rddepman needs a token whose pull requests trigger CI; the
-    # workflow-provided github.token does not trigger further workflows.
-    outputs:
-      token: ${{ steps.get-token.outputs.token }}
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-      with:
-        persist-credentials: false
-    - id: get-token
-      uses: ./.github/actions/get-token
-      continue-on-error: true
-      with:
-        token-secret: ${{ secrets.RUN_WORKFLOW_FROM_WORKFLOW }}
-
   check-update-versions:
-    needs: get-token
-    if: needs.get-token.outputs.token != ''
     permissions:
       contents: read
       id-token: write # Required for ./.github/actions/get-token
@@ -44,6 +26,13 @@ jobs:
 
       - uses: ./.github/actions/yarn-install
 
+      - id: get-token
+        uses: ./.github/actions/get-token
+        continue-on-error: true
+        with:
+          token-secret: ${{ secrets.RUN_WORKFLOW_FROM_WORKFLOW }}
+
       - run: yarn rddepman
+        if: steps.get-token.outcome == 'success'
         env:
-          GITHUB_TOKEN: ${{ needs.get-token.outputs.token }}
+          GITHUB_TOKEN: ${{ steps.get-token.outputs.token }}
