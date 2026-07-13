@@ -8,7 +8,7 @@ description: >-
 inputs:
   token-secret:
     description: Secret to fall back to
-    required: false
+    required: true
 outputs:
   token:
     description: The GitHub token retrieved
@@ -18,7 +18,7 @@ runs:
   steps:
   - id: vault
     name: Read vault secrets
-    continue-on-error: true
+    if: github.repository_owner == 'rancher-sandbox'
     uses: rancher-eio/read-vault-secrets@7282bf97898cd1c16c89f837e0bb442e6d384c89 # main
     with:
       secrets: |
@@ -32,9 +32,9 @@ runs:
       client-id: ${{ env.CLIENT_ID }}
       private-key: ${{ env.PRIVATE_KEY }}
   - id: get-secret
-    name: Fetch secret.
-    if: steps.gen-token.outcome != 'success'
-    run: echo "token=$SECRET" >> "$GITHUB_OUTPUT"
+    name: Fall back to GitHub-hosted secrets
+    if: steps.vault.outcome == 'skipped'
+    run: echo "token=${SECRET:?Secret not found}" >> "$GITHUB_OUTPUT"
     shell: bash
     env:
       SECRET: ${{ inputs.token-secret }}

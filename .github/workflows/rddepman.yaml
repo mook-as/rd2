@@ -28,11 +28,9 @@ jobs:
 
       - id: get-token
         uses: ./.github/actions/get-token
-        continue-on-error: true
         with:
           token-secret: ${{ secrets.RUN_WORKFLOW_FROM_WORKFLOW }}
 
       - run: yarn rddepman
-        if: steps.get-token.outcome == 'success'
         env:
           GITHUB_TOKEN: ${{ steps.get-token.outputs.token }}
