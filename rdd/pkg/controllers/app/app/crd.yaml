@@ -47,6 +47,29 @@ spec:
           spec:
             description: AppSpec defines the desired state of App.
             properties:
+              application:
+                description: Application specifies the settings for the Rancher Desktop
+                  App.
+                properties:
+                  telemetry:
+                    description: telemetry specifies application telemetry settings.
+                    properties:
+                      enabled:
+                        default: false
+                        description: enabled specifies whether the App should send
+                          anonymous usage statistics.
+                        type: boolean
+                    type: object
+                  updates:
+                    description: updates specifies application update settings.
+                    properties:
+                      enabled:
+                        default: true
+                        description: enabled specifies whether the App should check
+                          for updates.
+                        type: boolean
+                    type: object
+                type: object
               containerEngine:
                 default:
                   name: moby

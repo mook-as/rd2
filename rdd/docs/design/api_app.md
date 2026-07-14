@@ -55,6 +55,11 @@ metadata:
   name: app
 
 spec:
+  application:
+    telemetry:
+      enabled: false
+    updates:
+      enabled: true
   containerEngine:
     name: moby
   kubernetes:
@@ -84,6 +89,12 @@ status:
     message: App has reached the desired state
     observedGeneration: 1
 ```
+
+- **spec.application.telemetry.enabled**: For use by the Electron front end, to control whether
+  telemetry collection and reporting is enabled.  Defaults to `false`.
+
+- **spec.application.updates.enabled**: For use by the Electron front end, to control whether the
+  application will attempt to update itself.  Defaults to `true`.
 
 - **spec.namespace**: The namespace where the owned `LimaVM` and its ConfigMaps are created. Defaults to `default`. **Immutable after creation** — changing it would orphan resources in the original namespace.
 

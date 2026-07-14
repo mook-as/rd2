@@ -112,7 +112,7 @@ interface RDXSpawnOptions extends v1.SpawnOptions {
 /**
  * The identifier for the extension (the name of the image).
  */
-const extensionId = location.protocol === 'app:' ? '<app>' : decodeURIComponent(location.hostname.replace(/(..)/g, '%$1'));
+const extensionId = location.protocol === 'app:' || location.hostname === 'localhost' ? '<app>' : decodeURIComponent(location.hostname.replace(/(..)/g, '%$1'));
 
 /**
  * Context passed from the main process via additionalArguments.
@@ -727,7 +727,7 @@ export default function initExtensions(): void {
     Electron.contextBridge.exposeInMainWorld('ddClient', new RDXClient());
     break;
   }
-  case 'app:': {
+  case 'app:': case 'http:': {
     import('os').then(({ arch, hostname }) => {
       Object.defineProperty(window, 'ddClient', {
         value:        new RDXClient({ arch: arch(), hostname: hostname() }),

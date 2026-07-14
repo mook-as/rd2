@@ -112,7 +112,10 @@ export const getters = {
     for (const [key, value] of Object.entries(state.changes)) {
       _.set(modified, key, value);
     }
-    return modified;
+    return modified as Required<RecursiveReadonly<AppSpec>>;
+  },
+  canApply: (state) => {
+    return Object.keys(state.changes).length > 0 && !state.errorStatus;
   },
   isPreferenceLocked: () => (key: RecursiveLeafKeys<AppSpec>) => {
     // TODO: deployment profiles https://github.com/rancher-sandbox/rancher-desktop-2/issues/513
@@ -171,6 +174,14 @@ export const actions = {
   },
 
   /**
+   * Write the given preference to the backend directly, without going through the local state.
+   * This is used for preferences that do not go through the normal dialog.
+   */
+  async writeNow(context, { key, value }: { key: RecursiveLeafKeys<AppSpec>, value: FieldType<AppSpec, typeof key> }) {
+    return await patchApp(context, { [key]: value }, commitSerializer);
+  },
+
+  /**
    * Commit the current set of changes to the backend.
    * @returns Whether the commit was successful.
    * @note If a commit is already in progress, the previous call will be aborted.
@@ -178,7 +189,7 @@ export const actions = {
    */
   async commit(context): Promise<boolean> {
     const { state, rootGetters } = context;
-    const appliedChanges = structuredClone(state.changes);
+    const appliedChanges = structuredClone(toRaw(state.changes));
     pendingCommit.reset();
 
     // Clear any in-flight validation calls.

@@ -7,7 +7,10 @@ function createWrappedPage(props) {
   return mount(SystemPreferences, {
     props,
     global: {
-      directives: { tooltip: {} },
+      directives: {
+        'clean-tooltip': {},
+        tooltip:         {},
+      },
     },
   });
 }
