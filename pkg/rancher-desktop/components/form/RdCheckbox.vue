@@ -14,12 +14,16 @@ defineOptions({
   inheritAttrs: false,
 });
 
-const { preference: preferenceName, isExperimental, tooltip, labelKey, label, tooltipKey } = defineProps({
+const { preference: preferenceName, isExperimental, immediate, tooltip, labelKey, label, tooltipKey } = defineProps({
   preference:      {
     type:     String as PropType<RecursiveLeafKeysOfType<AppSpec, boolean | undefined>>,
     required: true,
   },
   isExperimental: {
+    type:    Boolean,
+    default: false,
+  },
+  immediate: {
     type:    Boolean,
     default: false,
   },
@@ -47,7 +51,11 @@ const value = computed(() => !!_.get(preferences.value, preferenceName, false));
 const isLocked = computed(() => store.getters['preferences/isPreferenceLocked'](preferenceName));
 
 function onUpdate(value: boolean) {
-  store.dispatch('preferences/modify', { key: preferenceName, value });
+  if (immediate) {
+    store.dispatch('preferences/writeNow', { key: preferenceName, value });
+  } else {
+    store.dispatch('preferences/modify', { key: preferenceName, value });
+  }
 }
 
 </script>

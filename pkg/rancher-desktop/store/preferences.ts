@@ -1,6 +1,6 @@
 import _ from 'lodash';
 import { toRaw } from 'vue';
-import { MutationTree, Plugin } from 'vuex';
+import { MutationTree, Plugin, Store } from 'vuex';
 
 import { RootState } from '@pkg/entry/store';
 import { ActionContext, ActionTree, GetterTree, MutationsType } from '@pkg/store/ts-helpers';
@@ -174,69 +174,39 @@ export const actions = {
   },
 
   /**
+   * Write the given preference to the backend directly, updating the store and
+   * committing in one action.  This is used for preferences that do not go
+   * through the normal dialog.  Existing pending changes will not be committed.
+   * @returns Whether the commit was successful.
+   * @note Calling this will abort any in-flight validation requests, as well as
+   *       any in-flight commit requests.
+   */
+  writeNow(context, { key, value }: { key: RecursiveLeafKeys<AppSpec>, value: FieldType<AppSpec, typeof key> }) {
+    // Update `state.changes` in case the pref dialog is open.
+    const { state, getters, commit } = context;
+    if (_.get(getters.committed, key) === value) {
+      // Reverting a change; remove it from the changes list, so the UI does not
+      // allow committing if all changes are being reverted.
+      const { [key]: _unused, ...modified } = state.changes;
+      commit('SET_CHANGES', modified);
+    } else {
+      commit('SET_CHANGES', { ...state.changes, [key]: value });
+    }
+
+    return commitChanges(this, context, { [key]: value });
+  },
+
+  /**
    * Commit the current set of changes to the backend.
    * @returns Whether the commit was successful.
    * @note If a commit is already in progress, the previous call will be aborted.
    * @note Calling this will abort any in-flight validation requests.
    */
-  async commit(context): Promise<boolean> {
-    const { state, rootGetters } = context;
+  commit(context): Promise<boolean> {
+    const { state } = context;
     const appliedChanges = structuredClone(toRaw(state.changes));
-    pendingCommit.reset();
 
-    // Clear any in-flight validation calls.
-    modifySerializer.abort();
-
-    let result: Awaited<ReturnType<typeof patchApp>> = PatchAppResult.failure;
-    let skipResolve = false;
-
-    try {
-      result = await patchApp(context, appliedChanges, commitSerializer);
-
-      // We update `state.changes` via the plugin below (by monitoring when
-      // `app.spec` changes), so there is no need to do that here.
-
-      // Check the result, and resolve `pendingCommit` if we are not interrupted.
-      switch (result) {
-      case PatchAppResult.skipped:
-        return true;
-      case PatchAppResult.failure:
-        return false;
-      case PatchAppResult.interrupted:
-        // Don't resolve the pending commit; the replacement request will do that.
-        skipResolve = true;
-        return false;
-      default: {
-        if (typeof result !== 'number') {
-          // Compile-time check that we handled all PatchAppResult cases.
-          result satisfies never;
-        }
-        // The patch was successful; wait for `app.spec` to be updated.
-        const latch = Latch();
-        const timeout = setTimeout(() => {
-          latch.resolve();
-          unwatch();
-        }, 1_000);
-        const generation = result;
-        const unwatch = this.watch(
-          () => rootGetters['rdd/app']?.metadata?.generation ?? 0,
-          (newGeneration) => {
-            if (newGeneration >= generation) {
-              clearTimeout(timeout);
-              // Make sure `watch` returns before evaluating `unwatch`.
-              queueMicrotask(() => unwatch());
-              latch.resolve();
-            }
-          }, { immediate: true });
-        await latch;
-        return true;
-      }
-      }
-    } finally {
-      if (!skipResolve) {
-        pendingCommit.resolve();
-      }
-    }
+    return commitChanges(this, context, appliedChanges);
   },
 
   /**
@@ -355,6 +325,76 @@ async function patchApp(
     }
     await dispatch('setError', error);
     return PatchAppResult.failure;
+  }
+}
+
+/**
+ * Helper function to commit the given changes to the backend, and wait for the
+ * app to be updated.  This is used by `writeNow` and `commit`.
+ * @note Calling this will abort any in-flight validation requests, as well as
+ *       any in-flight commit requests.
+ * @returns Whether the commit was successful.
+ */
+async function commitChanges(
+  store: Store<RootState>,
+  context: ActionContext<PreferencesState, typeof mutations>,
+  changes: Changes,
+): Promise<boolean> {
+  const { rootGetters } = context;
+  pendingCommit.reset();
+
+  // Clear any in-flight validation calls.
+  modifySerializer.abort();
+
+  let result: Awaited<ReturnType<typeof patchApp>> = PatchAppResult.failure;
+  let skipResolve = false;
+
+  try {
+    result = await patchApp(context, changes, commitSerializer);
+
+    // We update `state.changes` via the plugin below (by monitoring when
+    // `app.spec` changes), so there is no need to do that here.
+
+    // Check the result, and resolve `pendingCommit` if we are not interrupted.
+    switch (result) {
+    case PatchAppResult.skipped:
+      return true;
+    case PatchAppResult.failure:
+      return false;
+    case PatchAppResult.interrupted:
+      // Don't resolve the pending commit; the replacement request will do that.
+      skipResolve = true;
+      return false;
+    default: {
+      if (typeof result !== 'number') {
+        // Compile-time check that we handled all PatchAppResult cases.
+        result satisfies never;
+      }
+      // The patch was successful; wait for `app.spec` to be updated.
+      const latch = Latch();
+      const timeout = setTimeout(() => {
+        latch.resolve();
+        unwatch();
+      }, 1_000);
+      const generation = result;
+      const unwatch = store.watch(
+        () => rootGetters['rdd/app']?.metadata?.generation ?? 0,
+        (newGeneration) => {
+          if (newGeneration >= generation) {
+            clearTimeout(timeout);
+            // Make sure `watch` returns before evaluating `unwatch`.
+            queueMicrotask(() => unwatch());
+            latch.resolve();
+          }
+        }, { immediate: true });
+      await latch;
+      return true;
+    }
+    }
+  } finally {
+    if (!skipResolve) {
+      pendingCommit.resolve();
+    }
   }
 }
 
