@@ -11,6 +11,7 @@ import (
 
 	// Import rdd controller packages to trigger init() functions.
 	_ "github.com/rancher-sandbox/rancher-desktop-daemon/pkg/controllers/rdd/configmapreplicaset"
+	_ "github.com/rancher-sandbox/rancher-desktop-daemon/pkg/controllers/rdd/hostinfo"
 	_ "github.com/rancher-sandbox/rancher-desktop-daemon/pkg/controllers/rdd/notary"
 	"github.com/rancher-sandbox/rancher-desktop-daemon/pkg/external"
 )

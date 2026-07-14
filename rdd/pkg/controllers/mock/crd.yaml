@@ -92,6 +92,28 @@ spec:
               running:
                 description: running specifies whether the VM should be running.
                 type: boolean
+              virtualMachine:
+                description: virtualMachine specifies the VM resource allocation (CPUs
+                  and memory).
+                properties:
+                  cpus:
+                    description: |-
+                      cpus is the number of vCPUs to allocate to the VM.
+                      Must be no greater than the number of CPUs on the host.
+                      When unset (0), the admission controller fills in the default count.
+                    type: integer
+                  memory:
+                    anyOf:
+                    - type: integer
+                    - type: string
+                    description: |-
+                      memory is the amount of RAM to allocate to the VM, as a Kubernetes
+                      resource quantity (e.g. "4Gi", "2048Mi"). Must be at least 2Gi and no
+                      greater than the total memory on the host. When unset, the admission
+                      controller fills in the default amount.
+                    pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                    x-kubernetes-int-or-string: true
+                type: object
             required:
             - running
             type: object
@@ -1994,6 +2016,78 @@ spec:
                 type: integer
             required:
             - readyReplicas
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.19.0
+  name: hostinfos.rdd.rancherdesktop.io
+spec:
+  group: rdd.rancherdesktop.io
+  names:
+    categories:
+    - all
+    kind: HostInfo
+    listKind: HostInfoList
+    plural: hostinfos
+    singular: hostinfo
+  scope: Cluster
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .status.cpus
+      name: CPUs
+      type: integer
+    - jsonPath: .status.memory
+      name: Memory
+      type: integer
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          HostInfo is a cluster-scoped singleton that exposes host hardware limits
+          (CPU count and total memory) so that clients such as the GUI can determine
+          valid ranges for VM resource settings without inspecting the host directly.
+          The controller creates and maintains exactly one instance named "system".
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: |-
+              HostInfoSpec is empty; HostInfo is a read-only singleton managed entirely
+              by the controller.
+            type: object
+          status:
+            description: HostInfoStatus reports the detected host hardware limits.
+            properties:
+              cpus:
+                description: cpus is the number of logical CPUs on the host.
+                type: integer
+              memory:
+                description: memory is the total host RAM in bytes.
+                format: int64
+                type: integer
             type: object
         type: object
     served: true

@@ -12,7 +12,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	goruntime "runtime"
 	"slices"
 	"strconv"
@@ -115,46 +114,30 @@ func (r *AppReconciler) kubernetesEnabled(ctx context.Context) bool {
 	return slices.Contains(enabled, v1alpha1.KubernetesControllerName)
 }
 
-// vmCPUsEnv overrides the VM's cpu count from the environment. CI sets it so
-// the VM gets more cores on starved runners; regular installs keep the
-// template default. To be replaced by an App spec property.
-const vmCPUsEnv = "RDD_VM_CPUS"
-
-// applyVMCPUsOverride rewrites the template's cpus line when vmCPUsEnv is
-// set. A set-but-invalid value is an error rather than a silent fallback to
-// the template default, so a typo cannot quietly change what CI measures.
-func applyVMCPUsOverride(template string) (string, error) {
-	val := os.Getenv(vmCPUsEnv)
-	if val == "" {
-		return template, nil
-	}
-	cpus, err := strconv.Atoi(val)
-	if err != nil || cpus < 1 {
-		return "", fmt.Errorf("invalid %s value %q: want a positive integer", vmCPUsEnv, val)
-	}
-	re := regexp.MustCompile(`(?m)^cpus: \d+$`)
-	if !re.MatchString(template) {
-		return "", fmt.Errorf("%s is set but the Lima template has no cpus line to override", vmCPUsEnv)
-	}
-	return re.ReplaceAllString(template, fmt.Sprintf("cpus: %d", cpus)), nil
-}
-
 func applySpecToTemplate(baseTemplate string, spec v1alpha1.AppSpec, kubernetesPort int) (string, error) {
 	hostHome, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("failed to get host home directory: %w", err)
-	}
-	baseTemplate, err = applyVMCPUsOverride(baseTemplate)
-	if err != nil {
-		return "", err
 	}
 	// vm-switch writes its logfile under LogDir() (passed below as VM_SWITCH_LOG)
 	// and fails to start if the directory is missing, so create it before the VM.
 	if err := os.MkdirAll(instance.LogDir(), 0o700); err != nil {
 		return "", fmt.Errorf("failed to create log directory: %w", err)
 	}
-	return strings.Join([]string{
-		baseTemplate,
+
+	// cpus and memory are appended here rather than baked into the template so
+	// the spec drives them directly. Lima falls back to its own default when a
+	// key is absent, which covers the unset case (cpus 0, memory nil).
+	lines := []string{baseTemplate}
+	if cpus := spec.VirtualMachine.CPUs; cpus > 0 {
+		lines = append(lines, fmt.Sprintf("cpus: %d", cpus))
+	}
+	if mem := spec.VirtualMachine.Memory; mem != nil {
+		lines = append(lines, fmt.Sprintf("memory: %q", strconv.FormatInt(mem.Value(), 10)))
+	}
+
+	lines = append(lines,
+		"",
 		"param:",
 		fmt.Sprintf("  CONTAINER_ENGINE: %s", spec.ContainerEngine.Name),
 		fmt.Sprintf("  HOST_DOCKER_SOCKET: %q", instance.DockerSocket()),
@@ -167,7 +150,8 @@ func applySpecToTemplate(baseTemplate string, spec v1alpha1.AppSpec, kubernetesP
 		fmt.Sprintf("  KUBERNETES_VERSION: %s", spec.Kubernetes.Version),
 		fmt.Sprintf("  KUBERNETES_PORT: %d", kubernetesPort),
 		"",
-	}, "\n"), nil
+	)
+	return strings.Join(lines, "\n"), nil
 }
 
 // networkSetupExtraArgs returns the diagnostic vm-switch logging flags under

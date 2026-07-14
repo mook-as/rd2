@@ -4,7 +4,8 @@
 
 // Package v1alpha1 defines the rdd.rancherdesktop.io API group, which contains
 // system-level resources: ConfigMapReplicaSet for declarative ConfigMap
-// replication and Notary for tracking configuration changes.
+// replication, Notary for tracking configuration changes, and HostInfo for
+// exposing host hardware limits (CPU count and total memory).
 // +kubebuilder:object:generate=true
 // +kubebuilder:ac:generate=true
 // +groupName=rdd.rancherdesktop.io

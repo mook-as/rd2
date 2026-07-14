@@ -10,6 +10,8 @@ import (
 
 	"gotest.tools/v3/assert"
 
+	"k8s.io/apimachinery/pkg/api/resource"
+
 	"github.com/rancher-sandbox/rancher-desktop-daemon/pkg/apis/app/v1alpha1"
 )
 
@@ -88,7 +90,7 @@ func Test_AppDefaulter_Default(t *testing.T) {
 		},
 	}
 
-	d, err := NewAppDefaulter(testK3sVersions)
+	d, err := NewAppDefaulter(testK3sVersions, HostInfo{})
 	assert.NilError(t, err)
 
 	for _, tt := range tests {
@@ -106,6 +108,151 @@ func Test_AppDefaulter_Default(t *testing.T) {
 			err := d.Default(context.Background(), app)
 			assert.NilError(t, err)
 			assert.Equal(t, app.Spec.Kubernetes.Version, tt.want)
+		})
+	}
+}
+
+// Test_AppDefaulter_defaultsVMCPUs covers the cpu-count default the admission
+// controller writes for spec.virtualMachine.cpus. It is not parallel because it
+// sets RDD_VM_CPUS via t.Setenv.
+func Test_AppDefaulter_defaultsVMCPUs(t *testing.T) {
+	tests := []struct {
+		name     string
+		env      string
+		hostCPUs int
+		specCPUs int
+		wantCPUs int
+		wantErr  string
+	}{
+		{
+			name:     "unset cpus and no env uses the built-in default",
+			wantCPUs: defaultVMCPUs,
+		},
+		{
+			name:     "unset cpus takes the RDD_VM_CPUS override",
+			env:      "3",
+			wantCPUs: 3,
+		},
+		{
+			name:     "explicit cpus wins over the env override",
+			env:      "3",
+			specCPUs: 4,
+			wantCPUs: 4,
+		},
+		{
+			name:     "built-in default is clamped to the host cpu count",
+			hostCPUs: 1,
+			wantCPUs: 1,
+		},
+		{
+			name:     "env override is clamped to the host cpu count",
+			env:      "8",
+			hostCPUs: 4,
+			wantCPUs: 4,
+		},
+		{
+			name:    "non-numeric env value errors",
+			env:     "many",
+			wantErr: "invalid RDD_VM_CPUS",
+		},
+		{
+			name:    "zero env errors",
+			env:     "0",
+			wantErr: "invalid RDD_VM_CPUS",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv(vmCPUsEnv, tt.env)
+
+			d, err := NewAppDefaulter(testK3sVersions, HostInfo{CPUs: tt.hostCPUs})
+			assert.NilError(t, err)
+
+			app := &v1alpha1.App{
+				Spec: v1alpha1.AppSpec{
+					VirtualMachine: v1alpha1.VirtualMachineSpec{CPUs: tt.specCPUs},
+				},
+			}
+			err = d.Default(context.Background(), app)
+			if tt.wantErr != "" {
+				assert.ErrorContains(t, err, tt.wantErr)
+				return
+			}
+			assert.NilError(t, err)
+			assert.Equal(t, app.Spec.VirtualMachine.CPUs, tt.wantCPUs)
+		})
+	}
+}
+
+// Test_AppDefaulter_defaultsVMMemory covers the memory default the admission
+// controller writes for spec.virtualMachine.memory: 25% of host memory, clamped
+// to [minMemoryBytes, maxDefaultMemoryBytes].
+func Test_AppDefaulter_defaultsVMMemory(t *testing.T) {
+	t.Parallel()
+
+	explicit := resource.NewQuantity(3*1024*1024*1024, resource.BinarySI)
+
+	tests := []struct {
+		name       string
+		hostMemory int64
+		specMemory *resource.Quantity
+		wantBytes  int64
+		wantErr    string
+	}{
+		{
+			name:       "quarter of host memory when within bounds",
+			hostMemory: 16 * 1024 * 1024 * 1024,
+			wantBytes:  4 * 1024 * 1024 * 1024,
+		},
+		{
+			name:       "capped at the 6 GiB maximum",
+			hostMemory: 64 * 1024 * 1024 * 1024,
+			wantBytes:  maxDefaultMemoryBytes,
+		},
+		{
+			name:       "floored at the 2 GiB minimum on small hosts",
+			hostMemory: 4 * 1024 * 1024 * 1024,
+			wantBytes:  minMemoryBytes,
+		},
+		{
+			name:       "floored at the minimum when host memory is unknown",
+			hostMemory: 0,
+			wantBytes:  minMemoryBytes,
+		},
+		{
+			name:       "explicit memory is left untouched",
+			hostMemory: 16 * 1024 * 1024 * 1024,
+			specMemory: explicit,
+			wantBytes:  explicit.Value(),
+		},
+		{
+			name:       "errors when host memory is below the minimum",
+			hostMemory: 1 * 1024 * 1024 * 1024,
+			wantErr:    "below the",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			d, err := NewAppDefaulter(testK3sVersions, HostInfo{Memory: tt.hostMemory})
+			assert.NilError(t, err)
+
+			app := &v1alpha1.App{
+				Spec: v1alpha1.AppSpec{
+					VirtualMachine: v1alpha1.VirtualMachineSpec{Memory: tt.specMemory},
+				},
+			}
+			err = d.Default(context.Background(), app)
+			if tt.wantErr != "" {
+				assert.ErrorContains(t, err, tt.wantErr)
+				return
+			}
+			assert.NilError(t, err)
+			assert.Assert(t, app.Spec.VirtualMachine.Memory != nil)
+			assert.Equal(t, app.Spec.VirtualMachine.Memory.Value(), tt.wantBytes)
 		})
 	}
 }

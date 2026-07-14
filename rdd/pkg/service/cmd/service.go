@@ -66,6 +66,7 @@ import (
 	_ "github.com/rancher-sandbox/rancher-desktop-daemon/pkg/controllers/containers"
 	_ "github.com/rancher-sandbox/rancher-desktop-daemon/pkg/controllers/lima/limavm"
 	_ "github.com/rancher-sandbox/rancher-desktop-daemon/pkg/controllers/rdd/configmapreplicaset"
+	_ "github.com/rancher-sandbox/rancher-desktop-daemon/pkg/controllers/rdd/hostinfo"
 	_ "github.com/rancher-sandbox/rancher-desktop-daemon/pkg/controllers/rdd/notary"
 	"github.com/rancher-sandbox/rancher-desktop-daemon/pkg/developer"
 	"github.com/rancher-sandbox/rancher-desktop-daemon/pkg/instance"

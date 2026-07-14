@@ -22,6 +22,10 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &rddv1alpha1.ConfigMapSpecApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("ConfigMapStatus"):
 		return &rddv1alpha1.ConfigMapStatusApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("HostInfo"):
+		return &rddv1alpha1.HostInfoApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("HostInfoStatus"):
+		return &rddv1alpha1.HostInfoStatusApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("Notary"):
 		return &rddv1alpha1.NotaryApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("NotarySpec"):
