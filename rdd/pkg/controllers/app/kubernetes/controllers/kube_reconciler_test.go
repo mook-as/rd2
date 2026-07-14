@@ -14,6 +14,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -33,6 +34,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	appv1alpha1 "github.com/rancher-sandbox/rancher-desktop-daemon/pkg/apis/app/v1alpha1"
+	"github.com/rancher-sandbox/rancher-desktop-daemon/pkg/instance"
 )
 
 // fakeK3sServer starts an httptest TLS server that answers /healthz with
@@ -814,4 +816,58 @@ func Test_classifyProbeError(t *testing.T) {
 			assert.Equal(t, classifyProbeError(tc.err), tc.want)
 		})
 	}
+}
+
+// Test_RemoveKubeContext_WaitsForProbeWrite pins the ordering between the probe
+// goroutine and removeKubeContext. Once the probe is past its cancellation guard,
+// removeKubeContext must not return until the probe's write lands, or it clears a
+// current-context that the probe then restores.
+func Test_RemoveKubeContext_WaitsForProbeWrite(t *testing.T) {
+	dir := t.TempDir()
+	isolateKubeconfig(t, dir)
+
+	r := &KubernetesReconciler{
+		K3sConfigPath:          makeSrcKubeconfig(t, dir),
+		InstanceKubeConfigPath: filepath.Join(dir, "kube.config"),
+	}
+
+	inWrite := make(chan struct{})
+	release := make(chan struct{})
+	releaseProbe := sync.OnceFunc(func() { close(release) })
+	t.Cleanup(releaseProbe)
+	testBeforeSetCurrentKubeContext = func() {
+		close(inWrite)
+		<-release
+	}
+	t.Cleanup(func() { testBeforeSetCurrentKubeContext = nil })
+
+	// The kubeconfig has no current-context, so the probe reports it unhealthy
+	// and goes on to write one, parking in the seam above.
+	assert.NilError(t, r.manageKubeContext(context.Background()))
+	select {
+	case <-inWrite:
+	case <-time.After(10 * time.Second):
+		assert.Assert(t, false, "probe never reached the current-context write")
+	}
+
+	removed := make(chan struct{})
+	go func() {
+		r.removeKubeContext(context.Background())
+		close(removed)
+	}()
+
+	select {
+	case <-removed:
+		assert.Assert(t, false,
+			"removeKubeContext returned while the probe's kubeconfig write was in flight")
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	releaseProbe()
+	<-removed
+
+	cfg := loadDest(t, filepath.Join(dir, ".kube", "config"))
+	assert.Equal(t, cfg.CurrentContext, "", "probe restored a current-context that removeKubeContext cleared")
+	_, found := cfg.Contexts[instance.Name()]
+	assert.Assert(t, !found, "removeKubeContext should have deleted the context")
 }

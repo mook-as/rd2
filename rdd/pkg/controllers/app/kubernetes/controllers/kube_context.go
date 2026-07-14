@@ -20,6 +20,11 @@ import (
 // load and write; regression tests use it to interleave a concurrent writer.
 var testAfterLoadKubeConfig func()
 
+// testBeforeSetCurrentKubeContext, when non-nil, runs before setCurrentKubeContext
+// takes atomicfile's lock, so a test can hold the probe's write open without also
+// blocking the writes removeKubeContext makes while it waits.
+var testBeforeSetCurrentKubeContext func()
+
 // kubeConfigPath returns ~/.kube/config, or $KUBECONFIG if set.
 // Computed dynamically so t.Setenv("HOME", …) works in tests.
 func kubeConfigPath() (string, error) {
@@ -188,6 +193,9 @@ func getCurrentKubeContext() (string, error) {
 
 // setCurrentKubeContext sets current-context in ~/.kube/config. No-op if already set.
 func setCurrentKubeContext(name string) error {
+	if testBeforeSetCurrentKubeContext != nil {
+		testBeforeSetCurrentKubeContext()
+	}
 	destPath, err := kubeConfigPath()
 	if err != nil {
 		return err

@@ -102,12 +102,10 @@ type KubernetesReconciler struct {
 	// inject a path under a temp directory.
 	InstanceKubeConfigPath string
 
-	// contextMu protects contextProbeCancel and contextProbeGen.
+	// contextMu protects contextProbeCancel.
 	contextMu sync.Mutex
 	// contextProbeCancel cancels the in-flight current-context probe goroutine.
 	contextProbeCancel context.CancelFunc
-	// contextProbeGen detects superseded goroutines.
-	contextProbeGen int
 	// contextProbeWg lets removeKubeContext wait for any probe to finish.
 	contextProbeWg sync.WaitGroup
 
@@ -458,23 +456,18 @@ func (r *KubernetesReconciler) manageKubeContext(ctx context.Context) error {
 	}
 	probeCtx, cancel := context.WithCancel(ctx)
 	r.contextProbeCancel = cancel
-	r.contextProbeGen++
-	myGen := r.contextProbeGen
 	r.contextMu.Unlock()
 
 	r.contextProbeWg.Add(1)
 	go func() {
-		// Use sync.Once so contextProbeWg.Done() fires exactly once, either
-		// explicitly after the HTTP probe or via defer on early return.
-		// Crucially, Done() must be called BEFORE setCurrentKubeContext so that
-		// removeKubeContext.Wait() is not held hostage by a slow or blocking
-		// write to ~/.kube/config.
-		var wgDone sync.Once
-		signalDone := func() { wgDone.Do(r.contextProbeWg.Done) }
-		defer signalDone()
+		// Done fires after the kubeconfig write below, so removeKubeContext.Wait()
+		// covers that write instead of racing it.
+		defer r.contextProbeWg.Done()
 		defer func() {
+			// Both paths that replace contextProbeCancel cancel probeCtx first, so
+			// an uncancelled probeCtx means the field still holds our cancel func.
 			r.contextMu.Lock()
-			if r.contextProbeGen == myGen {
+			if probeCtx.Err() == nil {
 				r.contextProbeCancel = nil
 			}
 			r.contextMu.Unlock()
@@ -488,10 +481,6 @@ func (r *KubernetesReconciler) manageKubeContext(ctx context.Context) error {
 		}
 
 		healthy := probeCurrentKubeContext(probeCtx, current)
-
-		// Signal the WaitGroup before writing to ~/.kube/config so that
-		// removeKubeContext.Wait() is not blocked by a slow file write.
-		signalDone()
 
 		// Guard against writing after removeKubeContext cancelled probeCtx.
 		if !healthy && probeCtx.Err() == nil {
