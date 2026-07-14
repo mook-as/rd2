@@ -1,8 +1,8 @@
 export const preferencesNavItems = [
-  // {
-  //   name: 'Application',
-  //   tabs: ['general', 'behavior', 'environment'],
-  // },
+  {
+    name: 'Application',
+    tabs: ['general'/* 'behavior', 'environment' */],
+  },
   // {
   //   name: process.platform === 'win32' ? 'WSL' : 'Virtual Machine',
   //   tabs: vmTabs,

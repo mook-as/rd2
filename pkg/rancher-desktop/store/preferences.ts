@@ -174,6 +174,14 @@ export const actions = {
   },
 
   /**
+   * Write the given preference to the backend directly, without going through the local state.
+   * This is used for preferences that do not go through the normal dialog.
+   */
+  async writeNow(context, { key, value }: { key: RecursiveLeafKeys<AppSpec>, value: FieldType<AppSpec, typeof key> }) {
+    return await patchApp(context, { [key]: value }, commitSerializer);
+  },
+
+  /**
    * Commit the current set of changes to the backend.
    * @returns Whether the commit was successful.
    * @note If a commit is already in progress, the previous call will be aborted.

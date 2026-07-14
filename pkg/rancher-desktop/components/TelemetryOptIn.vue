@@ -1,35 +1,26 @@
-<script>
-import RdCheckbox from '@pkg/components/form/RdCheckbox.vue';
+<script lang="ts" setup>
 
-export default {
-  components: { RdCheckbox },
-  props:      {
-    // misc
-    telemetry: {
-      type:    Boolean,
-      default: false,
-    },
-    isTelemetryLocked: {
-      type:    Boolean,
-      default: false,
-    },
+import RdCheckbox from '@pkg/components/form/RdCheckbox.vue';
+import type { RecursiveLeafKeysOfType } from '@pkg/utils/typeUtils';
+
+import type { IoRancherdesktopAppV1alpha1AppSpec as AppSpec } from '@rdd-client';
+import type { PropType } from 'vue';
+
+const { preference } = defineProps({
+  preference: {
+    type:     String as PropType<RecursiveLeafKeysOfType<AppSpec, boolean | undefined>>,
+    required: true,
   },
-  methods: {
-    toggleTelemetry(value) {
-      this.$emit('updateTelemetry', value);
-    },
-  },
-};
+});
 </script>
 
 <template>
   <div class="system-preferences">
     <div class="checkbox">
       <rd-checkbox
-        :value="telemetry"
-        :is-locked="isTelemetryLocked"
+        :preference="preference"
+        :immediate="true"
         label="Allow collection of anonymous statistics to help us improve Rancher Desktop"
-        @update:value="toggleTelemetry"
       />
       <p class="fineprint">
         Send anonymized usage info, error reports, etc. to help improve Rancher Desktop. Your data will not be shared with anyone else, and no information about what specific resources or endpoints you are deploying is included.
