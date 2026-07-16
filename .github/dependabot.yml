@@ -52,6 +52,8 @@ updates:
   - # Swagger dependencies must match whatever the CLI generate.
     dependency-name: "github.com/go-openapi/swag"
   groups:
+    etcd:
+      patterns: ["go.etcd.io/etcd/*"]
     golang-x:
       patterns: ["golang.org/x/*"]
     k8s:
