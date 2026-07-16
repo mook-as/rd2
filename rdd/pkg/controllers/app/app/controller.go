@@ -181,6 +181,7 @@ func (c *controller) RegisterWithManager(mgr ctrl.Manager) error {
 	if err := (&controllers.AppReconciler{
 		Client:           mgr.GetClient(),
 		Scheme:           mgr.GetScheme(),
+		Manager:          mgr,
 		LimaTemplateData: limaTemplateData(),
 		Discovery:        discovery,
 	}).SetupWithManager(mgr); err != nil {
