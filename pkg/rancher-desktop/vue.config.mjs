@@ -1,17 +1,17 @@
 import path from 'node:path';
 
 import _ from 'lodash';
-import semver from 'semver';
 import webpack from 'webpack';
+
+import { isReleaseVersion } from './utils/version.js';
 
 const rootDir = path.resolve(import.meta.dirname, '..', '..');
 
 const rdVersion = process.env.RD_VERSION || '0.0.1-fallback';
 
 // A pre-release build — development, alpha, beta, or an unparsable version —
-// gets the striped nav.  This duplicates isReleaseVersion() from
-// @pkg/utils/version, which a plain-JavaScript config cannot import.
-const rdPrerelease = !(semver.valid(rdVersion) !== null && semver.prerelease(rdVersion) === null);
+// gets the striped nav.
+const rdPrerelease = !isReleaseVersion(rdVersion);
 
 export default {
   publicPath:          '/',
