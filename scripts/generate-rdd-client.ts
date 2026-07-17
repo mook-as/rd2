@@ -94,7 +94,12 @@ async function run() {
       proxy.kill();
     }
 
-    await execFile(rddPath, ['set', 'running=true']);
+    try {
+      await execFile('docker', ['version']);
+    } catch {
+      // If dockerd is not running, start it using RDD.
+      await execFile(rddPath, ['set', 'running=true']);
+    }
 
     // Determine the hash of this file, used as the tag for the images.
     const tagHash = crypto.createHash('sha256');
