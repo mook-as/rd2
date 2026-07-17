@@ -3,7 +3,15 @@ import path from 'node:path';
 import _ from 'lodash';
 import webpack from 'webpack';
 
+import { isReleaseVersion } from './utils/version.js';
+
 const rootDir = path.resolve(import.meta.dirname, '..', '..');
+
+const rdVersion = process.env.RD_VERSION || '0.0.1-fallback';
+
+// A pre-release build — development, alpha, beta, or an unparsable version —
+// gets the striped nav.
+const rdPrerelease = !isReleaseVersion(rdVersion);
 
 export default {
   publicPath:          '/',
@@ -44,8 +52,9 @@ export default {
       'process.env.NODE_ENV':    JSON.stringify(process.env.NODE_ENV || 'development'),
       'process.env.RD_DOCS_URL': JSON.stringify(process.env.RD_DOCS_URL || 'https://docs.rancherdesktop.io'),
       'process.env.RD_TEST':     JSON.stringify(process.env.RD_TEST || ''),
-      'process.env.RD_VERSION':  JSON.stringify(process.env.RD_VERSION || '0.0.1-fallback'),
+      'process.env.RD_VERSION':  JSON.stringify(rdVersion),
 
+      'process.env.RD_PRERELEASE':             rdPrerelease,
       'process.env.FEATURE_DIAGNOSTICS_FIXES': process.env.RD_ENV_DIAGNOSTICS_FIXES === '1',
 
       __VUE_OPTIONS_API__:                     true,

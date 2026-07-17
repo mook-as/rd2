@@ -46,7 +46,9 @@ export default defineComponent({
     user-select: none;
   }
 
+  // Solid highlight by default; pre-release builds override --nav-active-bg
+  // (see BODY.prerelease in _prerelease.scss).
   .active {
-    background-color: var(--nav-active);
+    background: var(--nav-active-bg, var(--nav-active));
   }
 </style>
