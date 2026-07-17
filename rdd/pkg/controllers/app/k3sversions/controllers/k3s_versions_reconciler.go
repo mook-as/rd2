@@ -7,7 +7,7 @@ package controllers
 import (
 	"context"
 	"fmt"
-	"sync"
+	"maps"
 
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -15,34 +15,30 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-	"sigs.k8s.io/controller-runtime/pkg/event"
-	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/rancher-sandbox/rancher-desktop-daemon/pkg/apis/app/v1alpha1"
-	"github.com/rancher-sandbox/rancher-desktop-daemon/pkg/service/controllers"
+	"github.com/rancher-sandbox/rancher-desktop-daemon/pkg/controllers/base"
 )
 
 const k3sVersionsConfigMapName = "k3s-versions"
 
-// K3sVersionsReconciler reconciles the internal k3s versions config map; this
-// is used by both the app reconciler and the front end to determine which k3s
-// versions are available for use.
+// K3sVersionsReconciler reconciles on App resource changes to create or delete
+// the k3s-versions config map; that config map is used by the front end to
+// display supported Kubernetes versions in the preferences dialog.
 type K3sVersionsReconciler struct {
 	client.Client
 }
 
-// DesiredLabels is the desired labels for the k3s-versions config map.
-// This is exported so the webhook can use it to filter for the config map.
-var DesiredLabels = sync.OnceValue(func() map[string]string {
-	return map[string]string{
-		"app.kubernetes.io/name":       "rdd-k3s-versions",
-		"app.kubernetes.io/component":  "k3s-versions",
-		"app.kubernetes.io/managed-by": "rancher-desktop-daemon",
-	}
-})
+// desiredLabels is the desired labels for the k3s-versions config map.
+// The users should not modify this structure; using `maps.Clone` is recommended.
+var desiredLabels = map[string]string{
+	"app.kubernetes.io/name":       "rdd-k3s-versions",
+	"app.kubernetes.io/component":  "k3s-versions",
+	"app.kubernetes.io/managed-by": "rdd-k3s-versions",
+}
 
 // DesiredLabels returns a copy of the desired labels for the k3s-versions
 // config map.  This is exported so the controller can use the labels to filter
@@ -54,20 +50,46 @@ func DesiredLabels() map[string]string {
 // Reconcile implements [reconcile.Reconciler].
 func (r *K3sVersionsReconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
 	logger := log.FromContext(ctx)
+
+	app := v1alpha1.App{}
+	if err := r.Get(ctx, client.ObjectKey{Namespace: req.Namespace, Name: req.Name}, &app); err != nil {
+		if client.IgnoreNotFound(err) != nil {
+			return reconcile.Result{}, fmt.Errorf("failed to get app %s/%s: %w", req.Namespace, req.Name, err)
+		}
+		logger.V(1).Info("app not found; it may have been deleted", "namespace", req.Namespace, "name", req.Name)
+		// The k3s versions config map is owned by the app, and the app reconciler
+		// is responsible for deleting its owned resources.  Without the app, we do
+		// not know which namespace in which to look for the config map anyway, so
+		// there is nothing we can do here.
+		return reconcile.Result{}, nil
+	}
+
+	if app.Spec.Namespace == "" {
+		// The app doesn't have a namespace yet; the app reconciler should deal with
+		// it before we create the config map.
+		logger.V(1).Info("app does not have a namespace yet", "namespace", req.Namespace, "name", req.Name)
+		return reconcile.Result{}, nil
+	}
+
 	cm := v1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
-			Namespace: req.Namespace,
-			Name:      req.Name,
+			Namespace: app.Spec.Namespace,
+			Name:      k3sVersionsConfigMapName,
 		},
+	}
+
+	if base.IsBeingDeleted(&app) {
+		// The app is being deleted; the app's reconciler will delete all the
+		// objects it owns, which includes the k3s-versions config map.
+		return reconcile.Result{}, nil
 	}
 
 	result, err := controllerutil.CreateOrUpdate(ctx, r, &cm, func() error {
 		if cm.Labels == nil {
 			cm.Labels = make(map[string]string)
 		}
-		for k, v := range DesiredLabels() {
-			cm.Labels[k] = v
-		}
+		maps.Copy(cm.Labels, desiredLabels)
+		cm.Labels["app.kubernetes.io/instance"] = app.Name
 		if cm.Data == nil {
 			cm.Data = make(map[string]string)
 		}
@@ -75,16 +97,18 @@ func (r *K3sVersionsReconciler) Reconcile(ctx context.Context, req reconcile.Req
 		if err != nil {
 			return err
 		}
-		for k, v := range desiredData {
-			cm.Data[k] = v
+		maps.Copy(cm.Data, desiredData)
+		if err := ctrl.SetControllerReference(&app, &cm, r.Scheme()); err != nil {
+			return fmt.Errorf("failed to set controller reference for k3s versions config map: %w", err)
 		}
+
 		return nil
 	})
 	if err != nil {
 		return reconcile.Result{}, fmt.Errorf("failed to create or update k3s versions config map: %w", err)
 	}
 
-	logger.V(1).Info("reconciled k3s-versions config map", "result", result)
+	logger.V(1).Info("reconciled k3s-versions config map", "result", result, "namespace", cm.Namespace)
 	return reconcile.Result{}, nil
 }
 
@@ -93,36 +117,13 @@ func (r *K3sVersionsReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	// Trigger whenever an app gets created; this ensures that the config map
 	// exists.
 	return builder.ControllerManagedBy(mgr).
-		// We manage config maps, of a particular namespace and name.
-		For(&v1.ConfigMap{}, builder.WithPredicates(predicate.NewPredicateFuncs(func(o client.Object) bool {
-			return o.GetNamespace() == controllers.RDDSystemNamespace && o.GetName() == k3sVersionsConfigMapName
+		Named("k3s_versions_reconciler").
+		// We get triggered on App changes.
+		For(&v1alpha1.App{}).
+		// We also watch for the config map being changed, so we can reset it as
+		// needed.  Filter to only our config map.
+		Owns(&v1.ConfigMap{}, builder.WithPredicates(predicate.NewPredicateFuncs(func(object client.Object) bool {
+			return object.GetName() == k3sVersionsConfigMapName
 		}))).
-		// We also enqueue a reconcile request when an app is created.
-		Watches(&v1alpha1.App{},
-			// Enqueue a reconcile request for the relevant config map on app change...
-			handler.EnqueueRequestsFromMapFunc(func(context.Context, client.Object) []reconcile.Request {
-				return []reconcile.Request{{
-					NamespacedName: client.ObjectKey{
-						Namespace: controllers.RDDSystemNamespace,
-						Name:      k3sVersionsConfigMapName,
-					},
-				}}
-			}),
-			// ...but only on app creation, since we only need to make sure the config map exists.
-			builder.WithPredicates(predicate.Funcs{
-				CreateFunc: func(event.CreateEvent) bool {
-					return true
-				},
-				UpdateFunc: func(event.UpdateEvent) bool {
-					return false
-				},
-				DeleteFunc: func(event.DeleteEvent) bool {
-					return false
-				},
-				GenericFunc: func(event.GenericEvent) bool {
-					return false
-				},
-			}),
-		).
 		Complete(r)
 }

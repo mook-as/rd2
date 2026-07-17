@@ -91,7 +91,7 @@ func (c *controller) setupWebhook(mgr ctrl.Manager) error {
 		Operations: []admissionregistrationv1.OperationType{
 			admissionregistrationv1.Delete,
 		},
-		Validator: &controllers.K3sVersionsValidator{},
+		Validator: &controllers.K3sVersionsValidator{Client: mgr.GetClient()},
 	}
 
 	managers, err := base.SetupWebhookForResource(mgr, &v1.ConfigMap{}, validatingConfig)
