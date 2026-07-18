@@ -2,7 +2,7 @@ name: UI E2E Tests
 
 on:
   workflow_dispatch:
-  push:
+  push: # We limit this further in the check-paths job.
   pull_request:
 
 permissions:
@@ -10,6 +10,13 @@ permissions:
 
 jobs:
   check-paths:
+    # On push, on the upstream repository (`rancher-sandbox/*`), limit to `main`
+    # and `release-*` branches.  For forks or pull requests, run on all branches.
+    if: >-
+      github.event_name != 'push' ||
+      github.repository_owner != 'rancher-sandbox' ||
+      github.ref_name == 'main' ||
+      startsWith(github.ref_name, 'release-')
     uses: ./.github/workflows/paths-ignore.yaml
   e2e-tests:
     needs: check-paths
