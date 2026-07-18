@@ -1,60 +1,72 @@
-<script lang="ts">
-import { defineComponent } from 'vue';
-import { mapState } from 'vuex';
+<script lang="ts" setup>
+import _ from 'lodash';
+import { computed, PropType } from 'vue';
+import { useStore } from 'vuex';
 
-type AlertMap = Record<'reset' | 'restart' | 'error', string>;
+import type { V1StatusCause } from '@rdd-client';
 
-const alertMap: AlertMap = {
+// TODO: we currently only display errors from V1Status; we also need to support
+// states for the VM needs to restart.
+
+const alertMap = {
   reset:   'preferences.actions.banner.reset',
   restart: 'preferences.actions.banner.restart',
   error:   'preferences.actions.banner.error',
-};
+} as const;
 
-export default defineComponent({
-  name:     'preferences-alert',
-  computed: {
-    ...mapState('preferences', ['severities', 'preferencesError']),
-    severity(): keyof AlertMap | undefined {
-      if (this.severities.error) {
-        return 'error';
-      }
+defineOptions({ name: 'preferences-alert' });
 
-      if (this.severities.reset) {
-        return 'reset';
-      }
-
-      if (this.severities.restart) {
-        return 'restart';
-      }
-
-      return undefined;
-    },
-    alert(): string {
-      if (!this.severity) {
-        return '';
-      }
-
-      return alertMap[this.severity];
-    },
-    alertText(): string | null {
-      if (this.preferencesError) {
-        return this.preferencesError;
-      }
-
-      if (this.alert) {
-        return this.t(this.alert, { }, true);
-      }
-
-      return null;
-    },
+const { severity } = defineProps({
+  severity: {
+    type:    String as PropType<'restart' | 'error'>,
+    default: 'error',
   },
 });
+
+const store = useStore();
+
+const errorStatus = computed(() => store.state.preferences.errorStatus);
+const preferences = computed(() => store.getters['preferences/preferences']);
+const alert = computed(() => severity ? alertMap[severity] : '');
+const alertText = computed(() => {
+  if (errorStatus.value) {
+    if (errorStatus.value.details?.causes?.length) {
+      const causes = errorStatus.value.details.causes;
+      const causeMessages = causes.map(cause => errorString(cause)).filter(Boolean);
+      if (causeMessages.length > 0) {
+        return causeMessages.join(', ');
+      }
+    }
+    if (errorStatus.value.message) {
+      return errorStatus.value.message;
+    }
+  }
+
+  if (alert.value) {
+    return store.getters['i18n/t'](alert.value, {}) ?? null;
+  }
+
+  return null;
+});
+
+function errorString(cause: V1StatusCause) {
+  if (!cause.field || cause.field === '<nil>') {
+    return undefined;
+  }
+  const keyParts = cause.field.split('.')
+    .filter((value, index) => index > 0 || value !== 'spec');
+  const key = ['preferences', 'validation', ...keyParts, cause.reason].join('.');
+  const current = _.get(preferences.value, keyParts.join('.'));
+  const localized = store.getters['i18n/t'](key, { current, message: cause.message });
+
+  return localized ?? `${ cause.field }: ${ cause.message }`;
+}
 </script>
 
 <template>
   <div class="alert">
     <span
-      v-if="alert"
+      v-if="errorStatus"
       class="alert-text"
     >
       {{ alertText }}

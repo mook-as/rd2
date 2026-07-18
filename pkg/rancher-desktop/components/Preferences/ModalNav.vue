@@ -1,33 +1,30 @@
-<script lang="ts">
-import { defineComponent } from 'vue';
+<script lang="ts" setup>
+import kebabCase from 'lodash/kebabCase';
 
-import PreferencesNavItem from '@pkg/components/Preferences/ModalNavItem.vue';
+import NavItem from '@pkg/components/Preferences/ModalNavItem.vue';
+import type { preferencesNavItemName } from '@pkg/window/preferenceConstants';
 
-export default defineComponent({
-  name:       'preferences-nav',
-  components: { NavItem: PreferencesNavItem },
-  props:      {
-    currentNavItem: {
-      type:     String,
-      required: true,
-    },
-    navItems: {
-      type:     Array,
-      required: true,
-    },
-  },
+defineOptions({ name: 'preferences-nav' });
 
-  methods: {
-    navClicked(tabName: string) {
-      if (tabName !== this.$props.currentNavItem) {
-        this.$emit('nav-changed', tabName);
-      }
-    },
-    navToKebab(navItem: string): string {
-      return `nav-${ navItem.toLowerCase().replaceAll(' ', '-') }`;
-    },
-  },
-});
+const { currentNavItem, navItems } = defineProps<{
+  currentNavItem: preferencesNavItemName;
+  navItems:       preferencesNavItemName[];
+}>();
+
+const emit = defineEmits<{
+  'nav-changed': [preferencesNavItemName],
+}>();
+
+function navClicked(tabName: preferencesNavItemName) {
+  if (tabName !== currentNavItem) {
+    emit('nav-changed', tabName);
+  }
+}
+
+function navToKebab(navItem: preferencesNavItemName): string {
+  return `nav-${ kebabCase(navItem) }`;
+}
+
 </script>
 
 <template>

@@ -2,7 +2,7 @@
 import { Banner } from '@rancher/components';
 import { PropType, defineComponent } from 'vue';
 
-import type { NavItemName } from '@pkg/config/transientSettings';
+import type { preferencesNavItemName as NavItemName } from '@pkg/window/preferenceConstants';
 
 export type CompatiblePrefs = {
   /** title is the string to display to the user to describe the preference. */
