@@ -10,6 +10,7 @@
  * Do not edit the class manually.
  */
 
+import { IoRancherdesktopAppV1alpha1AppSpecApplication } from '../models/IoRancherdesktopAppV1alpha1AppSpecApplication';
 import { IoRancherdesktopAppV1alpha1AppSpecContainerEngine } from '../models/IoRancherdesktopAppV1alpha1AppSpecContainerEngine';
 import { IoRancherdesktopAppV1alpha1AppSpecKubernetes } from '../models/IoRancherdesktopAppV1alpha1AppSpecKubernetes';
 import { IoRancherdesktopAppV1alpha1AppSpecVirtualMachine } from '../models/IoRancherdesktopAppV1alpha1AppSpecVirtualMachine';
@@ -19,10 +20,11 @@ import { HttpFile } from '../http/http';
 * AppSpec defines the desired state of App.
 */
 export class IoRancherdesktopAppV1alpha1AppSpec {
+    'application'?: IoRancherdesktopAppV1alpha1AppSpecApplication;
     'containerEngine'?: IoRancherdesktopAppV1alpha1AppSpecContainerEngine;
     'kubernetes'?: IoRancherdesktopAppV1alpha1AppSpecKubernetes;
     /**
-    * Namespace is the namespace where this cluster-scoped App resource creates and manages its owned namespaced resources (e.g., rancher-desktop). Defaults to \"default\" if not specified. This field is immutable after creation: changing it would orphan existing owned resources (LimaVM, ConfigMaps) in the original namespace.
+    * namespace where this cluster-scoped App resource creates and manages its owned namespaced resources (e.g., rancher-desktop). Defaults to \"default\" if not specified. This field is immutable after creation: changing it would orphan existing owned resources (LimaVM, ConfigMaps) in the original namespace.
     */
     'namespace'?: string;
     /**
@@ -36,6 +38,12 @@ export class IoRancherdesktopAppV1alpha1AppSpec {
     static readonly mapping: {[index: string]: string} | undefined = undefined;
 
     static readonly attributeTypeMap: Array<{name: string, baseName: string, type: string, format: string}> = [
+        {
+            "name": "application",
+            "baseName": "application",
+            "type": "IoRancherdesktopAppV1alpha1AppSpecApplication",
+            "format": ""
+        },
         {
             "name": "containerEngine",
             "baseName": "containerEngine",

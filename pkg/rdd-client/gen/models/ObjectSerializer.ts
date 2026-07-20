@@ -12,6 +12,8 @@ export * from '../models/EventsV1EventSeries';
 export * from '../models/IoRancherdesktopAppV1alpha1App';
 export * from '../models/IoRancherdesktopAppV1alpha1AppList';
 export * from '../models/IoRancherdesktopAppV1alpha1AppSpec';
+export * from '../models/IoRancherdesktopAppV1alpha1AppSpecApplication';
+export * from '../models/IoRancherdesktopAppV1alpha1AppSpecApplicationUpdates';
 export * from '../models/IoRancherdesktopAppV1alpha1AppSpecContainerEngine';
 export * from '../models/IoRancherdesktopAppV1alpha1AppSpecKubernetes';
 export * from '../models/IoRancherdesktopAppV1alpha1AppSpecVirtualMachine';
@@ -218,6 +220,8 @@ import { EventsV1EventSeries } from '../models/EventsV1EventSeries';
 import { IoRancherdesktopAppV1alpha1App } from '../models/IoRancherdesktopAppV1alpha1App';
 import { IoRancherdesktopAppV1alpha1AppList } from '../models/IoRancherdesktopAppV1alpha1AppList';
 import { IoRancherdesktopAppV1alpha1AppSpec } from '../models/IoRancherdesktopAppV1alpha1AppSpec';
+import { IoRancherdesktopAppV1alpha1AppSpecApplication } from '../models/IoRancherdesktopAppV1alpha1AppSpecApplication';
+import { IoRancherdesktopAppV1alpha1AppSpecApplicationUpdates } from '../models/IoRancherdesktopAppV1alpha1AppSpecApplicationUpdates';
 import { IoRancherdesktopAppV1alpha1AppSpecContainerEngine, IoRancherdesktopAppV1alpha1AppSpecContainerEngineNameEnum   } from '../models/IoRancherdesktopAppV1alpha1AppSpecContainerEngine';
 import { IoRancherdesktopAppV1alpha1AppSpecKubernetes } from '../models/IoRancherdesktopAppV1alpha1AppSpecKubernetes';
 import { IoRancherdesktopAppV1alpha1AppSpecVirtualMachine } from '../models/IoRancherdesktopAppV1alpha1AppSpecVirtualMachine';
@@ -467,6 +471,8 @@ let typeMap: {[index: string]: any} = {
     "IoRancherdesktopAppV1alpha1App": IoRancherdesktopAppV1alpha1App,
     "IoRancherdesktopAppV1alpha1AppList": IoRancherdesktopAppV1alpha1AppList,
     "IoRancherdesktopAppV1alpha1AppSpec": IoRancherdesktopAppV1alpha1AppSpec,
+    "IoRancherdesktopAppV1alpha1AppSpecApplication": IoRancherdesktopAppV1alpha1AppSpecApplication,
+    "IoRancherdesktopAppV1alpha1AppSpecApplicationUpdates": IoRancherdesktopAppV1alpha1AppSpecApplicationUpdates,
     "IoRancherdesktopAppV1alpha1AppSpecContainerEngine": IoRancherdesktopAppV1alpha1AppSpecContainerEngine,
     "IoRancherdesktopAppV1alpha1AppSpecKubernetes": IoRancherdesktopAppV1alpha1AppSpecKubernetes,
     "IoRancherdesktopAppV1alpha1AppSpecVirtualMachine": IoRancherdesktopAppV1alpha1AppSpecVirtualMachine,
