@@ -10,7 +10,7 @@ import { reopenLogs } from '@pkg/utils/logging';
 
 import type { ElectronApplication, Page } from '@playwright/test';
 
-let page: Page;
+let mainNav: NavPage;
 
 /**
  * Using test.describe.serial make the test execute step by step, as described on each `test()` order
@@ -23,16 +23,18 @@ test.describe.serial('Main App Test', () => {
   test.beforeAll(async({ colorScheme }, testInfo) => {
     electronApp = await startRancherDesktop(testInfo);
 
-    page = await electronApp.firstWindow();
-    await new NavPage(page).preferencesButton.click();
-    preferencesWindow = await electronApp.waitForEvent('window', page => /preferences/i.test(page.url()));
+    mainNav = new NavPage(await electronApp.firstWindow());
   });
 
   test.afterAll(async({ colorScheme }, testInfo) => {
     await teardown(electronApp, testInfo);
   });
 
+  test('should finish loading', () => mainNav.waitForAppSettled());
+
   test('should open preferences modal', async() => {
+    await mainNav.preferencesButton.click();
+    preferencesWindow = await electronApp.waitForEvent('window', page => /preferences/i.test(page.url()));
     expect(preferencesWindow).toBeDefined();
 
     // Wait for the navigation to appear; this only happens once the current
@@ -237,7 +239,7 @@ test.describe.serial('Main App Test', () => {
     });
 
     test.beforeEach(async() => {
-      await new NavPage(page).preferencesButton.click();
+      await mainNav.preferencesButton.click();
       preferencesWindow = await electronApp.waitForEvent('window', page => /preferences/i.test(page.url()));
     });
 
