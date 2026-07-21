@@ -11,9 +11,11 @@ import Tab from '@pkg/components/Tabbed/Tab.vue';
 
 defineOptions({ name: 'preferences-body-application' });
 
+type tabName = typeof store.state['transient-preferences']['navigation']['preferences']['application'];
+
 const store = useStore();
-const { navigation } = store.state['transient-preferences'];
-const activeTab = computed((): typeof navigation.preferences.application => navigation.preferences.application || 'general');
+const navigation = computed(() => store.state['transient-preferences'].navigation);
+const activeTab = computed((): tabName => navigation.value?.preferences?.application || 'general');
 
 const componentFromTab: ComputedRef<Component> = computed(() => {
   return ({
@@ -23,10 +25,12 @@ const componentFromTab: ComputedRef<Component> = computed(() => {
   } as const)[activeTab.value];
 });
 
-function tabSelected({ tab }: { tab: Component }) {
-  const newTab = tab.name as typeof activeTab.value;
-  if (activeTab.value !== newTab) {
-    store.dispatch('transient-preferences/navigate', { 'preferences.application': newTab });
+function tabSelected({ selectedName }: { selectedName: tabName }) {
+  if (activeTab.value !== selectedName) {
+    store.dispatch('transient-preferences/navigate', { 'preferences.application': selectedName })
+      // TODO: Actual error handling
+      // https://github.com/rancher-sandbox/rancher-desktop-2/issues/574
+      .catch(console.error);
   }
 }
 
