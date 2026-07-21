@@ -117,7 +117,7 @@ export const getters = {
   canApply: (state) => {
     return Object.keys(state.changes).length > 0 && !state.errorStatus;
   },
-  isPreferenceLocked: () => (key: RecursiveLeafKeys<AppSpec>) => {
+  isPreferenceLocked: () => (_key: RecursiveLeafKeys<AppSpec>) => {
     // TODO: deployment profiles https://github.com/rancher-sandbox/rancher-desktop-2/issues/513
     return false;
   },
@@ -151,17 +151,9 @@ export const actions = {
    */
   async modify(context, { key, value }: { key: RecursiveLeafKeys<AppSpec>, value: FieldType<AppSpec, typeof key> }) {
     // Apply the changes immediately, so the UI can reflect the new state.
-    const { state, getters, commit } = context;
-    // Merge the state with the new preferences.
-    if (_.get(getters.committed, key) === value) {
-      // Reverting a change; remove it from the changes list, so the UI does not
-      // allow committing if all changes are being reverted.
-      const { [key]: _unused, ...modified } = state.changes;
-      commit('SET_CHANGES', modified);
-    } else {
-      commit('SET_CHANGES', { ...state.changes, [key]: value });
-    }
+    recordChange(context, { key, value });
 
+    const { state } = context;
     // Wait for any in-progress commit to finish, to avoid validating a state
     // that will never be committed.
     await pendingCommit;
@@ -181,19 +173,20 @@ export const actions = {
    * @note Calling this will abort any in-flight validation requests, as well as
    *       any in-flight commit requests.
    */
-  writeNow(context, { key, value }: { key: RecursiveLeafKeys<AppSpec>, value: FieldType<AppSpec, typeof key> }) {
+  async writeNow(context, { key, value }: { key: RecursiveLeafKeys<AppSpec>, value: FieldType<AppSpec, typeof key> }) {
     // Update `state.changes` in case the pref dialog is open.
-    const { state, getters, commit } = context;
-    if (_.get(getters.committed, key) === value) {
-      // Reverting a change; remove it from the changes list, so the UI does not
-      // allow committing if all changes are being reverted.
-      const { [key]: _unused, ...modified } = state.changes;
-      commit('SET_CHANGES', modified);
-    } else {
-      commit('SET_CHANGES', { ...state.changes, [key]: value });
+    recordChange(context, { key, value });
+
+    const result = await commitChanges(this, context, { [key]: value });
+
+    if (!result) {
+      // The change was not applied; ensure the UI reflects the actual stored
+      // values.
+      const { [key]: _unused, ...modified } = context.state.changes;
+      context.commit('SET_CHANGES', modified);
     }
 
-    return commitChanges(this, context, { [key]: value });
+    return result;
   },
 
   /**
@@ -267,6 +260,24 @@ enum PatchAppResult {
   failure = 'failure',
   /** Another request has replaced this one. */
   interrupted = 'interrupted',
+}
+
+/**
+ * Record the given change in the state.
+ */
+function recordChange<K extends RecursiveLeafKeys<AppSpec>>(
+  context: ActionContext<PreferencesState, typeof mutations>,
+  { key, value }: { key: K, value: FieldType<AppSpec, K> },
+) {
+  const { commit, state, getters } = context;
+  if (_.get(getters.committed, key) === value) {
+    // Reverting a change; remove it from the changes list, so the UI does not
+    // allow committing if all changes are being reverted.
+    const { [key]: _unused, ...modified } = state.changes;
+    commit('SET_CHANGES', modified);
+  } else {
+    commit('SET_CHANGES', { ...state.changes, [key]: value });
+  }
 }
 
 /**
