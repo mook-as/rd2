@@ -14,8 +14,11 @@
     "sourceMap": true,
     "strict": true,
     "noEmit": false,
-    "experimentalDecorators": true,
+    "resolveJsonModule": true,
     "paths": {
+      "@/*": [
+        "../../*"
+      ],
       "@pkg/*": [
         "./*"
       ],

@@ -15,7 +15,6 @@
     "allowJs": true,
     "sourceMap": true,
     "strict": true,
-    "experimentalDecorators": true,
     "resolveJsonModule": true,
     "paths": {
       "@/*": [

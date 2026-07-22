@@ -1,52 +1,39 @@
-<script lang="ts">
+<script lang="ts" setup>
 
-import { defineComponent, Component, PropType } from 'vue';
-import { mapGetters, mapState } from 'vuex';
+import { Component, computed, ComputedRef } from 'vue';
+import { useStore } from 'vuex';
 
 import PreferencesApplicationBehavior from '@pkg/components/Preferences/ApplicationBehavior.vue';
 import PreferencesApplicationEnvironment from '@pkg/components/Preferences/ApplicationEnvironment.vue';
 import PreferencesApplicationGeneral from '@pkg/components/Preferences/ApplicationGeneral.vue';
 import RdTabbed from '@pkg/components/Tabbed/RdTabbed.vue';
 import Tab from '@pkg/components/Tabbed/Tab.vue';
-import { Settings } from '@pkg/config/settings';
-import type { TransientSettings } from '@pkg/config/transientSettings';
-import type { ServerState } from '@pkg/main/commandServer/httpCommandServer';
-import { RecursivePartial } from '@pkg/utils/typeUtils';
 
-export default defineComponent({
-  name:       'preferences-body-application',
-  components: {
-    RdTabbed,
-    Tab,
-    PreferencesApplicationBehavior,
-    PreferencesApplicationEnvironment,
-    PreferencesApplicationGeneral,
-  },
-  props: {
-    preferences: {
-      type:     Object as PropType<Settings>,
-      required: true,
-    },
-  },
-  computed: {
-    ...mapGetters('preferences', ['isPlatformWindows']),
-    ...mapGetters('transientSettings', ['getActiveTab']),
-    ...mapState('credentials', ['credentials']),
-    activeTab(): string {
-      return this.getActiveTab || 'behavior';
-    },
-  },
-  methods: {
-    async tabSelected({ tab }: { tab: Component }) {
-      if (this.activeTab !== tab.name) {
-        await this.commitPreferences(tab.name || '');
-      }
-    },
-    async commitPreferences(tabName: string) {
-      // TODO: Implement.
-    },
-  },
+defineOptions({ name: 'preferences-body-application' });
+
+type tabName = typeof store.state['transient-preferences']['navigation']['preferences']['application'];
+
+const store = useStore();
+const navigation = computed(() => store.state['transient-preferences'].navigation);
+const activeTab = computed((): tabName => navigation.value?.preferences?.application || 'general');
+
+const componentFromTab: ComputedRef<Component> = computed(() => {
+  return ({
+    general:     PreferencesApplicationGeneral,
+    behavior:    PreferencesApplicationBehavior,
+    environment: PreferencesApplicationEnvironment,
+  } as const)[activeTab.value];
 });
+
+function tabSelected({ selectedName }: { selectedName: tabName }) {
+  if (activeTab.value !== selectedName) {
+    store.dispatch('transient-preferences/navigate', { 'preferences.application': selectedName })
+      // TODO: Actual error handling
+      // https://github.com/rancher-sandbox/rancher-desktop-2/issues/574
+      .catch(console.error);
+  }
+}
+
 </script>
 
 <template>
@@ -58,17 +45,22 @@ export default defineComponent({
     @changed="tabSelected"
   >
     <template #tabs>
+      <!--
+      Environment has nothing yet
       <tab
         v-if="!isPlatformWindows"
         label="Environment"
         name="environment"
         :weight="1"
       />
+      -->
+      <!--
       <tab
         label="Behavior"
         name="behavior"
         :weight="2"
       />
+      -->
       <tab
         label="General"
         name="general"
@@ -78,8 +70,7 @@ export default defineComponent({
     <div class="application-content">
       <component
         v-bind="$attrs"
-        :is="`preferences-application-${activeTab}`"
-        :preferences="preferences"
+        :is="componentFromTab"
       />
     </div>
   </rd-tabbed>

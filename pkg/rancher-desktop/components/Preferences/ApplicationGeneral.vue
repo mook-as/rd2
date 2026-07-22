@@ -1,58 +1,24 @@
-<script lang="ts">
-
-import { defineComponent } from 'vue';
-import { mapGetters } from 'vuex';
-
+<script lang="ts" setup>
 import RdCheckbox from '@pkg/components/form/RdCheckbox.vue';
 import RdFieldset from '@pkg/components/form/RdFieldset.vue';
-import { Settings } from '@pkg/config/settings';
-import { RecursiveTypes } from '@pkg/utils/typeUtils';
 
-import type { PropType } from 'vue';
+defineOptions({ name: 'preferences-application-general' });
 
-export default defineComponent({
-  name:       'preferences-application-general',
-  components: { RdCheckbox, RdFieldset },
-  props:      {
-    preferences: {
-      type:     Object as PropType<Settings>,
-      required: true,
-    },
-  },
-  data() {
-    return {
-      sudoAllowedTooltip: `
-        If checked, Rancher Desktop will attempt to acquire administrative
-        credentials ("sudo access") when starting for some operations.  This
-        allows for enhanced functionality, including bridged networking and
-        default docker socket support.  Changes will only be applied next time
-        Rancher Desktop starts.
-      `,
-      automaticUpdates: true,
-      statistics:       false,
-    };
-  },
-  computed: {
-    ...mapGetters('preferences', ['isPlatformWindows', 'isPreferenceLocked']),
-    isSudoAllowed(): boolean {
-      return this.preferences?.application?.adminAccess ?? false;
-    },
-    canAutoUpdate(): boolean {
-      return this.preferences?.application.updater.enabled ?? false;
-    },
-  },
-  methods: {
-    onChange<P extends keyof RecursiveTypes<Settings>>(property: P, value: RecursiveTypes<Settings>[P]) {
-      this.$store.dispatch('preferences/updatePreferencesData', { property, value });
-    },
-  },
-});
+// TODO: Move this to i18n.
+const sudoAllowedTooltip = `
+  If checked, Rancher Desktop will attempt to acquire administrative
+  credentials ("sudo access") when starting for some operations.  This
+  allows for enhanced functionality, including bridged networking and
+  default docker socket support.  Changes will only be applied next time
+  Rancher Desktop starts.
+`;
 </script>
 
 <template>
   <div class="application-general">
+    <!-- We don't have sudo access at this point
     <rd-fieldset
-      v-if="!isPlatformWindows"
+      v-if="platform !== 'win32'"
       data-test="administrativeAccess"
       legend-text="Administrative Access"
       :legend-tooltip="sudoAllowedTooltip"
@@ -64,29 +30,28 @@ export default defineComponent({
         @update:value="onChange('application.adminAccess', $event)"
       />
     </rd-fieldset>
+  -->
     <rd-fieldset
       data-test="automaticUpdates"
       legend-text="Automatic Updates"
     >
       <rd-checkbox
+        preference="application.updates.enabled"
         data-test="automaticUpdatesCheckbox"
         label="Check for updates automatically"
-        :value="canAutoUpdate"
-        :is-locked="isPreferenceLocked('application.updater.enabled')"
-        @update:value="onChange('application.updater.enabled', $event)"
       />
     </rd-fieldset>
+    <!--
     <rd-fieldset
       data-test="statistics"
       legend-text="Statistics"
     >
       <rd-checkbox
+        preference="application.telemetry.enabled"
         label="Allow collection of anonymous statistics to help us improve Rancher Desktop"
-        :value="preferences.application.telemetry.enabled"
-        :is-locked="isPreferenceLocked('application.telemetry.enabled')"
-        @update:value="onChange('application.telemetry.enabled', $event)"
       />
     </rd-fieldset>
+    -->
   </div>
 </template>
 
