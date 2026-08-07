@@ -6,7 +6,10 @@ package controllers
 
 import (
 	"context"
+	"fmt"
+	"time"
 
+	"github.com/distribution/reference"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -56,7 +59,10 @@ func (r *ExtensionInstalledReconciler) Reconcile(ctx context.Context, ext *v1alp
 
 	installed := apimeta.FindStatusCondition(ext.Status.Conditions, v1alpha1.ExtensionConditionInstalled)
 	switch {
-	case installed == nil, installed.Reason == v1alpha1.ExtensionInstalledReasonDownloading:
+	case installed == nil, installed.Reason == v1alpha1.ExtensionInstalledReasonResolving:
+		return ctrl.Result{}, r.resolveImage(ctx, ext)
+
+	case installed.Reason == v1alpha1.ExtensionInstalledReasonDownloading:
 		// TODO: download the image (r.download), then set Downloading or
 		// DownloadFailed; requeue on success to progress to Extracting.
 		return ctrl.Result{}, r.setInstalledCondition(ctx, ext,
@@ -77,6 +83,38 @@ func (r *ExtensionInstalledReconciler) Reconcile(ctx context.Context, ext *v1alp
 		// Installed, or a terminal failure; nothing more to do here.
 		return ctrl.Result{}, nil
 	}
+}
+
+// resolveImage resolves ext.Spec.Image into status.image: if the image
+// reference has no tag, it defaults to "latest" (real tag discovery, e.g.
+// picking the highest semver tag, is not yet implemented). On success it
+// sets status.image and advances the Installed condition to Downloading; on
+// an invalid image reference it sets ResolveFailed (terminal).
+func (r *ExtensionInstalledReconciler) resolveImage(ctx context.Context, ext *v1alpha1.Extension) error {
+	named, err := reference.ParseNormalizedNamed(ext.Spec.Image)
+	if err != nil {
+		return r.setInstalledCondition(ctx, ext,
+			metav1.ConditionFalse, v1alpha1.ExtensionInstalledReasonResolveFailed,
+			fmt.Sprintf("invalid image reference %q: %v", ext.Spec.Image, err))
+	}
+	resolved := reference.TagNameOnly(named).String()
+
+	key := client.ObjectKeyFromObject(ext)
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		latest := &v1alpha1.Extension{}
+		if err := r.Get(ctx, key, latest); err != nil {
+			return client.IgnoreNotFound(err)
+		}
+		latest.Status.Image = resolved
+		apimeta.SetStatusCondition(&latest.Status.Conditions, metav1.Condition{
+			Type:               v1alpha1.ExtensionConditionInstalled,
+			Status:             metav1.ConditionFalse,
+			ObservedGeneration: latest.Generation,
+			Reason:             v1alpha1.ExtensionInstalledReasonDownloading,
+			Message:            "Downloading extension image",
+		})
+		return r.Status().Update(ctx, latest)
+	})
 }
 
 // reconcileDelete handles uninstall: it runs the pre-uninstall script and

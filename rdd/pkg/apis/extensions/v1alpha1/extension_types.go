@@ -34,6 +34,12 @@ const (
 
 // Reasons for the Installed condition.
 const (
+	// ExtensionInstalledReasonResolving means spec.image is being resolved
+	// (defaulting a missing tag) into status.image.
+	ExtensionInstalledReasonResolving = "Resolving"
+	// ExtensionInstalledReasonResolveFailed means spec.image could not be
+	// resolved, e.g. because it is not a valid image reference.  Terminal.
+	ExtensionInstalledReasonResolveFailed = "ResolveFailed"
 	// ExtensionInstalledReasonDownloading means the extension image is
 	// being downloaded.
 	ExtensionInstalledReasonDownloading = "Downloading"
