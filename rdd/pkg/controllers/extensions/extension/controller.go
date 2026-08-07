@@ -112,7 +112,7 @@ func (c *controller) RegisterWithManager(_ context.Context, mgr ctrl.Manager) er
 		return err
 	}
 
-	if err := (&controllers.ExtensionReconciler{
+	if err := (&controllers.ExtensionReadyReconciler{
 		Client: mgr.GetClient(),
 	}).SetupWithManager(mgr); err != nil {
 		return err
