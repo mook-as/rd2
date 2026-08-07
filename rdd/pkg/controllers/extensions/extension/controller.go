@@ -105,9 +105,15 @@ func (c *controller) setupWebhook(mgr ctrl.Manager) error {
 
 // RegisterWithManager implements the complete controller registration for both
 // embedded and external modes.  It registers the CRD types with the scheme,
-// sets up the Ready reconciler and the validating webhook.
+// sets up the Installed and Ready reconcilers, and the validating webhook.
 func (c *controller) RegisterWithManager(mgr ctrl.Manager) error {
 	if err := v1alpha1.AddToScheme(mgr.GetScheme()); err != nil {
+		return err
+	}
+
+	if err := (&controllers.ExtensionInstalledReconciler{
+		Client: mgr.GetClient(),
+	}).SetupWithManager(mgr); err != nil {
 		return err
 	}
 
