@@ -92,9 +92,7 @@ func (r *ExtensionInstalledReconciler) Reconcile(ctx context.Context, ext *v1alp
 		return r.download(ctx, ext)
 
 	case installed.Reason == v1alpha1.ExtensionInstalledReasonExtracting:
-		// TODO: extract the downloaded image (r.extract), then set
-		// PostInstallRunning or ExtractFailed.
-		return ctrl.Result{}, nil
+		return ctrl.Result{}, r.extract(ctx, ext)
 
 	case installed.Reason == v1alpha1.ExtensionInstalledReasonPostInstallRunning:
 		// TODO: run the extension's post-install script (r.runPostInstall),
@@ -243,6 +241,31 @@ func (r *ExtensionInstalledReconciler) createImagePullRequest(ctx context.Contex
 	// The ImagePullRequest's status will trigger another reconcile once
 	// the pull completes or fails (via Owns in SetupWithManager).
 	return nil
+}
+
+// extract copies the extension's files (metadata, icon, UI assets, host
+// executables, container/compose definitions, etc.) out of the downloaded
+// image into the extension's install directory under
+// instance.ExtensionDir(), then advances the Installed condition to
+// PostInstallRunning on success, or to ExtractFailed on error.
+func (r *ExtensionInstalledReconciler) extract(ctx context.Context, ext *v1alpha1.Extension) error {
+	// TODO: this is currently stubbed out (it just advances straight to
+	// PostInstallRunning); no container is actually created or files
+	// copied yet. Once implemented, modeled on rancher-desktop 1's
+	// ExtensionImpl.install()/copyFile, this should:
+	//   - create a (stopped) container from the image referenced by
+	//     ext.Status.Image, e.g. via `docker create --entrypoint= <image>`,
+	//     to get a filesystem to copy files out of;
+	//   - copy the extension's metadata/icon/ui/host-binaries/compose files
+	//     (e.g. via `docker cp <container>:<path> <dest>`) into
+	//     filepath.Join(instance.ExtensionDir(), <encoded extension id>);
+	//   - remove the temporary container, cleaning up even on failure; and
+	//   - on success, advance the Installed condition to PostInstallRunning,
+	//     or to ExtractFailed (terminal, generation-gated for retry) on error.
+
+	return r.setInstalledCondition(ctx, ext,
+		metav1.ConditionFalse, v1alpha1.ExtensionInstalledReasonPostInstallRunning,
+		"Running post-install script")
 }
 
 // reconcileDelete handles uninstall: it runs the pre-uninstall script and
