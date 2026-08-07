@@ -12,6 +12,7 @@ import (
 	admissionregistrationv1 "k8s.io/api/admissionregistration/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 
+	containersv1alpha1 "github.com/rancher-sandbox/rancher-desktop-daemon/pkg/apis/containers/v1alpha1"
 	"github.com/rancher-sandbox/rancher-desktop-daemon/pkg/apis/extensions/v1alpha1"
 	"github.com/rancher-sandbox/rancher-desktop-daemon/pkg/controllers/base"
 	"github.com/rancher-sandbox/rancher-desktop-daemon/pkg/controllers/extensions/extension/controllers"
@@ -109,6 +110,9 @@ func (c *controller) setupWebhook(mgr ctrl.Manager) error {
 // sets up the reconciler and the validating webhook.
 func (c *controller) RegisterWithManager(_ context.Context, mgr ctrl.Manager) error {
 	if err := v1alpha1.AddToScheme(mgr.GetScheme()); err != nil {
+		return err
+	}
+	if err := containersv1alpha1.AddToScheme(mgr.GetScheme()); err != nil {
 		return err
 	}
 
