@@ -277,19 +277,82 @@ func (r *ExtensionInstalledReconciler) reconcileDelete(ctx context.Context, ext 
 	}
 
 	installed := apimeta.FindStatusCondition(ext.Status.Conditions, v1alpha1.ExtensionConditionInstalled)
-	if installed == nil || installed.Reason != v1alpha1.ExtensionInstalledReasonUninstalled {
-		reason := v1alpha1.ExtensionInstalledReasonPreUninstallRunning
-		if installed != nil && installed.Reason == v1alpha1.ExtensionInstalledReasonDeleting {
-			reason = v1alpha1.ExtensionInstalledReasonDeleting
-		}
-		// TODO: run the pre-uninstall script (ignoring failures, per the
-		// design doc) then delete extracted files (r.deleteFiles); set
-		// Uninstalled or DeleteFailed on completion.
-		return ctrl.Result{}, r.setInstalledCondition(ctx, ext,
-			metav1.ConditionFalse, reason, "Removing extension")
-	}
 
-	return ctrl.Result{}, r.removeFinalizer(ctx, ext)
+	switch {
+	case installed == nil:
+		// No Installed condition has been set yet, so nothing has been
+		// extracted and there is no pre-uninstall script on disk to run;
+		// skip straight to Deleting.
+		return ctrl.Result{}, r.setInstalledCondition(ctx, ext,
+			metav1.ConditionFalse, v1alpha1.ExtensionInstalledReasonDeleting, "Removing extension")
+
+	case installed.Reason == v1alpha1.ExtensionInstalledReasonResolving,
+		installed.Reason == v1alpha1.ExtensionInstalledReasonResolveFailed,
+		installed.Reason == v1alpha1.ExtensionInstalledReasonDownloading,
+		installed.Reason == v1alpha1.ExtensionInstalledReasonDownloadFailed:
+		// Extraction never started, so there is nothing on disk at all
+		// (not even a partial extraction to clean up); skip straight to
+		// Uninstalled.
+		return ctrl.Result{}, r.setInstalledCondition(ctx, ext,
+			metav1.ConditionFalse, v1alpha1.ExtensionInstalledReasonUninstalled, "Extension removed")
+
+	case installed.Reason == v1alpha1.ExtensionInstalledReasonExtracting,
+		installed.Reason == v1alpha1.ExtensionInstalledReasonExtractFailed:
+		// Extraction was attempted (and may have partially completed), so
+		// there could be files on disk to clean up, but there is still no
+		// pre-uninstall script to run since extraction never completed;
+		// skip straight to Deleting.
+		return ctrl.Result{}, r.setInstalledCondition(ctx, ext,
+			metav1.ConditionFalse, v1alpha1.ExtensionInstalledReasonDeleting, "Removing extension")
+
+	case installed.Reason == v1alpha1.ExtensionInstalledReasonPostInstallRunning,
+		installed.Reason == v1alpha1.ExtensionInstalledReasonPostInstallFailed,
+		installed.Reason == v1alpha1.ExtensionInstalledReasonInstalled:
+		// Extraction has completed, so a pre-uninstall script may exist on
+		// disk to run; transition to PreUninstallRunning to do so.
+		return ctrl.Result{}, r.setInstalledCondition(ctx, ext,
+			metav1.ConditionFalse, v1alpha1.ExtensionInstalledReasonPreUninstallRunning, "Removing extension")
+
+	case installed.Reason == v1alpha1.ExtensionInstalledReasonPreUninstallRunning:
+		// TODO: this is currently stubbed out (it just advances straight to
+		// Deleting); the pre-uninstall script should actually be run here
+		// (ignoring failures, per the design doc).
+		return ctrl.Result{}, r.setInstalledCondition(ctx, ext,
+			metav1.ConditionFalse, v1alpha1.ExtensionInstalledReasonDeleting, "Removing extension")
+
+	case installed.Reason == v1alpha1.ExtensionInstalledReasonDeleting:
+		// TODO: actually delete extracted files (r.deleteFiles), setting
+		// DeleteFailed instead on error. For now, pretend deletion always
+		// succeeds and jump straight to Uninstalled.
+		return ctrl.Result{}, r.setInstalledCondition(ctx, ext,
+			metav1.ConditionFalse, v1alpha1.ExtensionInstalledReasonUninstalled, "Extension removed")
+
+	case installed.Reason == v1alpha1.ExtensionInstalledReasonDeleteFailed:
+		// Unlike the install pipeline's failure states, DeleteFailed has no
+		// spec change that could retrigger a retry (deletionTimestamp is
+		// immutable) and no other way for a user to unstick it; unlike a
+		// bad image reference, file-deletion errors have no permanent
+		// cause, so retry rather than staying terminal, but wait at least
+		// deleteRetryDelay since the last attempt to avoid a tight retry
+		// loop: if not enough time has passed since LastTransitionTime,
+		// just requeue for when it will have; once it has, transition back
+		// to Deleting to actually retry (that status update happens to also
+		// trigger an immediate reconcile via the watch, which is fine since
+		// the delay has already elapsed by then).
+		elapsed := time.Since(installed.LastTransitionTime.Time)
+		if elapsed < deleteRetryDelay {
+			return ctrl.Result{RequeueAfter: deleteRetryDelay - elapsed}, nil
+		}
+		return ctrl.Result{}, r.setInstalledCondition(ctx, ext,
+			metav1.ConditionFalse, v1alpha1.ExtensionInstalledReasonDeleting, "Retrying extension removal")
+
+	case installed.Reason == v1alpha1.ExtensionInstalledReasonUninstalled:
+		return ctrl.Result{}, r.removeFinalizer(ctx, ext)
+
+	default:
+		logf.FromContext(ctx).Error(nil, "Unexpected Installed condition reason while deleting", "reason", installed.Reason)
+		return ctrl.Result{}, nil
+	}
 }
 
 // addFinalizer adds installedFinalizer to ext, retrying on conflict against
