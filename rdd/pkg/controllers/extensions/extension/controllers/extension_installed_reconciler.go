@@ -6,7 +6,11 @@ package controllers
 
 import (
 	"context"
+	"crypto/sha1"
+	"encoding/base64"
 	"fmt"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/distribution/reference"
@@ -23,6 +27,7 @@ import (
 	containersv1alpha1 "github.com/rancher-sandbox/rancher-desktop-daemon/pkg/apis/containers/v1alpha1"
 	"github.com/rancher-sandbox/rancher-desktop-daemon/pkg/apis/extensions/v1alpha1"
 	"github.com/rancher-sandbox/rancher-desktop-daemon/pkg/controllers/base"
+	"github.com/rancher-sandbox/rancher-desktop-daemon/pkg/instance"
 )
 
 // installedFinalizer is added to Extension resources so uninstall can run
@@ -258,7 +263,7 @@ func (r *ExtensionInstalledReconciler) extract(ctx context.Context, ext *v1alpha
 	//     to get a filesystem to copy files out of;
 	//   - copy the extension's metadata/icon/ui/host-binaries/compose files
 	//     (e.g. via `docker cp <container>:<path> <dest>`) into
-	//     filepath.Join(instance.ExtensionDir(), <encoded extension id>);
+	//     extensionInstallDir(ext);
 	//   - remove the temporary container, cleaning up even on failure; and
 	//   - on success, advance the Installed condition to PostInstallRunning,
 	//     or to ExtractFailed (terminal, generation-gated for retry) on error.
@@ -266,6 +271,36 @@ func (r *ExtensionInstalledReconciler) extract(ctx context.Context, ext *v1alpha
 	return r.setInstalledCondition(ctx, ext,
 		metav1.ConditionFalse, v1alpha1.ExtensionInstalledReasonPostInstallRunning,
 		"Running post-install script")
+}
+
+// deleteFiles removes the extension's install directory (created by
+// extract) from disk. Any pre-uninstall script is assumed to have already
+// been run (or attempted) by the time this is called; this only needs to
+// worry about the extracted files themselves.
+func (r *ExtensionInstalledReconciler) deleteFiles(ext *v1alpha1.Extension) error {
+	installDir, err := extensionInstallDir(ext)
+	if err != nil {
+		return fmt.Errorf("failed to determine extension install directory: %w", err)
+	}
+	if err := os.RemoveAll(installDir); err != nil {
+		return fmt.Errorf("failed to delete extension files: %w", err)
+	}
+
+	return nil
+}
+
+// extensionInstallDir returns the directory extract copies an extension's
+// files into (and that deleteFiles removes), unique to the extension.
+func extensionInstallDir(ext *v1alpha1.Extension) (string, error) {
+	// Encode the resolved image reference (status.image) as base64url so it
+	// is safe to use as a single path component, matching rancher-desktop
+	// 1's extension directory naming.
+	image := ext.Status.Image
+	if image == "" {
+		return "", fmt.Errorf("extension %s has no resolved image reference", ext.Name)
+	}
+	encoded := base64.RawURLEncoding.EncodeToString([]byte(image))
+	return filepath.Join(instance.ExtensionDir(), encoded), nil
 }
 
 // reconcileDelete handles uninstall: it runs the pre-uninstall script and
@@ -279,18 +314,13 @@ func (r *ExtensionInstalledReconciler) reconcileDelete(ctx context.Context, ext 
 	installed := apimeta.FindStatusCondition(ext.Status.Conditions, v1alpha1.ExtensionConditionInstalled)
 
 	switch {
-	case installed == nil:
-		// No Installed condition has been set yet, so nothing has been
-		// extracted and there is no pre-uninstall script on disk to run;
-		// skip straight to Deleting.
-		return ctrl.Result{}, r.setInstalledCondition(ctx, ext,
-			metav1.ConditionFalse, v1alpha1.ExtensionInstalledReasonDeleting, "Removing extension")
-
-	case installed.Reason == v1alpha1.ExtensionInstalledReasonResolving,
+	case installed == nil,
+		installed.Reason == v1alpha1.ExtensionInstalledReasonResolving,
 		installed.Reason == v1alpha1.ExtensionInstalledReasonResolveFailed,
 		installed.Reason == v1alpha1.ExtensionInstalledReasonDownloading,
 		installed.Reason == v1alpha1.ExtensionInstalledReasonDownloadFailed:
-		// Extraction never started, so there is nothing on disk at all
+		// Extraction never started (and, if installed == nil, status.image
+		// was never even resolved), so there is nothing on disk at all
 		// (not even a partial extraction to clean up); skip straight to
 		// Uninstalled.
 		return ctrl.Result{}, r.setInstalledCondition(ctx, ext,
@@ -321,9 +351,10 @@ func (r *ExtensionInstalledReconciler) reconcileDelete(ctx context.Context, ext 
 			metav1.ConditionFalse, v1alpha1.ExtensionInstalledReasonDeleting, "Removing extension")
 
 	case installed.Reason == v1alpha1.ExtensionInstalledReasonDeleting:
-		// TODO: actually delete extracted files (r.deleteFiles), setting
-		// DeleteFailed instead on error. For now, pretend deletion always
-		// succeeds and jump straight to Uninstalled.
+		if err := r.deleteFiles(ext); err != nil {
+			return ctrl.Result{}, r.setInstalledCondition(ctx, ext,
+				metav1.ConditionFalse, v1alpha1.ExtensionInstalledReasonDeleteFailed, err.Error())
+		}
 		return ctrl.Result{}, r.setInstalledCondition(ctx, ext,
 			metav1.ConditionFalse, v1alpha1.ExtensionInstalledReasonUninstalled, "Extension removed")
 
