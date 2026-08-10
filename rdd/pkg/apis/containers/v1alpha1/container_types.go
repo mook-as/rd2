@@ -308,7 +308,7 @@ type ContainerCreateRequestStatus struct {
 
 	// Conditions represent the state of the container creation request.
 	// Current known condition types include:
-	// - "Complete": the container creation request has successfully completed.
+	// - "Settled": the container creation request has reached a terminal state.
 	// - "Failed": the container creation request has failed.
 	// The status of each condition is one of True, False, or Unknown.
 	//

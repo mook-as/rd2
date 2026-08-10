@@ -112,12 +112,13 @@ type ImagePullRequestSpec struct {
 type ImagePullRequestStatus struct {
 	// Conditions represent the state of the image pull request.
 	// Current known condition types include:
-	//  - "Complete": the image pull request has successfully completed.
+	//  - "Settled": the image pull request has reached a terminal state.
 	//  - "Failed": the image pull request has failed.
 	// The status of each condition is one of True, False, or Unknown.
 	//
 	// +listType=map
 	// +listMapKey=type
+	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 
@@ -170,7 +171,7 @@ type ImagePushRequestSpec struct {
 type ImagePushRequestStatus struct {
 	// Conditions represent the state of the image push request.
 	// Current known condition types include:
-	//  - "Complete": the image push request has successfully completed.
+	//  - "Settled": the image push request has reached a terminal state.
 	//  - "Failed": the image push request has failed.
 	// The status of each condition is one of True, False, or Unknown.
 	//
@@ -225,7 +226,7 @@ type ImageScanRequestSpec struct {
 type ImageScanRequestStatus struct {
 	// Conditions represent the state of the image scan request.
 	// Current known condition types include:
-	//  - "Complete": the image scan request has successfully completed.
+	//  - "Settled": the image scan request has reached a terminal state.
 	//  - "Failed": the image scan request has failed.
 	// The status of each condition is one of True, False, or Unknown.
 	//
