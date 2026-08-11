@@ -23,7 +23,6 @@ import (
 	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-	"sigs.k8s.io/controller-runtime/pkg/event"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	containersv1alpha1 "github.com/rancher-sandbox/rancher-desktop-daemon/pkg/apis/containers/v1alpha1"
@@ -44,13 +43,13 @@ type dockerWatcher struct {
 	cancel context.CancelFunc
 	done   chan struct{}
 
-	// reconcileChan is used to trigger reconciliation in the engine reconciler.
-	reconcileChan chan<- event.GenericEvent
+	// enqueue is used to trigger reconciliation in the engine reconciler.
+	enqueue func()
 }
 
 // newDockerWatcher creates a Docker client, performs a full sync, and starts
 // the event stream watcher goroutine.
-func newDockerWatcher(ctx context.Context, k8s client.Client, apiNamespace string, reconcileChan chan<- event.GenericEvent) (*dockerWatcher, error) {
+func newDockerWatcher(ctx context.Context, k8s client.Client, apiNamespace string, enqueue func()) (*dockerWatcher, error) {
 	cli, err := mobyclient.New(
 		mobyclient.WithHost(instance.DockerEndpoint()),
 	)
@@ -69,12 +68,12 @@ func newDockerWatcher(ctx context.Context, k8s client.Client, apiNamespace strin
 	watchCtx, watchCancel := context.WithCancel(ctx)
 
 	w := &dockerWatcher{
-		cli:           cli,
-		k8s:           k8s,
-		apiNamespace:  apiNamespace,
-		cancel:        watchCancel,
-		done:          make(chan struct{}),
-		reconcileChan: reconcileChan,
+		cli:          cli,
+		k8s:          k8s,
+		apiNamespace: apiNamespace,
+		cancel:       watchCancel,
+		done:         make(chan struct{}),
+		enqueue:      enqueue,
 	}
 
 	// Capture "Since" before fullSync so events fired during the snapshot
@@ -149,16 +148,15 @@ func (w *dockerWatcher) run(ctx context.Context, since string) {
 	log := logf.FromContext(ctx).WithName("docker-watcher")
 	// Defers fire LIFO, giving this exit sequence:
 	//
-	//   1. close(w.done)       — alive() now returns false
-	//   2. w.cli.Close()       — Docker client released
-	//   3. w.enqueueReconcile() — reconciler wakes and sees !alive()
+	//   1. close(w.done)  — alive() now returns false
+	//   2. w.cli.Close()  — Docker client released
+	//   3. w.enqueue()    — reconciler wakes and sees !alive()
 	//
-	// The order matters: if enqueueReconcile ran before w.done closed,
-	// the reconciler could wake, see alive()==true on the about-to-exit
-	// goroutine, and skip the restart. Closing cli between done and
-	// enqueue means the reconciler observes the dead watcher only
-	// after its client has been released.
-	defer w.enqueueReconcile()
+	// The order matters: if w.enqueue ran before w.done closed, the reconciler
+	// could wake, see alive()==true on the about-to-exit goroutine, and skip the
+	// restart. Closing cli between done and enqueue means the reconciler observes
+	// the dead watcher only after its client has been released.
+	defer w.enqueue()
 	defer w.cli.Close()
 	defer close(w.done)
 	// Keep a bad event shape from crashing the whole app-controller.
@@ -210,17 +208,6 @@ func (w *dockerWatcher) run(ctx context.Context, since string) {
 					"type", msg.Type, "action", msg.Action, "actor", msg.Actor.ID)
 			}
 		}
-	}
-}
-
-// enqueueReconcile wakes the engine reconciler. The channel has a
-// buffer of one, so enqueueReconcile is a no-op when a reconcile is
-// already queued — the reconciler will pick up the current watcher
-// state when it runs.
-func (w *dockerWatcher) enqueueReconcile() {
-	select {
-	case w.reconcileChan <- event.GenericEvent{}:
-	default:
 	}
 }
 

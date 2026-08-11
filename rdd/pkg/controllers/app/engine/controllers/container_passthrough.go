@@ -99,10 +99,10 @@ func (r *EngineReconciler) HandleLogs(w http.ResponseWriter, req *http.Request) 
 		opts = append(opts, engineLogWithTail(tail))
 	}
 
-	r.watcherMu.Lock()
-	watcher := r.watcher
-	r.watcherMu.Unlock()
-	if watcher == nil {
+	r.engineMu.Lock()
+	engine := r.engine
+	r.engineMu.Unlock()
+	if engine == nil {
 		log.V(5).Info("Docker watcher not running")
 		http.Error(w, "Docker watcher not running", http.StatusServiceUnavailable)
 		return
@@ -111,7 +111,7 @@ func (r *EngineReconciler) HandleLogs(w http.ResponseWriter, req *http.Request) 
 	ctx, cancel := context.WithCancel(req.Context())
 	defer cancel()
 
-	hasTTY, err := watcher.hasTTY(ctx, &c)
+	hasTTY, err := engine.hasTTY(ctx, &c)
 	if err != nil {
 		switch {
 		case errdefs.IsNotFound(err):
@@ -127,7 +127,7 @@ func (r *EngineReconciler) HandleLogs(w http.ResponseWriter, req *http.Request) 
 		return
 	}
 
-	reader, err := watcher.getLogs(ctx, &c, opts...)
+	reader, err := engine.getLogs(ctx, &c, opts...)
 	if err != nil {
 		switch {
 		case errdefs.IsNotFound(err):

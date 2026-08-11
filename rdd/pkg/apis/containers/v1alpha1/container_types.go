@@ -8,6 +8,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+// ContainerKind is the Kind string for Container resources.
+const ContainerKind = "Container"
+
 // +kubebuilder:validation:Enum=created;running;pausing;paused;restarting;removing;exited;dead;unknown
 
 // ContainerStatusValue describes the status of a container.

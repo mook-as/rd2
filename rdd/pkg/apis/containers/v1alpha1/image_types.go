@@ -8,6 +8,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+// ImageKind is the Kind string for Image resources.
+const ImageKind = "Image"
+
 // ImageStatus defines the observed state of the image.
 type ImageStatus struct {
 	// Namespace is the container namespace; refers to a `ContainerNamespace`

@@ -8,6 +8,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+// VolumeKind is the Kind string for Volume resources.
+const VolumeKind = "Volume"
+
 // VolumeStatus describes the configuration the volume was created with.
 type VolumeStatus struct {
 	// Name of the volume.
