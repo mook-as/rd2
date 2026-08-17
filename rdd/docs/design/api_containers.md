@@ -326,9 +326,14 @@ metadata:
   name: image-fetch-12345
   namespace: rancher-desktop
 spec:
-  namespace: moby # Refers to a `ContainerNamespace` object
+  namespace: moby
   repoTag: 'registry.opensuse.org/opensuse/leap:latest'
 status:
+  lastUpdateTime: "2025-11-17T03:14:16Z"
+  start: 0
+  current: 10
+  total: 100
+  units: bytes
   conditions:
   - type: Settled
     status: True
@@ -336,6 +341,30 @@ status:
   - type: Failed
     status: False
 ```
+
+- **spec.namespace**: Refers to a [`ContainerNamespace`](#namespaces) object
+- **spec.repoTag**: Reference to image to pull.
+- **status.lastUpdateTime**: The last time any progress has been made.
+- **status.start**: Initial value of the progress
+- **status.current**: Current progress value
+- **status.total**: Total progress value
+- **status.units**: Units for start/current/total
+
+Status conditions:
+
+<table>
+<tr><th>Type<th>Reason<th>Status<th>Description
+<tr><td rowspan=3>Settled
+    <td>ImagePulled<td>True<td>image has been pulled
+<tr><td>Pulling<td>False<td>image is being pulled
+<tr><td>Errored<td>True<td>image pull has failed
+<tr><td rowspan=5>Failed
+    <td>Succeeded<td>False<td>image has been pulled
+<tr><td>PullFailed<td>True<td>image pull has failed; see `message`
+<tr><td>InvalidArgument<td>True<td>image specification was not accepted
+<tr><td>Unauthorized<td>True<td>authentication issue pulling image
+<tr><td>PullTimeout<td>True<td>the image pull has timed out
+</table>
 
 #### Build image
 Not sure; do something with the `Resource` API maybe?
