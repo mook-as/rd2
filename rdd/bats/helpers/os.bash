@@ -11,7 +11,7 @@ Darwin)
     OS=darwin
     ;;
 Linux)
-    if grep --quiet WSL2 </proc/sys/kernel/osrelease; then # spellchecker:ignore
+    if [[ -e /proc/sys/fs/binfmt_misc/WSLInterop ]]; then
         OS=windows
     else
         OS=linux
