@@ -11,6 +11,9 @@ import (
 // ImageKind is the Kind string for Image resources.
 const ImageKind = "Image"
 
+// ImagePullRequestKind is the Kind string for ImagePullRequest resources.
+const ImagePullRequestKind = "ImagePullRequest"
+
 // ImageStatus defines the observed state of the image.
 type ImageStatus struct {
 	// Namespace is the container namespace; refers to a `ContainerNamespace`
@@ -96,6 +99,14 @@ type ImageList struct {
 	metav1.ListMeta `json:"metadata,omitempty"`
 	Items           []Image `json:"items"`
 }
+
+// ImagePullRequest condition types.
+const (
+	// ImagePullRequestConditionSettled indicates the request has reached a terminal state.
+	ImagePullRequestConditionSettled = "Settled"
+	// ImagePullRequestConditionFailed indicates the request failed.
+	ImagePullRequestConditionFailed = "Failed"
+)
 
 // ImagePullRequestSpec defines the parameters for pulling an image.
 type ImagePullRequestSpec struct {

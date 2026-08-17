@@ -187,6 +187,9 @@ func (r *EngineReconciler) startWatcherAndSync(_ context.Context) error {
 	}
 	r.engine = e
 	r.manageDockerContext(instance.DockerEndpoint())
+	// Trigger image pull requests immediately, in case it was stuck waiting for
+	// the engine to be connected.
+	enqueueReconcile(r.reconcileImagePullRequestChan)()
 	return nil
 }
 

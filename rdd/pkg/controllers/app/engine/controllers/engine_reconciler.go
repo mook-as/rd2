@@ -126,6 +126,8 @@ type EngineReconciler struct {
 
 	// reconcileAppChan receives events from the engine watcher goroutine.
 	reconcileAppChan chan event.GenericEvent
+	// reconcileImagePullRequestChan triggers when the engine is connected.
+	reconcileImagePullRequestChan chan event.GenericEvent
 
 	// apiNamespace mirrors App.spec.namespace (immutable). Reconcile
 	// populates it before any mirror operation.
@@ -154,6 +156,11 @@ type EngineReconciler struct {
 	// goroutine to finish before deleting the context directory, ensuring
 	// the goroutine cannot write currentContext after the directory is gone.
 	contextProbeWg sync.WaitGroup
+
+	// imagePullRequestMu guards imagePullRequestState
+	imagePullRequestMu sync.Mutex
+	// imagePullRequestState maps image pull request UIDs to their state.
+	imagePullRequestState map[types.UID]imagePullRequestState
 }
 
 // Reconcile dispatches requests by source kind.
@@ -169,6 +176,8 @@ func (r *EngineReconciler) Reconcile(ctx context.Context, req engineRequest) (ct
 			return ctrl.Result{}, client.IgnoreNotFound(err)
 		}
 		return r.reconcileWatcher(ctx, &app)
+	case containersv1alpha1.ImagePullRequestKind:
+		return r.reconcileImagePullRequest(ctx, req)
 	default:
 		logf.FromContext(ctx).Error(
 			errors.New("unsupported reconcile request kind"),
@@ -184,7 +193,9 @@ func (r *EngineReconciler) Reconcile(ctx context.Context, req engineRequest) (ct
 // SetupWithManager sets up the controller with the Manager.
 func (r *EngineReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	r.reconcileAppChan = make(chan event.GenericEvent, 1)
+	r.reconcileImagePullRequestChan = make(chan event.GenericEvent, 1)
 	r.apiReader = mgr.GetAPIReader()
+	r.imagePullRequestState = make(map[types.UID]imagePullRequestState)
 
 	// Create the watcher-scoped context and register a shutdown
 	// hook that cancels it and stops the active watcher. The hook
@@ -225,9 +236,11 @@ func (r *EngineReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return builder.TypedControllerManagedBy[engineRequest](mgr).
 		Named("engine-reconciler").
 		WatchesRawSource(source.TypedChannel(r.reconcileAppChan, enqueueRawRequest(appv1alpha1.AppKind))).
+		WatchesRawSource(source.TypedChannel(r.reconcileImagePullRequestChan, enqueueRawRequest(containersv1alpha1.ImagePullRequestKind))).
 		Watches(&appv1alpha1.App{}, enqueueRequestsForKind(appv1alpha1.AppKind)).
 		Watches(&containersv1alpha1.Container{}, enqueueRequestsForKind(containersv1alpha1.ContainerKind)).
 		Watches(&containersv1alpha1.Image{}, enqueueRequestsForKind(containersv1alpha1.ImageKind)).
+		Watches(&containersv1alpha1.ImagePullRequest{}, enqueueRequestsForKind(containersv1alpha1.ImagePullRequestKind)).
 		Watches(&containersv1alpha1.Volume{}, enqueueRequestsForKind(containersv1alpha1.VolumeKind)).
 		Watches(&containersv1alpha1.ContainerNamespace{}, enqueueRequestsForKind(containersv1alpha1.ContainerNamespaceKind)).
 		Complete(r)
