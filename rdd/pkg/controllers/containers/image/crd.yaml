@@ -127,6 +127,28 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              current:
+                description: Current is the current progress of the image pull request.
+                format: int64
+                type: integer
+              lastUpdateTime:
+                description: LastUpdateTime is the time the status was last updated.
+                format: date-time
+                type: string
+              start:
+                description: Start is the initial progress of the image pull request.
+                format: int64
+                type: integer
+              total:
+                description: Total is the total amount of work for the image pull
+                  request.
+                format: int64
+                type: integer
+              units:
+                description: |-
+                  Units is the unit of measurement for the progress fields, including Start,
+                  Current, and Total.
+                type: string
             type: object
         required:
         - spec

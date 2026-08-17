@@ -113,6 +113,31 @@ type ImagePullRequestSpec struct {
 
 // ImagePullRequestStatus reports the progress of an image pull request.
 type ImagePullRequestStatus struct {
+	// LastUpdateTime is the time the status was last updated.
+	//
+	// +optional
+	LastUpdateTime metav1.Time `json:"lastUpdateTime,omitempty"`
+	// Start is the initial progress of the image pull request.
+	//
+	// +optional
+	Start int64 `json:"start,omitempty"`
+
+	// Current is the current progress of the image pull request.
+	//
+	// +optional
+	Current int64 `json:"current,omitempty"`
+
+	// Total is the total amount of work for the image pull request.
+	//
+	// +optional
+	Total int64 `json:"total,omitempty"`
+
+	// Units is the unit of measurement for the progress fields, including Start,
+	// Current, and Total.
+	//
+	// +optional
+	Units string `json:"units,omitempty"`
+
 	// Conditions represent the state of the image pull request.
 	// Current known condition types include:
 	//  - "Settled": the image pull request has reached a terminal state.
