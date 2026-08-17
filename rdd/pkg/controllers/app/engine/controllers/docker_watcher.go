@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/containerd/errdefs"
+	"github.com/containerd/errdefs/pkg/errhttp"
 	"github.com/go-logr/logr"
 	"github.com/moby/moby/api/types/events"
 	mobyclient "github.com/moby/moby/client"
@@ -470,6 +471,48 @@ func (w *dockerWatcher) getLogs(ctx context.Context, c *containersv1alpha1.Conta
 		Follow:     options.follow,
 		Tail:       options.tail,
 	})
+}
+
+func (w *dockerWatcher) pullImage(
+	ctx context.Context,
+	repoTag string,
+	onProgress func(start, current, total int64, units string),
+	onComplete func(err error),
+) error {
+	stream, err := w.cli.ImagePull(ctx, repoTag, mobyclient.ImagePullOptions{})
+	if err != nil {
+		return err
+	}
+
+	go func() {
+		if onComplete == nil {
+			onComplete = func(error) {}
+		}
+		for msg, err := range stream.JSONMessages(ctx) {
+			if err != nil {
+				onComplete(err)
+				return
+			}
+			if msg.Error != nil {
+				if msg.Error.Code != 0 {
+					nativeErr := errhttp.ToNative(msg.Error.Code)
+					onComplete(fmt.Errorf("image pull failed (%w): %w", nativeErr, msg.Error))
+				} else {
+					onComplete(errors.New(msg.Error.Message))
+				}
+				return
+			}
+			if msg.Progress != nil && onProgress != nil {
+				units := msg.Progress.Units
+				if units == "" {
+					units = "bytes"
+				}
+				onProgress(msg.Progress.Start, msg.Progress.Current, msg.Progress.Total, units)
+			}
+		}
+		onComplete(nil)
+	}()
+	return nil
 }
 
 // containerRunState reports whether Docker currently shows the container as
