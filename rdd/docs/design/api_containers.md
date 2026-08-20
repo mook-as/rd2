@@ -452,3 +452,168 @@ Delete the `Volume` object; finalizers will cause deletion of the container
 engine side volume.
 Webhooks will be needed for validation to reject deleting volumes that are in
 use.
+
+## Compose Projects
+
+`ComposeProject` objects do not reflect actual container engine objects;
+instead, they reflect `docker compose` projects.
+
+```yaml
+apiVersion: containers.rancherdesktop.io/v1alpha1
+kind: ComposeProject
+metadata:
+  name: foo
+  namespace: rancher-desktop
+spec:
+  namespace: k8s.io
+  name: my-project
+  workingDir: /opt/foo/project-dir
+  configs: []
+status:
+  lastAction:
+    action: up
+    state: Succeeded
+    observedAt: "2026-04-15T10:30:00Z"
+    completedAt: "2026-04-15T10:30:00Z"
+    error: ""
+  members:
+  - name: Container/8eb6f2cf72b6616aa743cf9187f350af84c9749dab65474db2530f26745d2ef3
+    uid: 239ef6a0-63bd-4e87-9a7e-c5d4435ddcd4
+  conditions: []
+```
+
+- **metadata.name**: This name must be constructed by the following:
+  - Take `spec.namespace` followed by a literal slash (`/`), then lower-cased
+    `spec.name`.
+  - Take the SHA256 of the above string, as a lower case hexadecimal string.
+- **spec.namespace**: The container namespace; refers to a
+  [`ContainerNamespace`](#namespaces) object.  Immutable once created.
+- **spec.name**: The compose project name; immutable once created.
+- **spec.workingDir**: Optional; the compose project directory on the host (i.e.
+  relative to where the RDD process runs).  Used to look up any files needed.
+- **spec.configs**: Optional; the list of compose files used to create the
+  project.  Relative to `spec.workingDir`, which means it's also a path on the
+  host.  It is not guaranteed that this is sufficient to recreate the project.
+- **status.lastAction**: Information about the last observed action; see
+  [Compose Actions](#compose-actions) below.  This is optional; before any
+  actions are taken, this is omitted.
+- **status.lastAction.action**: The last action command that was observed.
+- **status.lastAction.state**: The state of the action at its completion; this
+  may be `Succeeded` or `Failed` (or unset).
+- **status.lastAction.observedAt**: The timestamp at which the annotation was
+  observed; used to detect action time outs.  Not updated when the action
+  completes.
+- **status.lastAction.completedAt**: The timestamp at which point the action
+  has completed; `status.lastAction.state` must be unset when this is not set.
+  When this _is_ set, `status.lastAction.state` must be set.
+- **status.lastAction.error**: A message related to the failure when
+  `status.lastAction.state` is set to `Failed`.  This string may be longer
+  than appropriate to embed into a sentence.  However, it should not be more
+  than a few lines of text.
+- **status.members**: A list of objects that are part of this project.  The
+  `name` is the resource type (`Container`, `Volume`, `Image`), followed by a
+  slash (`/`), followed by the object name (i.e. `.metadata.name`).  Each `name`
+  must be unique.  The `uid` is the object UID (i.e. `.metadata.uid`), used to
+  track when the object has been recreated.
+- **status.conditions**: The normal status conditions; see [below](#status-conditions)
+
+An admission controller ensures that each `spec.namespace` / `spec.name`
+combination is unique; having multiple `ComposeProject` objects referring to the
+same combination will be rejected.
+
+`ComposeProject` objects may be automatically created when resources (containers,
+volumes, etc.) with the typical labels have been detected; the `HasMembers`
+status condition will be set to `True` to indicate that resources have been
+detected.  However, in that case `workingDir` and `configs` may be unset.  The
+related objects are tracked in `status.members`; when the last object is removed,
+the `HasMembers` status condition will be set to `False`, and a future reconcile
+is expected to delete the dangling `ComposeProject`.
+
+Because the information in the spec can **not** recreate a running project
+(because the profile selection, as well as environment variables set at
+`compose up` time, are not available), changing the spec will _not_
+automatically update the project.  Instead, actions will need to be explicitly
+requested via annotations.
+
+The user may manually create `ComposeProject` objects, to arrange for `docker
+compose up` to be run.  The object cannot be relied upon to stay; it will be
+deleted once the underlying resources has been deleted.
+
+### Compose Actions
+
+The user may request the reconciler to act upon compose projects by setting the
+`containers.rancherdesktop.io/action` annotation on the `ComposeProject`
+resource to one of the following values below.  Once the reconciler sees a valid
+annotation, it initiates the actions as described below.  Immediately after,
+before the asynchronous action completes, it sets the `HasMembers` status
+condition to `Unknown` to prevent the `ComposeProject` from being reaped, and
+updates `status.lastAction` to the following values:
+
+Property | Description
+--- | ---
+`action` | The observed annotation value
+`state` | Cleared
+`observedAt` | The current timestamp
+`completedAt` | Cleared
+`error` | Cleared
+
+The annotation itself is then removed to avoid repeated invocations.  This
+ordering ensures that if the controller crashes, the action can be retried on
+next reconcile.
+
+If a reconcile notices that `status.lastAction.state` is unset and
+`status.lastAction.observedAt` is a long time ago, it may attempt to retry the
+action.  Any previous attempts at the action may need to be aborted first.  The
+`status.lastAction` must eventually converge even if the controller restarts;
+how that happens is left as an implementation detail.
+
+#### `up`
+
+Run `docker compose up`; profiles and environment variables are not supported.
+Containers are always run detached.  The process is run asynchronously; once
+the process exits, the result is kept in memory and another reconcile is queued
+to process the result.  This will lead to `status.lastAction.state` to be
+updated, as well as `status.lastAction.completedAt`.
+
+Running the `up` action while `spec.workingDir` is not set is not supported,
+even if `spec.configs` contains absolute paths.  It will be rejected.
+
+If this action is retried, the implementation must ensure that there will be no
+concurrent invocations of `docker compose up`.
+
+#### `down`
+
+Run `docker compose down --remove-orphans --volumes` asynchronously.  Once all
+resources are removed, the `HasMembers` status condition will be set to `False`
+via the normal route, and the `ComposeProject` will be deleted eventually
+(assuming no further actions causing different condition changes).
+
+Note: this may leave behind resources created by `docker swarm`.
+
+### Deleting Projects
+
+Deleting a `ComposeProject` aborts the processes it controls (spawned in
+response to action annotations); however, it does _not_ remove any resources.
+Any partially created or removed resources will remain, possibly incorrectly
+orphaned.  This also means a deleted `ComposeProject` may be immediately
+recreated as the relevant resources still exist.  To remove the project, use the
+`down` action first to remove the resources, which will also cause the
+`ComposeProject` to be reaped due to a lack of members.
+
+### Status Conditions
+
+The following status conditions are defined:
+
+<table>
+<tr><th>Type<th>Reason<th>Status<th>Description
+<tr><td rowspan=5>Settled
+    <td>Starting<td>False<td>Ran `docker compose up`, waiting to finish.
+<tr><td>Started<td>True<td>`docker compose up` completed.
+<tr><td>Errored<td>True<td>`docker compose up` failed.
+<tr><td>Stopping<td>False<td>The project is being torn down.
+<tr><td>Stopped<td>True<td>The project was torn down; object will be deleted.
+<tr><td rowspan=3>HasMembers
+    <td>Found<td>True<td>Objects matching this project were found.
+<tr><td>Deleted<td>False<td>The last object for this project was deleted; this project may be reaped.
+<tr><td>Calculating<td>Unknown<td>Action is being processed.
+</table>
