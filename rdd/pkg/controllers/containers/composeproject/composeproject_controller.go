@@ -69,13 +69,13 @@ func (c *controller) GetWebhookManagers() []base.WebhookManager {
 	return c.webhookManagers
 }
 
-// setupReconciler sets up the (currently no-op) reconciler with the manager.
-func (c *controller) setupReconciler(mgr ctrl.Manager) error {
+// setupReconciler sets up the reconciler with the manager.
+func (c *controller) setupReconciler(ctx context.Context, mgr ctrl.Manager) error {
 	mgr.GetLogger().Info("Setting up compose project reconciler")
 	return (&reconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
-	}).SetupWithManager(mgr)
+	}).SetupWithManager(ctx, mgr)
 }
 
 // setupWebhookWithRuntimeConfig registers a validating webhook that enforces
@@ -100,13 +100,13 @@ func (c *controller) setupWebhookWithRuntimeConfig(mgr ctrl.Manager) error {
 }
 
 // RegisterWithManager implements [base.Controller].
-func (c *controller) RegisterWithManager(_ context.Context, mgr ctrl.Manager) error {
+func (c *controller) RegisterWithManager(ctx context.Context, mgr ctrl.Manager) error {
 	// Register the CRD types with the scheme
 	if err := v1alpha1.AddToScheme(mgr.GetScheme()); err != nil {
 		return err
 	}
 
-	if err := c.setupReconciler(mgr); err != nil {
+	if err := c.setupReconciler(ctx, mgr); err != nil {
 		mgr.GetLogger().Error(err, "Failed to set up compose project reconciler")
 		return err
 	}
