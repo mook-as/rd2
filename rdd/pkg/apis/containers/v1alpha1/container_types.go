@@ -6,6 +6,7 @@ package v1alpha1
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 )
 
 // +kubebuilder:validation:Enum=created;running;pausing;paused;restarting;removing;exited;dead;unknown
@@ -354,9 +355,228 @@ type ContainerCreateRequestList struct {
 	Items           []ContainerCreateRequest `json:"items"`
 }
 
+// ComposeProjectKind is the Kind string for ComposeProject resources.
+const ComposeProjectKind = "ComposeProject"
+
+// ComposeProject status conditions.
+const (
+	ComposeProjectConditionSettled    = "Settled"
+	ComposeProjectConditionHasMembers = "HasMembers"
+)
+
+// ComposeProject status reasons for the Settled condition.
+const (
+	// ComposeProjectSettledReasonStarting indicates that the compose project is
+	// in the process of starting up.
+	ComposeProjectSettledReasonStarting = "Starting"
+	// ComposeProjectSettledReasonStarted indicates that the compose project is
+	// fully started and running.
+	ComposeProjectSettledReasonStarted = "Started"
+	// ComposeProjectSettledReasonErrored indicates that the compose project is
+	// in an error state, and will not be able to start successfully.
+	ComposeProjectSettledReasonErrored = "Errored"
+	// ComposeProjectSettledReasonStopping indicates that the compose project is
+	// in the process of shutting down.
+	ComposeProjectSettledReasonStopping = "Stopping"
+	// ComposeProjectSettledReasonStopped indicates that the compose project is
+	// fully stopped, and will be deleted soon.
+	ComposeProjectSettledReasonStopped = "Stopped"
+)
+
+// ComposeProject status reasons for the HasMembers condition.
+const (
+	// ComposeProjectHasMembersReasonFound indicates that the compose project has
+	// at least one member.
+	ComposeProjectHasMembersReasonFound = "Found"
+	// ComposeProjectHasMembersReasonDeleted indicates that the last member of the
+	// compose project has been removed; the project may be deleted soon.
+	ComposeProjectHasMembersReasonDeleted = "Deleted"
+	// ComposeProjectHasMembersReasonCalculating indicates that the controller is
+	// still calculating whether the compose project has any members.
+	ComposeProjectHasMembersReasonCalculating = "Calculating"
+)
+
+// +kubebuilder:validation:Enum=up;down
+
+// ComposeProjectAction is the name of an action that can be requested on a
+// ComposeProject via the AnnotationAction annotation.
+type ComposeProjectAction string
+
+// Possible values for ComposeProjectAction.
+const (
+	ComposeProjectActionUnset ComposeProjectAction = ""
+	ComposeProjectActionUp    ComposeProjectAction = "up"
+	ComposeProjectActionDown  ComposeProjectAction = "down"
+)
+
+// IsValid reports whether a is one of the defined ComposeProjectAction values.
+func (a ComposeProjectAction) IsValid() bool {
+	switch a {
+	case ComposeProjectActionUnset, ComposeProjectActionUp, ComposeProjectActionDown:
+		return true
+	default:
+		return false
+	}
+}
+
+// +kubebuilder:validation:Enum=Succeeded;Failed
+
+// ComposeProjectActionState describes the outcome of an action that was
+// requested via the AnnotationAction annotation.
+type ComposeProjectActionState string
+
+// Possible values for ComposeProjectActionState.
+const (
+	ComposeProjectActionSucceeded ComposeProjectActionState = "Succeeded"
+	ComposeProjectActionFailed    ComposeProjectActionState = "Failed"
+)
+
+// ComposeProjectLastAction records the most recent action requested via the
+// AnnotationAction annotation and its outcome.
+type ComposeProjectLastAction struct {
+	// Action is the action that was requested.
+	//
+	// +required
+	Action ComposeProjectAction `json:"action"`
+	// State is the outcome of the action.
+	//
+	// +optional
+	State ComposeProjectActionState `json:"state,omitempty"`
+	// Error is the error message if the action failed.
+	//
+	// +optional
+	Error string `json:"error,omitempty"`
+	// ObservedAt is when the reconciler began processing the action
+	// annotation.
+	//
+	// +optional
+	ObservedAt metav1.Time `json:"observedAt,omitempty,omitzero"`
+	// CompletedAt is when the action completed, regardless of outcome.
+	//
+	// +optional
+	CompletedAt metav1.Time `json:"completedAt,omitempty,omitzero"`
+}
+
+// ComposeProjectSpec defines the identity of a `docker compose` project.
+// The information here cannot recreate a running project (profile selection
+// and environment variables set at `compose up` time are not available), so
+// changing the spec does not automatically update the project; actions must
+// be requested explicitly via the AnnotationAction annotation.
+type ComposeProjectSpec struct {
+	// Namespace is the container namespace; refers to a `ContainerNamespace`
+	// object in the same Kubernetes namespace. Immutable once created.
+	//
+	// +required
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="spec.namespace is immutable"
+	Namespace string `json:"namespace"`
+	// Name is the compose project name. Immutable once created.
+	//
+	// +required
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="spec.name is immutable"
+	Name string `json:"name"`
+	// WorkingDir is the compose project directory on the host (i.e. relative
+	// to where the RDD process runs). Used to look up any files needed. May
+	// be unset for a ComposeProject that was automatically created from
+	// observed containers or volumes.
+	//
+	// +optional
+	WorkingDir string `json:"workingDir,omitempty"`
+	// Configs is the list of compose files used to create the project,
+	// relative to WorkingDir. It is not guaranteed that this is sufficient to
+	// recreate the project. May be unset for a ComposeProject that was
+	// automatically created from observed containers or volumes.
+	//
+	// +optional
+	Configs []string `json:"configs,omitempty"`
+}
+
+// ComposeProjectMember describes a single member of a compose project, which is
+// a container, image, or volume.
+type ComposeProjectMember struct {
+	// Name is the name of the member object, in the form [kind]/[name], e.g.
+	// "Volume/myvolume".
+	//
+	// +required
+	Name string `json:"name"`
+	// UID is the UID of the member object.
+	//
+	// +required
+	UID types.UID `json:"uid"`
+}
+
+// ComposeProjectStatus defines the observed state of the compose project.
+type ComposeProjectStatus struct {
+	// LastAction records the most recent action requested via the
+	// AnnotationAction annotation and its outcome. Persists after the action
+	// completes until overwritten by the next action.
+	//
+	// +optional
+	LastAction *ComposeProjectLastAction `json:"lastAction,omitempty"`
+	// Members tracks the objects that are part of the compose project.  The name
+	// is a combination of object kind and name, e.g. "Volume/myvolume".  The UID
+	// is also tracked.
+	//
+	// +listType=map
+	// +listMapKey=name
+	// +optional
+	Members []ComposeProjectMember `json:"members,omitempty"`
+	// Conditions represent the state of the compose project.
+	// Known condition types include:
+	// - "Settled": The compose project is at a steady state.
+	// - "HasMembers": The compose project has at least one member.
+	//
+	// The status of each condition is one of True, False, or Unknown.
+	//
+	// +listType=map
+	// +listMapKey=type
+	// +optional
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
+}
+
+// +kubebuilder:object:root=true
+// +kubebuilder:ac:generate=true
+// +kubebuilder:resource:categories="all"
+// +kubebuilder:subresource:status
+// +kubebuilder:selectablefield:JSONPath=.spec.namespace
+// +kubebuilder:selectablefield:JSONPath=.spec.name
+// +kubebuilder:printcolumn:name="Project",type=string,JSONPath=`.spec.name`
+// +kubebuilder:printcolumn:name="State",type=string,JSONPath=`.status.lastAction.state`
+
+// ComposeProject is the Schema for the composeprojects API. ComposeProject
+// objects do not reflect actual container engine objects; instead, they
+// reflect `docker compose` projects.
+type ComposeProject struct {
+	metav1.TypeMeta `json:",inline"`
+
+	// Metadata is a standard object metadata
+	//
+	// +optional
+	metav1.ObjectMeta `json:"metadata,omitempty,omitzero"`
+
+	// Spec defines the identity of the compose project.
+	//
+	// +required
+	Spec ComposeProjectSpec `json:"spec"`
+
+	// Status defines the observed state of ComposeProject
+	//
+	// +optional
+	Status ComposeProjectStatus `json:"status,omitempty,omitzero"`
+}
+
+// +kubebuilder:object:root=true
+
+// ComposeProjectList contains a list of ComposeProject.
+type ComposeProjectList struct {
+	metav1.TypeMeta `json:",inline"`
+	metav1.ListMeta `json:"metadata,omitempty"`
+	Items           []ComposeProject `json:"items"`
+}
+
 func init() {
 	registerTypes(
 		&Container{}, &ContainerList{},
 		&ContainerCreateRequest{}, &ContainerCreateRequestList{},
+		&ComposeProject{}, &ComposeProjectList{},
 	)
 }
