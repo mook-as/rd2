@@ -16,6 +16,18 @@ import (
 func ForKind(kind schema.GroupVersionKind) interface{} {
 	switch kind {
 	// Group=containers.rancherdesktop.io, Version=v1alpha1
+	case v1alpha1.SchemeGroupVersion.WithKind("Compose"):
+		return &containersv1alpha1.ComposeApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("ComposeMember"):
+		return &containersv1alpha1.ComposeMemberApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("ComposeStatus"):
+		return &containersv1alpha1.ComposeStatusApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("ComposeUpRequest"):
+		return &containersv1alpha1.ComposeUpRequestApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("ComposeUpRequestSpec"):
+		return &containersv1alpha1.ComposeUpRequestSpecApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("ComposeUpRequestStatus"):
+		return &containersv1alpha1.ComposeUpRequestStatusApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("Container"):
 		return &containersv1alpha1.ContainerApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("ContainerLastAction"):
