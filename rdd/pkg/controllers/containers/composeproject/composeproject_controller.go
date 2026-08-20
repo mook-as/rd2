@@ -28,7 +28,6 @@ const APIGroup = "containers"
 var controllerCRD string
 
 // controller implements the base.Controller interface for composeproject.
-// It only registers a validating webhook; there is no reconciler yet.
 type controller struct {
 	webhookPort     int
 	webhookManagers []base.WebhookManager
@@ -70,6 +69,15 @@ func (c *controller) GetWebhookManagers() []base.WebhookManager {
 	return c.webhookManagers
 }
 
+// setupReconciler sets up the (currently no-op) reconciler with the manager.
+func (c *controller) setupReconciler(mgr ctrl.Manager) error {
+	mgr.GetLogger().Info("Setting up compose project reconciler")
+	return (&reconciler{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+	}).SetupWithManager(mgr)
+}
+
 // setupWebhookWithRuntimeConfig registers a validating webhook that enforces
 // spec.namespace/spec.name uniqueness on create, and validates the action
 // annotation on both create and update.
@@ -95,6 +103,11 @@ func (c *controller) setupWebhookWithRuntimeConfig(mgr ctrl.Manager) error {
 func (c *controller) RegisterWithManager(_ context.Context, mgr ctrl.Manager) error {
 	// Register the CRD types with the scheme
 	if err := v1alpha1.AddToScheme(mgr.GetScheme()); err != nil {
+		return err
+	}
+
+	if err := c.setupReconciler(mgr); err != nil {
+		mgr.GetLogger().Error(err, "Failed to set up compose project reconciler")
 		return err
 	}
 

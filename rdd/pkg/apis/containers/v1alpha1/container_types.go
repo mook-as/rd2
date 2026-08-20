@@ -9,6 +9,9 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 )
 
+// ContainerKind is the Kind string for Container resources.
+const ContainerKind = "Container"
+
 // +kubebuilder:validation:Enum=created;running;pausing;paused;restarting;removing;exited;dead;unknown
 
 // ContainerStatusValue describes the status of a container.
