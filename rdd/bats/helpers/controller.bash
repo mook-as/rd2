@@ -64,6 +64,34 @@ wait_for_resource_status() {
     try --max 30 --delay 1 -- assert_resource_status "${resource_type}" "${name}" "${field}" "${expected}"
 }
 
+get_resource_status_condition() {
+    local resource_type=$1
+    local name=$2
+    local condition_type=$3
+
+    rdd ctl get "${resource_type}" "${name}" -n "${RDD_NAMESPACE}" -o jsonpath="{.status.conditions[?(@.type==\"${condition_type}\")]}"
+}
+
+assert_resource_status_condition_reason() {
+    local resource_type=$1
+    local name=$2
+    local condition_type=$3
+    local expected=$4
+
+    run -0 get_resource_status_condition "${resource_type}" "${name}" "${condition_type}"
+    jq_output .reason
+    assert_output "${expected}"
+}
+
+wait_for_resource_status_condition_reason() {
+    local resource_type=$1
+    local name=$2
+    local condition_type=$3
+    local expected=$4
+
+    try --max 30 --delay 1 -- assert_resource_status_condition_reason "${resource_type}" "${name}" "${condition_type}" "${expected}"
+}
+
 patch_resource() {
     local resource_type=$1
     local name=$2
