@@ -18,7 +18,6 @@ import (
 	k8sruntime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/uuid"
-	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -110,9 +109,8 @@ func newReconciler(t *testing.T, objs ...client.Object) (*reconciler, *spyingCli
 	fakeClient := &spyingClient{Client: builder.Build()}
 
 	return &reconciler{
-		Client:   fakeClient,
-		Scheme:   scheme,
-		Recorder: events.NewFakeRecorder(10),
+		Client: fakeClient,
+		Scheme: scheme,
 	}, fakeClient
 }
 
