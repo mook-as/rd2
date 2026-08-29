@@ -6,14 +6,21 @@ package composeproject
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"math/rand/v2"
 	"runtime"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"gotest.tools/v3/assert"
+	"gotest.tools/v3/assert/cmp"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	k8sruntime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -21,6 +28,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 
 	"github.com/rancher-sandbox/rancher-desktop-daemon/pkg/apis/containers/v1alpha1"
 )
@@ -109,8 +117,10 @@ func newReconciler(t *testing.T, objs ...client.Object) (*reconciler, *spyingCli
 	fakeClient := &spyingClient{Client: builder.Build()}
 
 	return &reconciler{
-		Client: fakeClient,
-		Scheme: scheme,
+		ctx:              t.Context(),
+		Client:           fakeClient,
+		Scheme:           scheme,
+		procCompletionCh: make(chan event.TypedGenericEvent[processCompletionEvent], 16),
 	}, fakeClient
 }
 
@@ -330,6 +340,49 @@ func testReconcileResource[T client.Object](
 		assert.Equal(t, fakeClient.updateCalls, 0)
 		assert.Equal(t, fakeClient.statusUpdateCalls, 2)
 	})
+
+	t.Run(fmt.Sprintf("removes the %s's UID and marks HasMembers=False once it has no remaining members", lowerKind), func(t *testing.T) {
+		t.Parallel()
+		resource := newResource(k8sNamespace, "r1", dockerNamespace, map[string]string{
+			composeProjectLabel:    "myproject",
+			composeConfigHashLabel: "somehash",
+		})
+		r, _ := newReconciler(t, resource)
+
+		_, err := reconcileKind(r, kind, client.ObjectKeyFromObject(resource), resource.GetUID())
+		assert.NilError(t, err)
+
+		projectKey := types.NamespacedName{
+			Namespace: k8sNamespace,
+			Name:      generateProjectName(dockerNamespace, "myproject"),
+		}
+		var project v1alpha1.ComposeProject
+		assert.NilError(t, r.Get(t.Context(), projectKey, &project))
+
+		// Delete the resource, and reconcile it.
+		assert.NilError(t, r.Delete(t.Context(), resource))
+		_, err = reconcileKind(r, kind, client.ObjectKeyFromObject(resource), resource.GetUID())
+		assert.NilError(t, err)
+
+		// We may take a few iterations to reach steady state.  Keep reconciling
+		// until we reach the desired state.
+		for range 5 {
+			_, err = reconcileKind(r, v1alpha1.ComposeProjectKind, projectKey, project.GetUID())
+			assert.NilError(t, err)
+			assert.NilError(t, r.Get(t.Context(), projectKey, &project))
+			if apimeta.IsStatusConditionFalse(project.Status.Conditions, v1alpha1.ComposeProjectConditionHasMembers) {
+				break
+			}
+		}
+
+		// We are at the target state; ensure everything is as we expect.
+		assert.NilError(t, r.Get(t.Context(), projectKey, &project))
+		assert.Equal(t, len(project.Status.Members), 0)
+		assert.Assert(
+			t,
+			apimeta.IsStatusConditionFalse(project.Status.Conditions, v1alpha1.ComposeProjectConditionHasMembers),
+			"expected HasMembers=False, got %v", apimeta.FindStatusCondition(project.Status.Conditions, v1alpha1.ComposeProjectConditionHasMembers))
+	})
 }
 
 func TestReconcileContainer(t *testing.T) {
@@ -492,5 +545,619 @@ func TestReconcile_dispatch(t *testing.T) {
 		assert.DeepEqual(t, result, ctrl.Result{})
 		assert.Equal(t, fakeClient.createCalls, 1)
 		assert.Equal(t, fakeClient.statusUpdateCalls, 1)
+	})
+}
+
+// fakeCommand is an in-memory test double for the command interface. It never
+// spawns a real process: wait() blocks until either the test supplies a
+// result via done, or kill() is called (which makes wait() return errKilled).
+type fakeCommand struct {
+	argv     []string
+	done     chan error
+	killed   chan struct{}
+	killOnce sync.Once
+	// outputStr is returned by output(); tests may set it before the command
+	// completes to simulate captured stderr output.
+	outputStr string
+}
+
+// errKilled is returned by fakeCommand.wait() when kill() won the race
+// against a supplied result.
+var errKilled = errors.New("signal: killed")
+
+func newFakeCommand(argv []string) *fakeCommand {
+	return &fakeCommand{
+		argv:   argv,
+		done:   make(chan error, 1),
+		killed: make(chan struct{}),
+	}
+}
+
+// args implements [command].
+func (c *fakeCommand) args() []string { return c.argv }
+
+// kill implements [command]. It causes a pending wait() to return errKilled.
+func (c *fakeCommand) kill(context.Context) error {
+	c.killOnce.Do(func() { close(c.killed) })
+	return nil
+}
+
+// output implements [command].
+func (c *fakeCommand) output() string { return c.outputStr }
+
+// wait implements [command].
+func (c *fakeCommand) wait(ctx context.Context) error {
+	select {
+	case err := <-c.done:
+		return err
+	case <-c.killed:
+		return errKilled
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// fakeCommandExecutor returns a commandExecutor that produces fakeCommands
+// instead of spawning real processes. resultFor is called with the command's
+// args (e.g. []string{"compose", "up"}) to decide the outcome: if block is
+// true, the returned command does not complete until kill() is called (or
+// the test sends to its done channel directly); otherwise it completes
+// immediately with result.
+func fakeCommandExecutor(resultFor func(args []string) (result error, block bool)) commandExecutor {
+	return func(_ context.Context, _, name string, args ...string) (command, error) {
+		c := newFakeCommand(append([]string{name}, args...))
+		result, block := resultFor(args)
+		if !block {
+			c.done <- result
+		}
+		return c, nil
+	}
+}
+
+// waitForProcessFinished polls r.procs[uid] until its processState is marked
+// finished (i.e. the background `docker compose` command has exited), or
+// fails the test after timeout.
+func waitForProcessFinished(t *testing.T, r *reconciler, uid types.UID, timeout time.Duration) processState {
+	t.Helper()
+
+	deadline := time.Now().Add(timeout)
+	for {
+		r.procsLock.Lock()
+		state, ok := r.procs[uid]
+		r.procsLock.Unlock()
+		assert.Assert(t, ok, "process state for %s not found", uid)
+		if state.finished {
+			return state
+		}
+		if time.Now().After(deadline) {
+			assert.Assert(t, false, "timed out waiting for process to finish for %s", uid)
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
+// newComposeProjectForAction builds a ComposeProject requesting the given
+// action, ready to be reconciled.
+func newComposeProjectForAction(namespace, name string, uid types.UID, action v1alpha1.ComposeProjectAction) *v1alpha1.ComposeProject {
+	return &v1alpha1.ComposeProject{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:            name,
+			Namespace:       namespace,
+			UID:             uid,
+			ResourceVersion: strconv.FormatUint(rand.Uint64(), 10),
+			Annotations: map[string]string{
+				v1alpha1.AnnotationAction: string(action),
+			},
+		},
+		Spec: v1alpha1.ComposeProjectSpec{
+			Namespace: "moby",
+			Name:      name,
+		},
+	}
+}
+
+func TestReconcileProject_Up(t *testing.T) {
+	t.Parallel()
+
+	t.Run("transitions Starting to Started when the compose command succeeds", func(t *testing.T) {
+		t.Parallel()
+
+		const namespace = "rancher-desktop"
+		project := newComposeProjectForAction(namespace, "myproject", "project-uid", v1alpha1.ComposeProjectActionUp)
+		r, _ := newReconciler(t, project)
+		r.execCommand = fakeCommandExecutor(func([]string) (error, bool) { return nil, false })
+		key := client.ObjectKeyFromObject(project)
+
+		// Reconcile until the action was accepted (annotation removed)
+		for range 5 {
+			_, err := reconcileKind(r, v1alpha1.ComposeProjectKind, key, project.GetUID())
+			assert.NilError(t, err)
+
+			var latest v1alpha1.ComposeProject
+			assert.NilError(t, r.Get(t.Context(), key, &latest))
+			if latest.Annotations[v1alpha1.AnnotationAction] == "" {
+				break
+			}
+		}
+
+		var latest v1alpha1.ComposeProject
+		assert.NilError(t, r.Get(t.Context(), key, &latest))
+		assert.Equal(t, latest.Annotations[v1alpha1.AnnotationAction], "")
+		assert.Assert(t, latest.Status.LastAction != nil)
+		assert.Equal(t, latest.Status.LastAction.Action, v1alpha1.ComposeProjectActionUp)
+		condition := apimeta.FindStatusCondition(latest.Status.Conditions, v1alpha1.ComposeProjectConditionSettled)
+		assert.Assert(t, condition != nil)
+		assert.Equal(t, condition.Reason, v1alpha1.ComposeProjectSettledReasonStarting)
+		assert.Equal(t, condition.Status, metav1.ConditionFalse)
+
+		waitForProcessFinished(t, r, project.GetUID(), 5*time.Second)
+
+		// Once the process completes, the next reconcile (triggered by
+		// procCompletionCh in production) transitions to Started.
+		_, err := reconcileKind(r, v1alpha1.ComposeProjectKind, key, project.GetUID())
+		assert.NilError(t, err)
+
+		assert.NilError(t, r.Get(t.Context(), key, &latest))
+		condition = apimeta.FindStatusCondition(latest.Status.Conditions, v1alpha1.ComposeProjectConditionSettled)
+		assert.Assert(t, condition != nil)
+		assert.Equal(t, condition.Reason, v1alpha1.ComposeProjectSettledReasonStarted)
+		assert.Equal(t, condition.Status, metav1.ConditionTrue)
+
+		// The process state should have been cleaned up.
+		r.procsLock.Lock()
+		_, ok := r.procs[project.GetUID()]
+		r.procsLock.Unlock()
+		assert.Assert(t, !ok, "process state should be removed once handled")
+	})
+
+	t.Run("transitions Starting to Errored when the compose command fails", func(t *testing.T) {
+		t.Parallel()
+
+		const namespace = "rancher-desktop"
+		project := newComposeProjectForAction(namespace, "myproject", "project-uid", v1alpha1.ComposeProjectActionUp)
+		r, _ := newReconciler(t, project)
+		r.execCommand = fakeCommandExecutor(func([]string) (error, bool) {
+			return errors.New("exit status 1"), false
+		})
+		key := client.ObjectKeyFromObject(project)
+
+		// Reconcile until the action was accepted (annotation removed)
+		for range 5 {
+			_, err := reconcileKind(r, v1alpha1.ComposeProjectKind, key, project.GetUID())
+			assert.NilError(t, err)
+
+			var latest v1alpha1.ComposeProject
+			assert.NilError(t, r.Get(t.Context(), key, &latest))
+			if latest.Annotations[v1alpha1.AnnotationAction] == "" {
+				break
+			}
+		}
+
+		waitForProcessFinished(t, r, project.GetUID(), 5*time.Second)
+
+		_, err := reconcileKind(r, v1alpha1.ComposeProjectKind, key, project.GetUID())
+		assert.NilError(t, err)
+
+		var latest v1alpha1.ComposeProject
+		assert.NilError(t, r.Get(t.Context(), key, &latest))
+		condition := apimeta.FindStatusCondition(latest.Status.Conditions, v1alpha1.ComposeProjectConditionSettled)
+		assert.Assert(t, condition != nil)
+		assert.Equal(t, condition.Reason, v1alpha1.ComposeProjectSettledReasonErrored)
+		assert.Equal(t, condition.Status, metav1.ConditionTrue)
+		assert.Assert(t, cmp.Contains(condition.Message, "failed to start"))
+	})
+}
+
+func TestReconcileProject_Down(t *testing.T) {
+	t.Parallel()
+
+	t.Run("transitions Stopping to Stopped when the compose command succeeds", func(t *testing.T) {
+		t.Parallel()
+
+		const namespace = "rancher-desktop"
+		project := newComposeProjectForAction(namespace, "myproject", "project-uid", v1alpha1.ComposeProjectActionDown)
+		r, _ := newReconciler(t, project)
+		r.execCommand = fakeCommandExecutor(func([]string) (error, bool) { return nil, false })
+		key := client.ObjectKeyFromObject(project)
+
+		// The reconciler should accept the action: the annotation should be remmoved,
+		// and the requested action should be underway.
+		for range 5 {
+			_, err := reconcileKind(r, v1alpha1.ComposeProjectKind, key, project.GetUID())
+			assert.NilError(t, err)
+
+			var latest v1alpha1.ComposeProject
+			assert.NilError(t, r.Get(t.Context(), key, &latest))
+			if latest.Annotations[v1alpha1.AnnotationAction] == "" {
+				break
+			}
+		}
+		// Check that it's at the desired state.
+		var latest v1alpha1.ComposeProject
+		assert.NilError(t, r.Get(t.Context(), key, &latest))
+		assert.Equal(t, latest.Annotations[v1alpha1.AnnotationAction], "")
+		assert.Assert(t, latest.Status.LastAction != nil)
+		assert.Equal(t, latest.Status.LastAction.Action, v1alpha1.ComposeProjectActionDown)
+		condition := apimeta.FindStatusCondition(latest.Status.Conditions, v1alpha1.ComposeProjectConditionSettled)
+		assert.Assert(t, condition != nil)
+		assert.Equal(t, condition.Reason, v1alpha1.ComposeProjectSettledReasonStopping)
+		assert.Equal(t, condition.Status, metav1.ConditionFalse)
+
+		waitForProcessFinished(t, r, project.GetUID(), 5*time.Second)
+
+		// The process completed; we should transition to Stopped.
+		for range 5 {
+			_, err := reconcileKind(r, v1alpha1.ComposeProjectKind, key, project.GetUID())
+			assert.NilError(t, err)
+
+			assert.NilError(t, r.Get(t.Context(), key, &latest))
+			if apimeta.IsStatusConditionTrue(latest.Status.Conditions, v1alpha1.ComposeProjectConditionSettled) {
+				break
+			}
+		}
+
+		assert.NilError(t, r.Get(t.Context(), key, &latest))
+		condition = apimeta.FindStatusCondition(latest.Status.Conditions, v1alpha1.ComposeProjectConditionSettled)
+		assert.Assert(t, condition != nil)
+		assert.Equal(t, condition.Reason, v1alpha1.ComposeProjectSettledReasonStopped)
+		assert.Equal(t, condition.Status, metav1.ConditionTrue)
+
+		// The process state should have been cleaned up.
+		r.procsLock.Lock()
+		_, ok := r.procs[project.GetUID()]
+		r.procsLock.Unlock()
+		assert.Assert(t, !ok, "process state should be removed once handled")
+	})
+
+	t.Run("transitions Stopping to Errored when the compose command fails", func(t *testing.T) {
+		t.Parallel()
+
+		const namespace = "rancher-desktop"
+		project := newComposeProjectForAction(namespace, "myproject", "project-uid", v1alpha1.ComposeProjectActionDown)
+		r, _ := newReconciler(t, project)
+		r.execCommand = fakeCommandExecutor(func([]string) (error, bool) {
+			return errors.New("exit status 1"), false
+		})
+		key := client.ObjectKeyFromObject(project)
+
+		// Reconcile until the action was accepted (annotation removed)
+		for range 5 {
+			_, err := reconcileKind(r, v1alpha1.ComposeProjectKind, key, project.GetUID())
+			assert.NilError(t, err)
+
+			var latest v1alpha1.ComposeProject
+			assert.NilError(t, r.Get(t.Context(), key, &latest))
+			if latest.Annotations[v1alpha1.AnnotationAction] == "" {
+				break
+			}
+		}
+
+		waitForProcessFinished(t, r, project.GetUID(), 5*time.Second)
+
+		_, err := reconcileKind(r, v1alpha1.ComposeProjectKind, key, project.GetUID())
+		assert.NilError(t, err)
+
+		var latest v1alpha1.ComposeProject
+		assert.NilError(t, r.Get(t.Context(), key, &latest))
+		condition := apimeta.FindStatusCondition(latest.Status.Conditions, v1alpha1.ComposeProjectConditionSettled)
+		assert.Assert(t, condition != nil)
+		assert.Equal(t, condition.Reason, v1alpha1.ComposeProjectSettledReasonErrored)
+		assert.Equal(t, condition.Status, metav1.ConditionTrue)
+		assert.Assert(t, cmp.Contains(condition.Message, "failed to stop"))
+	})
+}
+
+// newProjectWithMembers builds a ComposeProject with no pending action,
+// ready to exercise the `HasMembers`-driven recompute/reap branches of
+// reconcileProject.
+func newProjectWithMembers(name string, members []v1alpha1.ComposeProjectMember) *v1alpha1.ComposeProject {
+	return &v1alpha1.ComposeProject{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:            name,
+			Namespace:       "rancher-desktop",
+			UID:             types.UID(name + "-uid"),
+			ResourceVersion: strconv.FormatUint(rand.Uint64(), 10),
+		},
+		Spec:   v1alpha1.ComposeProjectSpec{Namespace: "moby", Name: name},
+		Status: v1alpha1.ComposeProjectStatus{Members: members},
+	}
+}
+
+func TestReconcileProject_Reaping(t *testing.T) {
+	t.Parallel()
+
+	t.Run("deletes the project once HasMembers is already False", func(t *testing.T) {
+		t.Parallel()
+
+		project := newProjectWithMembers("myproject", nil)
+		apimeta.SetStatusCondition(&project.Status.Conditions, metav1.Condition{
+			Type:   v1alpha1.ComposeProjectConditionHasMembers,
+			Status: metav1.ConditionFalse,
+			Reason: v1alpha1.ComposeProjectHasMembersReasonDeleted,
+		})
+		r, _ := newReconciler(t, project)
+		key := client.ObjectKeyFromObject(project)
+
+		// It takes a while to reach steady state.
+		for range 5 {
+			_, err := reconcileKind(r, v1alpha1.ComposeProjectKind, key, project.GetUID())
+			assert.NilError(t, err)
+
+			err = r.Get(t.Context(), key, &v1alpha1.ComposeProject{})
+			if apierrors.IsNotFound(err) {
+				break
+			}
+			assert.NilError(t, err)
+		}
+
+		err := r.Get(t.Context(), key, &v1alpha1.ComposeProject{})
+		assert.Assert(t, apierrors.IsNotFound(err), "expected ComposeProject to be reaped, got: %v", err)
+	})
+
+	t.Run("does not delete the project while HasMembers is Unknown", func(t *testing.T) {
+		t.Parallel()
+
+		// Unknown indicates an action is in progress; the project must not be
+		// reaped out from under it even though it currently has no members.
+		project := newProjectWithMembers("myproject", nil)
+		apimeta.SetStatusCondition(&project.Status.Conditions, metav1.Condition{
+			Type:   v1alpha1.ComposeProjectConditionHasMembers,
+			Status: metav1.ConditionUnknown,
+			Reason: v1alpha1.ComposeProjectHasMembersReasonCalculating,
+		})
+		r, _ := newReconciler(t, project)
+		key := client.ObjectKeyFromObject(project)
+
+		_, err := reconcileKind(r, v1alpha1.ComposeProjectKind, key, project.GetUID())
+		assert.NilError(t, err)
+
+		assert.NilError(t, r.Get(t.Context(), key, &v1alpha1.ComposeProject{}))
+	})
+
+	t.Run("does not delete the project while it has members", func(t *testing.T) {
+		t.Parallel()
+
+		project := newProjectWithMembers("myproject", []v1alpha1.ComposeProjectMember{{Name: "Container/c1", UID: "c1"}})
+		apimeta.SetStatusCondition(&project.Status.Conditions, metav1.Condition{
+			Type:   v1alpha1.ComposeProjectConditionHasMembers,
+			Status: metav1.ConditionTrue,
+			Reason: v1alpha1.ComposeProjectHasMembersReasonFound,
+		})
+		r, _ := newReconciler(t, project)
+		key := client.ObjectKeyFromObject(project)
+
+		_, err := reconcileKind(r, v1alpha1.ComposeProjectKind, key, project.GetUID())
+		assert.NilError(t, err)
+
+		assert.NilError(t, r.Get(t.Context(), key, &v1alpha1.ComposeProject{}))
+	})
+
+	t.Run("recomputes HasMembers to True once members are recorded", func(t *testing.T) {
+		t.Parallel()
+
+		project := newProjectWithMembers("myproject", []v1alpha1.ComposeProjectMember{{Name: "Container/c1", UID: "c1"}})
+		r, _ := newReconciler(t, project)
+		key := client.ObjectKeyFromObject(project)
+
+		for range 5 {
+			_, err := reconcileKind(r, v1alpha1.ComposeProjectKind, key, project.GetUID())
+			assert.NilError(t, err)
+
+			var latest v1alpha1.ComposeProject
+			assert.NilError(t, r.Get(t.Context(), key, &latest))
+			if apimeta.IsStatusConditionTrue(latest.Status.Conditions, v1alpha1.ComposeProjectConditionHasMembers) {
+				break
+			}
+		}
+		var latest v1alpha1.ComposeProject
+		assert.NilError(t, r.Get(t.Context(), key, &latest))
+		assert.Assert(t, apimeta.IsStatusConditionTrue(latest.Status.Conditions, v1alpha1.ComposeProjectConditionHasMembers))
+	})
+
+	t.Run("recomputes HasMembers to False, then reaps on the following reconcile", func(t *testing.T) {
+		t.Parallel()
+
+		// No condition set at all yet (e.g. a project that was auto-detected
+		// but never had an explicit action run against it), and its last
+		// member has just been removed.
+		project := newProjectWithMembers("myproject", nil)
+		r, _ := newReconciler(t, project)
+		key := client.ObjectKeyFromObject(project)
+
+		// Reconcile until we reach the desired state.
+		for range 5 {
+			_, err := reconcileKind(r, v1alpha1.ComposeProjectKind, key, project.GetUID())
+			assert.NilError(t, err)
+
+			var latest v1alpha1.ComposeProject
+			err = r.Get(t.Context(), key, &latest)
+			if apierrors.IsNotFound(err) {
+				break
+			}
+			assert.NilError(t, err)
+		}
+
+		err := r.Get(t.Context(), key, &v1alpha1.ComposeProject{})
+		assert.Assert(t, apierrors.IsNotFound(err), "expected ComposeProject to be reaped, got: %v", err)
+	})
+}
+
+func TestReconcileProject_Delete(t *testing.T) {
+	t.Parallel()
+
+	t.Run("kills a running process once the object is gone", func(t *testing.T) {
+		t.Parallel()
+
+		// The ComposeProject is intentionally never added to the fake client:
+		// deletion is unconditional (no finalizer), so by the time the
+		// reconciler observes it, the object itself has already been removed
+		// from the API server; only the in-memory process state remains.
+		project := newComposeProjectForAction("rancher-desktop", "myproject", "project-uid", v1alpha1.ComposeProjectActionUnset)
+		r, _ := newReconciler(t)
+		cmd := newFakeCommand([]string{"compose", "up"})
+		r.procs = map[types.UID]processState{project.GetUID(): {cmd: cmd}}
+
+		_, err := reconcileKind(r, v1alpha1.ComposeProjectKind, client.ObjectKeyFromObject(project), project.GetUID())
+		assert.NilError(t, err)
+
+		select {
+		case <-cmd.killed:
+		default:
+			assert.Assert(t, false, "expected the tracked process to have been killed")
+		}
+
+		r.procsLock.Lock()
+		_, ok := r.procs[project.GetUID()]
+		r.procsLock.Unlock()
+		assert.Assert(t, !ok, "process state should be removed once the object is gone")
+	})
+
+	t.Run("does not attempt to kill an already-finished process", func(t *testing.T) {
+		t.Parallel()
+
+		project := newComposeProjectForAction("rancher-desktop", "myproject", "project-uid", v1alpha1.ComposeProjectActionUnset)
+		r, _ := newReconciler(t)
+		cmd := newFakeCommand([]string{"compose", "up"})
+		r.procs = map[types.UID]processState{project.GetUID(): {cmd: cmd, finished: true}}
+
+		_, err := reconcileKind(r, v1alpha1.ComposeProjectKind, client.ObjectKeyFromObject(project), project.GetUID())
+		assert.NilError(t, err)
+
+		select {
+		case <-cmd.killed:
+			assert.Assert(t, false, "an already-finished process should not be killed")
+		default:
+		}
+
+		r.procsLock.Lock()
+		_, ok := r.procs[project.GetUID()]
+		r.procsLock.Unlock()
+		assert.Assert(t, !ok, "process state should be removed once the object is gone")
+	})
+
+	t.Run("is a no-op when there is no tracked process", func(t *testing.T) {
+		t.Parallel()
+
+		project := newComposeProjectForAction("rancher-desktop", "myproject", "project-uid", v1alpha1.ComposeProjectActionUnset)
+		r, _ := newReconciler(t)
+
+		result, err := reconcileKind(r, v1alpha1.ComposeProjectKind, client.ObjectKeyFromObject(project), project.GetUID())
+		assert.NilError(t, err)
+		assert.DeepEqual(t, result, ctrl.Result{})
+	})
+
+	t.Run("kills a running process for a stale UID when the object was deleted and recreated", func(t *testing.T) {
+		t.Parallel()
+
+		// Simulate a ComposeProject that was deleted and quickly recreated
+		// with the same namespace/name but a new UID, before the stale
+		// reconcile request (still carrying the old UID) was processed.
+		recreated := newComposeProjectForAction("rancher-desktop", "myproject", "new-project-uid", v1alpha1.ComposeProjectActionUnset)
+		r, _ := newReconciler(t, recreated)
+		cmd := newFakeCommand([]string{"compose", "up"})
+		const staleUID = types.UID("old-project-uid")
+		r.procs = map[types.UID]processState{staleUID: {cmd: cmd}}
+
+		_, err := reconcileKind(r, v1alpha1.ComposeProjectKind, client.ObjectKeyFromObject(recreated), staleUID)
+		assert.NilError(t, err)
+
+		select {
+		case <-cmd.killed:
+		default:
+			assert.Assert(t, false, "expected the stale process to have been killed")
+		}
+
+		r.procsLock.Lock()
+		_, staleOK := r.procs[staleUID]
+		_, newOK := r.procs[recreated.GetUID()]
+		r.procsLock.Unlock()
+		assert.Assert(t, !staleOK, "stale process state should be removed")
+		assert.Assert(t, !newOK, "the recreated project should not have inherited any process state")
+	})
+}
+
+func TestRunComposeCommand_AbortsPreviouslyRunningCommand(t *testing.T) {
+	t.Parallel()
+
+	project := &v1alpha1.ComposeProject{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:            "myproject",
+			Namespace:       "rancher-desktop",
+			UID:             "project-uid",
+			ResourceVersion: strconv.FormatUint(rand.Uint64(), 10),
+		},
+		Spec: v1alpha1.ComposeProjectSpec{Namespace: "moby", Name: "myproject"},
+	}
+	r, _ := newReconciler(t, project)
+	r.execCommand = fakeCommandExecutor(func(args []string) (error, bool) {
+		// The "up" command blocks until killed; "down" completes immediately.
+		return nil, len(args) > 0 && args[len(args)-1] == "up"
+	})
+
+	_, err := r.runComposeCommand(t.Context(), project, "up")
+	assert.NilError(t, err)
+
+	r.procsLock.Lock()
+	firstCmd, _ := r.procs[project.GetUID()].cmd.(*fakeCommand)
+	r.procsLock.Unlock()
+	assert.Assert(t, firstCmd != nil)
+
+	// Starting a second command for the same project should kill the first.
+	project.ResourceVersion = strconv.FormatUint(rand.Uint64(), 10)
+	_, err = r.runComposeCommand(t.Context(), project, "down")
+	assert.NilError(t, err)
+
+	waitForProcessFinished(t, r, project.GetUID(), 5*time.Second)
+
+	r.procsLock.Lock()
+	secondCmd := r.procs[project.GetUID()].cmd
+	r.procsLock.Unlock()
+	assert.Assert(t, secondCmd != command(firstCmd), "expected a new process to replace the killed one")
+
+	select {
+	case <-firstCmd.killed:
+	default:
+		assert.Assert(t, false, "expected the first compose command to have been killed")
+	}
+}
+
+func TestRunComposeCommand_PassesProjectIdentity(t *testing.T) {
+	t.Parallel()
+
+	project := &v1alpha1.ComposeProject{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:            "myproject",
+			Namespace:       "rancher-desktop",
+			UID:             "project-uid",
+			ResourceVersion: strconv.FormatUint(rand.Uint64(), 10),
+		},
+		Spec: v1alpha1.ComposeProjectSpec{
+			Namespace: "moby",
+			Name:      "custom-project-name",
+			Configs:   []string{"one.yaml", "two.yaml"},
+		},
+	}
+	r, _ := newReconciler(t, project)
+
+	var gotArgs []string
+	r.execCommand = fakeCommandExecutor(func(args []string) (error, bool) {
+		gotArgs = args
+		return nil, false
+	})
+
+	_, err := r.runComposeCommand(t.Context(), project, "up")
+	assert.NilError(t, err)
+	assert.DeepEqual(t, gotArgs, []string{
+		"compose", "--project-name", "custom-project-name",
+		"--file", "one.yaml", "--file", "two.yaml", "up",
+	})
+
+	project.ResourceVersion = strconv.FormatUint(rand.Uint64(), 10)
+
+	_, err = r.runComposeCommand(t.Context(), project, "down", "--remove-orphans", "--volumes")
+	assert.NilError(t, err)
+	assert.DeepEqual(t, gotArgs, []string{
+		"compose", "--project-name", "custom-project-name",
+		"--file", "one.yaml", "--file", "two.yaml", "down", "--remove-orphans", "--volumes",
 	})
 }
