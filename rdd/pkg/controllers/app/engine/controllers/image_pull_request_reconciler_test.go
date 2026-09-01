@@ -173,7 +173,7 @@ func TestEngineImagePullRequestReconcileBulkProcessesPendingRequests(t *testing.
 		},
 	})
 	assert.NilError(t, err)
-	assert.Equal(t, result, ctrl.Result{})
+	assert.Assert(t, result.RequeueAfter > 0, "requeue expected")
 	assert.Assert(t, engine.pullCalled)
 	assert.Equal(t, engine.pullRepoTag, "alpine:latest")
 	state := r.imagePullRequestState[req.UID]
@@ -217,7 +217,7 @@ func TestEngineImagePullRequestReconcileTerminalReasonSuccess(t *testing.T) {
 
 // TestEngineImagePullRequestReconcileTerminalReasonFailure verifies that a
 // queued failure terminal reason sets Settled=True (Errored), sets Failed=True
-// with the expected reason, clears progress fields, and clears in-memory state.
+// with the expected reason, and clears in-memory state.
 func TestEngineImagePullRequestReconcileTerminalReasonFailure(t *testing.T) {
 	now := metav1.NewTime(time.Now().UTC())
 	req := &containersv1alpha1.ImagePullRequest{
@@ -512,7 +512,9 @@ func TestEngineImagePullRequestReconcileSingleCompleteReasonMapping(t *testing.T
 			// onComplete applies the terminal reason asynchronously in a goroutine;
 			// pause a bit to let it remove the state.
 			<-time.After(100 * time.Millisecond)
+			r.imagePullRequestMu.Lock()
 			_, hasState := r.imagePullRequestState[req.UID]
+			r.imagePullRequestMu.Unlock()
 			assert.Equal(t, hasState, false)
 
 			var updated containersv1alpha1.ImagePullRequest

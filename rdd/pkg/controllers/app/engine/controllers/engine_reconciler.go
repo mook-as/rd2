@@ -130,11 +130,12 @@ type EngineReconciler struct {
 	reconcileImagePullRequestChan chan event.GenericEvent
 
 	// apiNamespace mirrors App.spec.namespace (immutable). Reconcile
-	// populates it before any mirror operation.
+	// populates it before any mirror operation.  Must be accessed while holding
+	// engineMu.
 	apiNamespace string
 
-	// engineMu guards r.engine; note that this may be held for a long time
-	// during initialization.
+	// engineMu guards r.engine and r.apiNamespace; note that this may be held for
+	// a long time during initialization.
 	engineMu sync.Mutex
 	engine   engine
 
@@ -166,11 +167,7 @@ type EngineReconciler struct {
 // Reconcile dispatches requests by source kind.
 func (r *EngineReconciler) Reconcile(ctx context.Context, req engineRequest) (ctrl.Result, error) {
 	switch req.Kind {
-	case appv1alpha1.AppKind,
-		containersv1alpha1.ContainerKind,
-		containersv1alpha1.ImageKind,
-		containersv1alpha1.VolumeKind,
-		containersv1alpha1.ContainerNamespaceKind:
+	case appv1alpha1.AppKind:
 		var app appv1alpha1.App
 		if err := r.Get(ctx, client.ObjectKey{Name: appName}, &app); err != nil {
 			return ctrl.Result{}, client.IgnoreNotFound(err)
@@ -215,20 +212,31 @@ func (r *EngineReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		return fmt.Errorf("failed to register watcher shutdown hook: %w", err)
 	}
 
-	enqueueRequestsForKind := func(kind string) handler.TypedEventHandler[client.Object, engineRequest] {
-		return handler.TypedEnqueueRequestsFromMapFunc(func(_ context.Context, obj client.Object) []engineRequest {
+	// When an ImagePullRequest changes, enqueue a reconcile request for that object.
+	enqueueRequestsForImagePullRequest := handler.TypedEnqueueRequestsFromMapFunc(
+		func(_ context.Context, obj client.Object) []engineRequest {
 			return []engineRequest{{
-				Kind:           kind,
+				Kind:           containersv1alpha1.ImagePullRequestKind,
 				NamespacedName: client.ObjectKeyFromObject(obj),
 				UID:            obj.GetUID(),
 			}}
 		})
-	}
+	// When an App, Container, Image, Volume, or ContainerNamespace changes,
+	// enqueue a reconcile request for the App so the watcher can update.
+	enqueueRequestsForApp := handler.TypedEnqueueRequestsFromMapFunc(
+		func(_ context.Context, _ client.Object) []engineRequest {
+			return []engineRequest{{
+				Kind:           appv1alpha1.AppKind,
+				NamespacedName: types.NamespacedName{Name: appName},
+			}}
+		})
+	// enqueueRawRequest returns a handler that enqueues a reconcile request for
+	// the specified kind.
 	enqueueRawRequest := func(kind string) handler.TypedEventHandler[client.Object, engineRequest] {
 		return handler.TypedEnqueueRequestsFromMapFunc(func(_ context.Context, _ client.Object) []engineRequest {
 			return []engineRequest{{
 				Kind:           kind,
-				NamespacedName: types.NamespacedName{Namespace: r.apiNamespace},
+				NamespacedName: types.NamespacedName{Name: appName},
 			}}
 		})
 	}
@@ -237,11 +245,11 @@ func (r *EngineReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Named("engine-reconciler").
 		WatchesRawSource(source.TypedChannel(r.reconcileAppChan, enqueueRawRequest(appv1alpha1.AppKind))).
 		WatchesRawSource(source.TypedChannel(r.reconcileImagePullRequestChan, enqueueRawRequest(containersv1alpha1.ImagePullRequestKind))).
-		Watches(&appv1alpha1.App{}, enqueueRequestsForKind(appv1alpha1.AppKind)).
-		Watches(&containersv1alpha1.Container{}, enqueueRequestsForKind(containersv1alpha1.ContainerKind)).
-		Watches(&containersv1alpha1.Image{}, enqueueRequestsForKind(containersv1alpha1.ImageKind)).
-		Watches(&containersv1alpha1.ImagePullRequest{}, enqueueRequestsForKind(containersv1alpha1.ImagePullRequestKind)).
-		Watches(&containersv1alpha1.Volume{}, enqueueRequestsForKind(containersv1alpha1.VolumeKind)).
-		Watches(&containersv1alpha1.ContainerNamespace{}, enqueueRequestsForKind(containersv1alpha1.ContainerNamespaceKind)).
+		Watches(&appv1alpha1.App{}, enqueueRequestsForApp).
+		Watches(&containersv1alpha1.Container{}, enqueueRequestsForApp).
+		Watches(&containersv1alpha1.Image{}, enqueueRequestsForApp).
+		Watches(&containersv1alpha1.ImagePullRequest{}, enqueueRequestsForImagePullRequest).
+		Watches(&containersv1alpha1.Volume{}, enqueueRequestsForApp).
+		Watches(&containersv1alpha1.ContainerNamespace{}, enqueueRequestsForApp).
 		Complete(r)
 }

@@ -31,8 +31,6 @@ import (
 func (r *EngineReconciler) reconcileWatcher(ctx context.Context, app *appv1alpha1.App) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 
-	r.apiNamespace = app.GetResourceNamespace()
-
 	running := meta.IsStatusConditionTrue(app.Status.Conditions, appv1alpha1.AppConditionRunning)
 	engineIsDocker := app.Spec.ContainerEngine.Name == engineMoby
 
@@ -46,6 +44,7 @@ func (r *EngineReconciler) reconcileWatcher(ctx context.Context, app *appv1alpha
 	// change by sweeping the mirrors.
 	var watcherDied bool
 	r.engineMu.Lock()
+	r.apiNamespace = app.GetResourceNamespace()
 	watcherRunning := r.engine != nil
 	if watcherRunning && !r.engine.alive() {
 		r.engine = nil
@@ -100,7 +99,7 @@ func (r *EngineReconciler) reconcileWatcher(ctx context.Context, app *appv1alpha
 			current.Status == terminalStatus &&
 			current.ObservedGeneration >= app.Generation
 		if !alreadyClean {
-			if err := r.cleanupMirrorResources(ctx); err != nil {
+			if err := r.cleanupMirrorResources(ctx, app.GetResourceNamespace()); err != nil {
 				log.Error(err, "Failed to clean up mirror resources")
 				return ctrl.Result{}, err
 			}
@@ -146,10 +145,10 @@ func (r *EngineReconciler) reconcileWatcher(ctx context.Context, app *appv1alpha
 	// a single stuck container action: the next reconcile would hit
 	// the same broken container first and skip finalizers again.
 	var actionsErr, finErr error
-	if err := r.reconcileContainerActions(ctx); err != nil {
+	if err := r.reconcileContainerActions(ctx, app.GetResourceNamespace()); err != nil {
 		actionsErr = fmt.Errorf("failed to reconcile container actions: %w", err)
 	}
-	if err := r.processFinalizers(ctx); err != nil {
+	if err := r.processFinalizers(ctx, app.GetResourceNamespace()); err != nil {
 		finErr = fmt.Errorf("failed to process finalizers: %w", err)
 	}
 	return ctrl.Result{}, errors.Join(actionsErr, finErr)
@@ -367,21 +366,21 @@ func (r *EngineReconciler) setEngineCondition(ctx context.Context, app *appv1alp
 // server until they are gone from the watch cache, so that the
 // ContainerEngineReady condition is only stamped once callers (e.g.
 // `rdd set running=false`) can observe a clean state.
-func (r *EngineReconciler) cleanupMirrorResources(ctx context.Context) error {
+func (r *EngineReconciler) cleanupMirrorResources(ctx context.Context, namespace string) error {
 	log := logf.FromContext(ctx)
 	log.Info("Cleaning up all mirror resources")
 
 	var errs []error
-	if err := r.deleteAllOfType(ctx, &containersv1alpha1.ContainerList{}); err != nil {
+	if err := r.deleteAllOfType(ctx, &containersv1alpha1.ContainerList{}, namespace); err != nil {
 		errs = append(errs, fmt.Errorf("failed to delete Containers: %w", err))
 	}
-	if err := r.deleteAllOfType(ctx, &containersv1alpha1.VolumeList{}); err != nil {
+	if err := r.deleteAllOfType(ctx, &containersv1alpha1.VolumeList{}, namespace); err != nil {
 		errs = append(errs, fmt.Errorf("failed to delete Volumes: %w", err))
 	}
-	if err := r.deleteAllOfType(ctx, &containersv1alpha1.ImageList{}); err != nil {
+	if err := r.deleteAllOfType(ctx, &containersv1alpha1.ImageList{}, namespace); err != nil {
 		errs = append(errs, fmt.Errorf("failed to delete Images: %w", err))
 	}
-	if err := r.deleteAllOfType(ctx, &containersv1alpha1.ContainerNamespaceList{}); err != nil {
+	if err := r.deleteAllOfType(ctx, &containersv1alpha1.ContainerNamespaceList{}, namespace); err != nil {
 		errs = append(errs, fmt.Errorf("failed to delete ContainerNamespaces: %w", err))
 	}
 	if err := errors.Join(errs...); err != nil {
@@ -396,18 +395,18 @@ func (r *EngineReconciler) cleanupMirrorResources(ctx context.Context) error {
 	// ensures that ContainerEngineReady is only stamped — and `rdd set
 	// running=false` only returns — after the cache reflects the clean
 	// state, so the immediately-following test assertion passes.
-	return r.waitMirrorResourcesGone(ctx)
+	return r.waitMirrorResourcesGone(ctx, namespace)
 }
 
 // waitMirrorResourcesGone polls the informer cache until all four mirror
 // resource types are empty or the 30-second timeout expires. r.List is
 // used (not r.apiReader) so the poll drains the watch cache, not etcd.
-func (r *EngineReconciler) waitMirrorResourcesGone(ctx context.Context) error {
+func (r *EngineReconciler) waitMirrorResourcesGone(ctx context.Context, namespace string) error {
 	log := logf.FromContext(ctx)
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	for {
-		remaining, err := r.countMirrorResources(ctx)
+		remaining, err := r.countMirrorResources(ctx, namespace)
 		if err != nil {
 			return fmt.Errorf("error verifying mirror resources gone: %w", err)
 		}
@@ -427,7 +426,7 @@ func (r *EngineReconciler) waitMirrorResourcesGone(ctx context.Context) error {
 
 // countMirrorResources returns the total number of mirror resources in
 // the informer cache. All four types must be registered in Watches.
-func (r *EngineReconciler) countMirrorResources(ctx context.Context) (int, error) {
+func (r *EngineReconciler) countMirrorResources(ctx context.Context, namespace string) (int, error) {
 	lists := []client.ObjectList{
 		&containersv1alpha1.ContainerList{},
 		&containersv1alpha1.VolumeList{},
@@ -436,7 +435,7 @@ func (r *EngineReconciler) countMirrorResources(ctx context.Context) (int, error
 	}
 	var total int
 	for _, list := range lists {
-		if err := r.List(ctx, list, client.InNamespace(r.apiNamespace)); err != nil {
+		if err := r.List(ctx, list, client.InNamespace(namespace)); err != nil {
 			return 0, err
 		}
 		items, err := meta.ExtractList(list)
@@ -448,21 +447,20 @@ func (r *EngineReconciler) countMirrorResources(ctx context.Context) (int, error
 	return total, nil
 }
 
-// deleteAllOfType lists and removes every resource of the given kind
-// in r.apiNamespace. Engine is authoritative for Container, Image, and
-// Volume in the App's namespace: this loop deletes every object, not
-// just engine-owned mirrors. Coexistence with another writer to these
-// kinds requires an engine-owned label and matching filters here and
-// in the sync_*.go full-sync prune paths. Finalizer removal retries
-// on conflict; per-item errors are collected so one stuck object does
-// not block the rest.
+// deleteAllOfType lists and removes every resource of the given kind in the
+// given namespace.  Engine is authoritative for Container, Image, and Volume in
+// the App's namespace: this loop deletes every object, not just engine-owned
+// mirrors.  Coexistence with another writer to these kinds requires an
+// engine-owned label and matching filters here and in the sync_*.go full-sync
+// prune paths.  Finalizer removal retries on conflict; per-item errors are
+// collected so one stuck object does not block the rest.
 //
 // The list is fetched via apiReader (direct API server, not the
 // informer cache) so that resources created by the watcher goroutine
 // immediately before it was stopped are visible even if the cache
 // hasn't reflected the creation yet.
-func (r *EngineReconciler) deleteAllOfType(ctx context.Context, list client.ObjectList) error {
-	if err := r.apiReader.List(ctx, list, client.InNamespace(r.apiNamespace)); err != nil {
+func (r *EngineReconciler) deleteAllOfType(ctx context.Context, list client.ObjectList, namespace string) error {
+	if err := r.apiReader.List(ctx, list, client.InNamespace(namespace)); err != nil {
 		return err
 	}
 
@@ -515,7 +513,7 @@ func (r *EngineReconciler) deleteAllOfType(ctx context.Context, list client.Obje
 // every container that carries one. Per-container errors are joined and
 // returned; a patch failure re-queues the reconcile so the caller retries.
 // Containers without the annotation are skipped.
-func (r *EngineReconciler) reconcileContainerActions(ctx context.Context) error {
+func (r *EngineReconciler) reconcileContainerActions(ctx context.Context, namespace string) error {
 	r.engineMu.Lock()
 	e := r.engine
 	r.engineMu.Unlock()
@@ -524,7 +522,7 @@ func (r *EngineReconciler) reconcileContainerActions(ctx context.Context) error 
 	}
 
 	var containers containersv1alpha1.ContainerList
-	if err := r.List(ctx, &containers, client.InNamespace(r.apiNamespace)); err != nil {
+	if err := r.List(ctx, &containers, client.InNamespace(namespace)); err != nil {
 		return err
 	}
 
@@ -546,7 +544,7 @@ func (r *EngineReconciler) reconcileContainerActions(ctx context.Context) error 
 
 // processFinalizers handles resources with a deletion timestamp by deleting
 // the corresponding Docker object and removing the finalizer.
-func (r *EngineReconciler) processFinalizers(ctx context.Context) error {
+func (r *EngineReconciler) processFinalizers(ctx context.Context, namespace string) error {
 	r.engineMu.Lock()
 	e := r.engine
 	r.engineMu.Unlock()
@@ -557,9 +555,9 @@ func (r *EngineReconciler) processFinalizers(ctx context.Context) error {
 	// Join errors across all three types so a stuck Container or
 	// Image finalizer does not starve pending Volume finalizers.
 	return errors.Join(
-		r.processContainerFinalizers(ctx, e),
-		r.processImageFinalizers(ctx, e),
-		r.processVolumeFinalizers(ctx, e),
+		r.processContainerFinalizers(ctx, e, namespace),
+		r.processImageFinalizers(ctx, e, namespace),
+		r.processVolumeFinalizers(ctx, e, namespace),
 	)
 }
 
@@ -567,9 +565,9 @@ func (r *EngineReconciler) processFinalizers(ctx context.Context) error {
 // every Container pending deletion. The mirror finalizer is only
 // stripped when the Docker delete succeeds, so a stuck container keeps
 // retrying on later reconciles.
-func (r *EngineReconciler) processContainerFinalizers(ctx context.Context, e engine) error {
+func (r *EngineReconciler) processContainerFinalizers(ctx context.Context, e engine, namespace string) error {
 	var containers containersv1alpha1.ContainerList
-	if err := r.List(ctx, &containers, client.InNamespace(r.apiNamespace)); err != nil {
+	if err := r.List(ctx, &containers, client.InNamespace(namespace)); err != nil {
 		return err
 	}
 	var errs []error
@@ -607,9 +605,9 @@ func (r *EngineReconciler) processContainerFinalizers(ctx context.Context, e eng
 	return errors.Join(errs...)
 }
 
-func (r *EngineReconciler) processImageFinalizers(ctx context.Context, e engine) error {
+func (r *EngineReconciler) processImageFinalizers(ctx context.Context, e engine, namespace string) error {
 	var images containersv1alpha1.ImageList
-	if err := r.List(ctx, &images, client.InNamespace(r.apiNamespace)); err != nil {
+	if err := r.List(ctx, &images, client.InNamespace(namespace)); err != nil {
 		return err
 	}
 	var errs []error
@@ -650,9 +648,9 @@ func (r *EngineReconciler) processImageFinalizers(ctx context.Context, e engine)
 	return errors.Join(errs...)
 }
 
-func (r *EngineReconciler) processVolumeFinalizers(ctx context.Context, e engine) error {
+func (r *EngineReconciler) processVolumeFinalizers(ctx context.Context, e engine, namespace string) error {
 	var volumes containersv1alpha1.VolumeList
-	if err := r.List(ctx, &volumes, client.InNamespace(r.apiNamespace)); err != nil {
+	if err := r.List(ctx, &volumes, client.InNamespace(namespace)); err != nil {
 		return err
 	}
 	var errs []error

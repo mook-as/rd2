@@ -68,8 +68,11 @@ func (r *EngineReconciler) HandleLogs(w http.ResponseWriter, req *http.Request) 
 	log.V(5).Info("Handling logs for container", "containerID", containerID)
 
 	var c containersv1alpha1.Container
+	r.engineMu.Lock()
+	namespace := r.apiNamespace
+	r.engineMu.Unlock()
 	err := r.Client.Get(req.Context(), types.NamespacedName{
-		Namespace: r.apiNamespace,
+		Namespace: namespace,
 		Name:      containerID,
 	}, &c)
 	if err != nil {

@@ -30,7 +30,14 @@ const (
 	// terminalRequestTTL is the time to live for a settled ImagePullRequest
 	// before it is automatically deleted.
 	terminalRequestTTL = 10 * time.Minute
+	// requeueImmediately is a duration that is greater than zero, to trigger an
+	// immediate requeue of a reconcile.
+	requeueImmediately = time.Duration(1)
 )
+
+// errPullSucceeded is a sentinel error used to indicate that an image pull
+// request completed successfully.  It is used as a context cancellation cause.
+var errPullSucceeded = errors.New("image pull succeeded")
 
 // imagePullRequestState tracks the state of an in-progress image pull request.
 type imagePullRequestState struct {
@@ -96,7 +103,11 @@ func (r *EngineReconciler) reconcileImagePullRequest(
 ) (ctrl.Result, error) {
 	r.engineMu.Lock()
 	e := r.engine
+	namespace := r.apiNamespace
 	r.engineMu.Unlock()
+	if req.Namespace == "" {
+		req.Namespace = namespace
+	}
 
 	if req.UID == "" {
 		if e == nil {
@@ -109,15 +120,18 @@ func (r *EngineReconciler) reconcileImagePullRequest(
 			return ctrl.Result{}, fmt.Errorf("failed to list image pull requests: %w", err)
 		}
 		var errs []error
+		var requeueAfter time.Duration
 		for _, imagePullRequest := range imagePullRequestList.Items {
-			if _, err := r.reconcileSingleImagePullRequest(ctx, e, &imagePullRequest); err != nil {
+			if result, err := r.reconcileSingleImagePullRequest(ctx, e, &imagePullRequest); err != nil {
 				logf.FromContext(ctx).Error(err, "failed to reconcile image pull request",
 					"imagePullRequest", imagePullRequest.Name,
 					"repoTag", imagePullRequest.Spec.RepoTag)
 				errs = append(errs, err)
+			} else if result.RequeueAfter > 0 && (requeueAfter == 0 || result.RequeueAfter < requeueAfter) {
+				requeueAfter = result.RequeueAfter
 			}
 		}
-		return ctrl.Result{}, errors.Join(errs...)
+		return ctrl.Result{RequeueAfter: requeueAfter}, errors.Join(errs...)
 	}
 
 	var imagePullRequest containersv1alpha1.ImagePullRequest
@@ -177,13 +191,14 @@ func (r *EngineReconciler) reconcileSingleImagePullRequest(
 			)
 			cancel()
 			// Requeue immediately; need to be >0 to trigger a requeue.
-			return ctrl.Result{RequeueAfter: 1}, nil
+			return ctrl.Result{RequeueAfter: requeueImmediately}, nil
 		}
 		return ctrl.Result{RequeueAfter: pullTimeout / 2}, nil
 	}
 
 	// A pull is _not_ in progress; start one.  Set the status first; if we fail
 	// here, the next reconcile will retry.
+	var alreadySettled bool
 	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		var request containersv1alpha1.ImagePullRequest
 		err := r.Client.Get(ctx, client.ObjectKeyFromObject(imagePullRequest), &request)
@@ -192,6 +207,7 @@ func (r *EngineReconciler) reconcileSingleImagePullRequest(
 		}
 		if apimeta.IsStatusConditionTrue(request.Status.Conditions, containersv1alpha1.ImagePullRequestConditionSettled) {
 			// We raced with pull completion; don't overwrite the status.
+			alreadySettled = true
 			return nil
 		}
 		request.Status.LastUpdateTime = metav1.Now()
@@ -207,12 +223,14 @@ func (r *EngineReconciler) reconcileSingleImagePullRequest(
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("failed to update image pull request status after retries: %w", err)
 	}
+	if alreadySettled {
+		// The request was already settled; don't start a pull.
+		return ctrl.Result{}, nil
+	}
 
 	// Because the image pull request is long-running, use a context that is not
 	// cancelled when the reconcile completes.
-	pullContext, pullCancel := context.WithCancelCause(context.WithoutCancel(ctx))
-	// Cancel the context on shutdown
-	context.AfterFunc(r.watcherCtx, func() { pullCancel(r.watcherCtx.Err()) })
+	pullContext, pullCancel := context.WithCancelCause(r.watcherCtx)
 	r.imagePullRequestMu.Lock()
 	oldState := r.imagePullRequestState[imagePullRequest.UID]
 	r.imagePullRequestState[imagePullRequest.UID] = imagePullRequestState{
@@ -230,10 +248,12 @@ func (r *EngineReconciler) reconcileSingleImagePullRequest(
 	progressCtx, progressCancelRaw := context.WithCancelCause(pullContext)
 	// context.Cause(progressCtx) returns Cancelled if the context is cancelled
 	// with nil; however, we want to distinguish that from a successful pull.
-	var progressError error
 	progressCancel := func(cause error) {
-		progressError = cause
-		progressCancelRaw(cause)
+		if cause == nil {
+			progressCancelRaw(errPullSucceeded)
+		} else {
+			progressCancelRaw(cause)
+		}
 	}
 	var progressMu sync.Mutex
 	var progressStart, progressCurrent, progressTotal int64
@@ -252,7 +272,7 @@ func (r *EngineReconciler) reconcileSingleImagePullRequest(
 					// The desired reason was already set; don't overwrite it.
 					return
 				}
-				if _, ok := errors.AsType[imagePullRequestFailedReason](context.Cause(pullContext)); ok {
+				if _, ok := errors.AsType[imagePullRequestFailedReason](context.Cause(progressCtx)); ok {
 					// The pull was cancelled, and we already handled any pending reasons.
 					return
 				}
@@ -272,22 +292,16 @@ func (r *EngineReconciler) reconcileSingleImagePullRequest(
 						"error", getErr,
 					)
 				}
-				// Don't use context.Cause here, because that returns Cancelled on success.
-				reason := imagePullRequestFailedReasonPullFailed
-				message := fmt.Sprintf("failed to pull image %q: %v", imagePullRequest.Spec.RepoTag, progressError)
-				switch {
-				case cerrdefs.IsInvalidArgument(progressError):
-					reason = imagePullRequestFailedReasonInvalidArgument
-				case cerrdefs.IsUnauthorized(progressError):
-					reason = imagePullRequestFailedReasonUnauthorized
-				case progressError == nil:
-					reason = imagePullRequestFailedReasonPullSucceeded
-					message = "image pulled successfully"
+				// We use a sentinel on success, because cancel(nil) returns
+				// [context.Canceled], which could mean the parent context was cancelled.
+				err := context.Cause(progressCtx)
+				if errors.Is(err, errPullSucceeded) {
+					err = nil
 				}
-				cancel := r.setImagePullRequestTerminalReason(imagePullRequest, reason, message)
+				cancel := r.setImagePullRequestTerminalReasonFromError(imagePullRequest, err)
 				// Force update the change synchronously, as otherwise we will need to wait
 				// for the next requeued reconcile (up to pullTimeout/2).
-				err := r.reconcileImagePullRequestTerminalReason(pullContext, imagePullRequest)
+				err = r.reconcileImagePullRequestTerminalReason(pullContext, imagePullRequest)
 				if err != nil {
 					logf.FromContext(pullContext).Error(err,
 						"failed to reconcile image pull request terminal reason, waiting for requeue",
@@ -330,7 +344,7 @@ func (r *EngineReconciler) reconcileSingleImagePullRequest(
 						Type:               containersv1alpha1.ImagePullRequestConditionSettled,
 						Status:             metav1.ConditionFalse,
 						ObservedGeneration: request.Generation,
-						Reason:             "Pulling",
+						Reason:             string(imagePullRequestSettledReasonPulling),
 						Message:            fmt.Sprintf("pulling image %q", request.Spec.RepoTag),
 					})
 					return r.Client.Status().Update(pullContext, &request)
@@ -352,11 +366,7 @@ func (r *EngineReconciler) reconcileSingleImagePullRequest(
 	// Actually start the pull asynchronously.
 	err = e.pullImage(pullContext, imagePullRequest.Spec.RepoTag, onProgress, progressCancel)
 	if err != nil {
-		cancel := r.setImagePullRequestTerminalReason(
-			imagePullRequest,
-			imagePullRequestFailedReasonPullFailed,
-			fmt.Sprintf("failed to pull image %q: %v", imagePullRequest.Spec.RepoTag, err),
-		)
+		cancel := r.setImagePullRequestTerminalReasonFromError(imagePullRequest, err)
 		cancel()
 		return ctrl.Result{RequeueAfter: time.Second}, nil
 	}
@@ -455,6 +465,27 @@ func (r *EngineReconciler) setImagePullRequestTerminalReason(
 		return func() { cancel(reason) }
 	}
 	return func() {}
+}
+
+// setImagePullRequestTerminalReasonFromError sets the desired reason for a
+// failed ImagePullRequest based on the error returned from the container engine.
+// It otherwise behaves the same as setImagePullRequestTerminalReason.
+func (r *EngineReconciler) setImagePullRequestTerminalReasonFromError(
+	imagePullRequest *containersv1alpha1.ImagePullRequest,
+	err error,
+) context.CancelFunc {
+	reason := imagePullRequestFailedReasonPullFailed
+	message := fmt.Sprintf("failed to pull image %q: %v", imagePullRequest.Spec.RepoTag, err)
+	switch {
+	case cerrdefs.IsInvalidArgument(err):
+		reason = imagePullRequestFailedReasonInvalidArgument
+	case cerrdefs.IsUnauthorized(err):
+		reason = imagePullRequestFailedReasonUnauthorized
+	case err == nil:
+		reason = imagePullRequestFailedReasonPullSucceeded
+		message = "image pulled successfully"
+	}
+	return r.setImagePullRequestTerminalReason(imagePullRequest, reason, message)
 }
 
 // reconcileTerminalImagePullRequest handles ImagePullRequest processing for
