@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	cerrdefs "github.com/containerd/errdefs"
@@ -224,89 +225,132 @@ func (r *EngineReconciler) reconcileSingleImagePullRequest(
 		oldState.cancel(imagePullRequestFailedReasonPullFailed)
 	}
 
-	onProgress := func(start, current, total int64, units string) {
-		err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
-			var request containersv1alpha1.ImagePullRequest
-			err := r.Client.Get(pullContext, client.ObjectKeyFromObject(imagePullRequest), &request)
-			if err != nil {
-				return err
-			}
-			if apimeta.IsStatusConditionTrue(request.Status.Conditions, containersv1alpha1.ImagePullRequestConditionSettled) {
-				// We raced with pull completion; don't overwrite the status.
-				return nil
-			}
-			request.Status.LastUpdateTime = metav1.Now()
-			request.Status.Start = start
-			request.Status.Current = current
-			request.Status.Total = total
-			request.Status.Units = units
-			apimeta.SetStatusCondition(&request.Status.Conditions, metav1.Condition{
-				Type:               containersv1alpha1.ImagePullRequestConditionSettled,
-				Status:             metav1.ConditionFalse,
-				ObservedGeneration: request.Generation,
-				Reason:             "Pulling",
-				Message:            fmt.Sprintf("pulling image %q", request.Spec.RepoTag),
-			})
-			return r.Client.Status().Update(pullContext, &request)
-		})
-		if err != nil {
-			logf.FromContext(pullContext).Error(err, "failed to update image pull request status after retries")
-		}
+	// Decouple the progress updates from actually reporting the progress, to
+	// avoid overwhelming the API server with updates.
+	progressCtx, progressCancelRaw := context.WithCancelCause(pullContext)
+	// context.Cause(progressCtx) returns Cancelled if the context is cancelled
+	// with nil; however, we want to distinguish that from a successful pull.
+	var progressError error
+	progressCancel := func(cause error) {
+		progressError = cause
+		progressCancelRaw(cause)
 	}
-	onComplete := func(err error) {
-		r.imagePullRequestMu.Lock()
-		state := r.imagePullRequestState[imagePullRequest.UID]
-		r.imagePullRequestMu.Unlock()
-		if state.desiredReason != imagePullRequestFailedReasonZeroValue {
-			// The desired reason was already set; don't overwrite it.
-			return
-		}
-		if _, ok := errors.AsType[imagePullRequestFailedReason](context.Cause(pullContext)); ok {
-			// The pull was cancelled, and we already handled any pending reasons.
-			return
-		}
-		var latest containersv1alpha1.ImagePullRequest
-		getErr := r.Get(pullContext, client.ObjectKeyFromObject(imagePullRequest), &latest)
-		if getErr == nil {
-			if apimeta.IsStatusConditionTrue(latest.Status.Conditions, containersv1alpha1.ImagePullRequestConditionSettled) {
-				// The request was already settled; don't overwrite the status.
+	var progressMu sync.Mutex
+	var progressStart, progressCurrent, progressTotal int64
+	var progressUnits string
+	var progressChanged bool
+	go func() {
+		progressTicker := time.NewTicker(100 * time.Millisecond)
+		defer progressTicker.Stop()
+		for {
+			select {
+			case <-progressCtx.Done():
+				r.imagePullRequestMu.Lock()
+				state := r.imagePullRequestState[imagePullRequest.UID]
+				r.imagePullRequestMu.Unlock()
+				if state.desiredReason != imagePullRequestFailedReasonZeroValue {
+					// The desired reason was already set; don't overwrite it.
+					return
+				}
+				if _, ok := errors.AsType[imagePullRequestFailedReason](context.Cause(pullContext)); ok {
+					// The pull was cancelled, and we already handled any pending reasons.
+					return
+				}
+				var latest containersv1alpha1.ImagePullRequest
+				getErr := r.Get(pullContext, client.ObjectKeyFromObject(imagePullRequest), &latest)
+				if getErr == nil {
+					if apimeta.IsStatusConditionTrue(latest.Status.Conditions, containersv1alpha1.ImagePullRequestConditionSettled) {
+						// The request was already settled; don't overwrite the status.
+						return
+					}
+				} else if apierrors.IsNotFound(getErr) {
+					// The request has been deleted; skip doing anything.
+					return
+				} else {
+					logf.FromContext(pullContext).V(2).Info(
+						"failed to check for settled image pull request; continuing anyway",
+						"error", getErr,
+					)
+				}
+				// Don't use context.Cause here, because that returns Cancelled on success.
+				reason := imagePullRequestFailedReasonPullFailed
+				message := fmt.Sprintf("failed to pull image %q: %v", imagePullRequest.Spec.RepoTag, progressError)
+				switch {
+				case cerrdefs.IsInvalidArgument(progressError):
+					reason = imagePullRequestFailedReasonInvalidArgument
+				case cerrdefs.IsUnauthorized(progressError):
+					reason = imagePullRequestFailedReasonUnauthorized
+				case progressError == nil:
+					reason = imagePullRequestFailedReasonPullSucceeded
+					message = "image pulled successfully"
+				}
+				cancel := r.setImagePullRequestTerminalReason(imagePullRequest, reason, message)
+				// Force update the change synchronously, as otherwise we will need to wait
+				// for the next requeued reconcile (up to pullTimeout/2).
+				err := r.reconcileImagePullRequestTerminalReason(pullContext, imagePullRequest)
+				if err != nil {
+					logf.FromContext(pullContext).Error(err,
+						"failed to reconcile image pull request terminal reason, waiting for requeue",
+						"namespace", imagePullRequest.GetNamespace(),
+						"name", imagePullRequest.GetName())
+				}
+				cancel()
 				return
+			case <-progressTicker.C:
+				progressMu.Lock()
+				start, current, total, units := progressStart, progressCurrent, progressTotal, progressUnits
+				changed := progressChanged
+				progressChanged = false
+				progressMu.Unlock()
+				if !changed {
+					continue
+				}
+				err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+					var request containersv1alpha1.ImagePullRequest
+					err := r.Client.Get(pullContext, client.ObjectKeyFromObject(imagePullRequest), &request)
+					if err != nil {
+						return err
+					}
+					if request.GetUID() != imagePullRequest.GetUID() {
+						// The request was deleted and recreated; cancel the request, and don't
+						// update the status.
+						pullCancel(errors.New("image pull request was deleted and recreated"))
+						return nil
+					}
+					if apimeta.IsStatusConditionTrue(request.Status.Conditions, containersv1alpha1.ImagePullRequestConditionSettled) {
+						// We raced with pull completion; don't overwrite the status.
+						return nil
+					}
+					request.Status.LastUpdateTime = metav1.Now()
+					request.Status.Start = start
+					request.Status.Current = current
+					request.Status.Total = total
+					request.Status.Units = units
+					apimeta.SetStatusCondition(&request.Status.Conditions, metav1.Condition{
+						Type:               containersv1alpha1.ImagePullRequestConditionSettled,
+						Status:             metav1.ConditionFalse,
+						ObservedGeneration: request.Generation,
+						Reason:             "Pulling",
+						Message:            fmt.Sprintf("pulling image %q", request.Spec.RepoTag),
+					})
+					return r.Client.Status().Update(pullContext, &request)
+				})
+				if err != nil {
+					logf.FromContext(pullContext).Error(err, "failed to update image pull request status after retries")
+				}
 			}
-		} else if apierrors.IsNotFound(getErr) {
-			// The request has been deleted; skip doing anything.
-			return
-		} else {
-			logf.FromContext(pullContext).V(2).Info(
-				"failed to check for settled image pull request; continuing anyway",
-				"error", getErr,
-			)
 		}
-		reason := imagePullRequestFailedReasonPullFailed
-		message := fmt.Sprintf("failed to pull image %q: %v", imagePullRequest.Spec.RepoTag, err)
-		switch {
-		case cerrdefs.IsInvalidArgument(err):
-			reason = imagePullRequestFailedReasonInvalidArgument
-		case cerrdefs.IsUnauthorized(err):
-			reason = imagePullRequestFailedReasonUnauthorized
-		case err == nil:
-			reason = imagePullRequestFailedReasonPullSucceeded
-			message = "image pulled successfully"
-		}
-		cancel := r.setImagePullRequestTerminalReason(imagePullRequest, reason, message)
-		defer cancel()
-		// Force update the change synchronously, as otherwise we will need to wait
-		// for the next requeued reconcile (up to pullTimeout/2).
-		err = r.reconcileImagePullRequestTerminalReason(pullContext, imagePullRequest)
-		if err != nil {
-			logf.FromContext(pullContext).Error(err,
-				"failed to reconcile image pull request terminal reason, waiting for requeue",
-				"namespace", imagePullRequest.GetNamespace(),
-				"name", imagePullRequest.GetName())
-		}
+	}()
+
+	onProgress := func(start, current, total int64, units string) {
+		progressMu.Lock()
+		progressStart, progressCurrent, progressTotal, progressUnits = start, current, total, units
+		progressChanged = true
+		progressMu.Unlock()
 	}
 
 	// Actually start the pull asynchronously.
-	err = e.pullImage(pullContext, imagePullRequest.Spec.RepoTag, onProgress, onComplete)
+	err = e.pullImage(pullContext, imagePullRequest.Spec.RepoTag, onProgress, progressCancel)
 	if err != nil {
 		cancel := r.setImagePullRequestTerminalReason(
 			imagePullRequest,
