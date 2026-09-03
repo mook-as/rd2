@@ -21,6 +21,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 
 	"github.com/rancher-sandbox/rancher-desktop-daemon/pkg/apis/containers/v1alpha1"
 )
@@ -92,6 +93,19 @@ func membersIndexFunc(obj client.Object) []string {
 }
 
 // newReconciler builds a reconciler backed by a fake client seeded with objs.
+// fakeCommandExecutor returns a commandExecutor stub for tests that don't
+// exercise the `docker compose up`/`down` process-spawning paths, so that
+// reconciler fields can be non-nil without accidentally invoking real
+// processes.
+func fakeCommandExecutor(t *testing.T) commandExecutor {
+	t.Helper()
+	return func(_ context.Context, _, _ string, _ ...string) (command, error) {
+		//nolint:forbidigo // t.Fatal because this should never be reached.
+		t.Fatal("unexpected attempt to run a command in this test")
+		return nil, nil
+	}
+}
+
 func newReconciler(t *testing.T, objs ...client.Object) (*reconciler, *spyingClient) {
 	t.Helper()
 
@@ -106,7 +120,12 @@ func newReconciler(t *testing.T, objs ...client.Object) (*reconciler, *spyingCli
 
 	fakeClient := &spyingClient{Client: builder.Build()}
 
-	return &reconciler{Client: fakeClient}, fakeClient
+	return &reconciler{
+		ctx:          context.Background(),
+		Client:       fakeClient,
+		procs:        &processTracker{executor: fakeCommandExecutor(t)},
+		completionCh: make(chan event.TypedGenericEvent[*v1alpha1.Compose], 16),
+	}, fakeClient
 }
 
 // newContainer builds a Container mirror with the given k8s namespace/name,
