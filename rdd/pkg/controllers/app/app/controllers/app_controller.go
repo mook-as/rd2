@@ -308,9 +308,7 @@ func (r *AppReconciler) Reconcile(ctx context.Context, _ ctrl.Request) (ctrl.Res
 	err := r.Get(ctx, client.ObjectKey{Name: namespace}, ns)
 	if apierrors.IsNotFound(err) {
 		ns = &corev1.Namespace{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: namespace,
-			},
+			Name: namespace,
 		}
 		if err := ctrl.SetControllerReference(&app, ns, r.Scheme); err != nil {
 			return ctrl.Result{}, fmt.Errorf("failed to set owner reference on namespace: %w", err)
@@ -388,10 +386,8 @@ func (r *AppReconciler) Reconcile(ctx context.Context, _ ctrl.Request) (ctrl.Res
 		}
 		if apierrors.IsNotFound(cmErr) {
 			inputCM = &corev1.ConfigMap{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      inputConfigMapName,
-					Namespace: namespace,
-				},
+				Name:      inputConfigMapName,
+				Namespace: namespace,
 				Data: map[string]string{
 					limav1alpha1.TemplateConfigMapKey: template,
 				},
@@ -405,11 +401,9 @@ func (r *AppReconciler) Reconcile(ctx context.Context, _ ctrl.Request) (ctrl.Res
 		}
 
 		limaVM = &limav1alpha1.LimaVM{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:       limaVMName,
-				Namespace:  namespace,
-				Finalizers: []string{base.OwnedFinalizerFor(v1alpha1.AppKind)},
-			},
+			Name:       limaVMName,
+			Namespace:  namespace,
+			Finalizers: []string{base.OwnedFinalizerFor(v1alpha1.AppKind)},
 			Spec: limav1alpha1.LimaVMSpec{
 				TemplateRef: limav1alpha1.TemplateReference{
 					Name:      inputConfigMapName,

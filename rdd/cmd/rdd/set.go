@@ -154,10 +154,7 @@ func formatPropertyHelp(schema *apiextensionsv1.JSONSchemaProps, prefix string) 
 	if w, _, err := term.TerminalSize(os.Stdout); err == nil && w > 0 {
 		totalWidth = w
 	}
-	descWidth := totalWidth - indent
-	if descWidth < 20 {
-		descWidth = 20
-	}
+	descWidth := max(totalWidth-indent, 20)
 
 	var b strings.Builder
 	b.WriteString("Available properties:\n")
