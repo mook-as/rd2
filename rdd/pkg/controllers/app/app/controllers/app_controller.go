@@ -433,7 +433,7 @@ func (r *AppReconciler) Reconcile(ctx context.Context, _ ctrl.Request) (ctrl.Res
 		// ConfigMaps are not watched (no Owns(&corev1.ConfigMap{})), so deleting
 		// one produces no watch event. Requeue explicitly to guarantee the next
 		// reconcile runs rather than relying on implicit LimaVM status activity.
-		return ctrl.Result{Requeue: true}, nil
+		return ctrl.Result{RequeueAfter: 1}, nil
 	} else if !apierrors.IsNotFound(err) {
 		return ctrl.Result{}, fmt.Errorf("failed to fetch input ConfigMap: %w", err)
 	}
@@ -480,7 +480,7 @@ func (r *AppReconciler) Reconcile(ctx context.Context, _ ctrl.Request) (ctrl.Res
 				// False until the LimaVM restarts into the new template, because
 				// the templateUpToDate check below sees the stale observed
 				// version.
-				return ctrl.Result{Requeue: true}, nil
+				return ctrl.Result{RequeueAfter: 1}, nil
 			}
 			// LimaVM defers ObservedTemplateResourceVersion until the restart
 			// completes, so a matching resourceVersion means the running

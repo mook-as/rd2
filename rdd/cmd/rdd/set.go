@@ -544,11 +544,11 @@ func watchCondition(ctx context.Context, config *rest.Config, satisfied func(*un
 
 	// Defensive filter; the webhook enforces metadata.name=app on the singleton.
 	lw := &cache.ListWatch{
-		ListFunc: func(options metav1.ListOptions) (runtime.Object, error) {
+		ListWithContextFunc: func(ctx context.Context, options metav1.ListOptions) (runtime.Object, error) {
 			options.FieldSelector = "metadata.name=app"
 			return dynClient.Resource(appGVR).List(ctx, options)
 		},
-		WatchFunc: func(options metav1.ListOptions) (watch.Interface, error) {
+		WatchFuncWithContext: func(ctx context.Context, options metav1.ListOptions) (watch.Interface, error) {
 			options.FieldSelector = "metadata.name=app"
 			return dynClient.Resource(appGVR).Watch(ctx, options)
 		},
