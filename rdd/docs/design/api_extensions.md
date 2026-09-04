@@ -101,12 +101,13 @@ further transition without some change to the extension resource spec.
   <tr><td>Deleting<td>False<td>Extension files being deleted<td>
   <tr><td>DeleteFailed<td>False<td>Extension files could not be deleted; deletion is automatically retried<td>
   <tr><td>Uninstalled<td>True<td>Extension was removed; object will go away<td>:heavy_check_mark:
-<tr><td rowspan=5>Started
+<tr><td rowspan=6>Started
       <td>Installing<td>False<td>Extension is still being installed<td>
   <tr><td>Starting<td>False<td>Extension is being started<td>
   <tr><td>StartFailed<td>False<td>Extension failed to start<td>:heavy_check_mark:
   <tr><td>Started<td>True<td>Extension has been started<td>:heavy_check_mark:
   <tr><td>Stopping<td>False<td>Extension is being stopped<td>
+  <tr><td>Stopped<td>True<td>Extension is stopped<td>:heavy_check_mark:
 <tr><td rowspan=7>Ready
       <td>Created<td>False<td>Install has not started yet<td>
   <tr><td>Installing<td>False<td>Extension is being installed<td>
@@ -134,3 +135,9 @@ For interacting with the user interface, the passthrough endpoint is used, where
   forwarded socket; the client is expected to expose a TCP port locally, then
   for each inbound connection create a new WebSocket connection to this end
   point and act as a dumb pipe.  This is optional.
+
+### Extension Actions
+
+#### Delete Extension
+
+Deleting the extension causes it to be uninstalled.
