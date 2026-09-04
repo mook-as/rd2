@@ -6,8 +6,7 @@
 // webhook. Reconciliation is split per status condition (e.g.
 // ExtensionReadyReconciler for Ready), mirroring the App resource's
 // per-condition reconcilers (AppReconciler, EngineReconciler,
-// KubernetesReconciler, etc.) elsewhere in this codebase; future reconcilers
-// for the Installed and Started conditions will live alongside this one.
+// KubernetesReconciler, etc.) elsewhere in this codebase.
 package controllers
 
 import (
