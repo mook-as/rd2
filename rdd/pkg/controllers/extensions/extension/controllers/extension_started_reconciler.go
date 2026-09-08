@@ -298,6 +298,7 @@ func (r *ExtensionStartedReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha1.Extension{}).
 		Owns(&containersv1alpha1.ComposeProject{}, builder.MatchEveryOwner).
+		Owns(&containersv1alpha1.ComposeUpRequest{}, builder.MatchEveryOwner).
 		Named("extension-started-reconciler").
 		Complete(r)
 }
