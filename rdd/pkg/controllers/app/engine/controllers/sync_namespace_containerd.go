@@ -6,6 +6,7 @@ package controllers
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 
@@ -36,12 +37,10 @@ func (w *containerdWatcher) syncNamespaces(ctx context.Context) error {
 	// errors below are still fatal.
 	var errs []error
 	for _, ns := range nsNames {
-		if len(validation.IsDNS1123Subdomain(ns)) == 0 {
-			activeNames[ns] = true
-		}
 		if err := w.applyNamespace(ctx, ns); err != nil {
 			log.Error(err, "Skipping namespace during full sync", "namespace", ns)
 		}
+		activeNames[kubernetesNameFromContainerNamespace(ns)] = true
 	}
 
 	// Remove stale ContainerNamespace mirrors.
@@ -72,29 +71,27 @@ func (w *containerdWatcher) syncNamespaces(ctx context.Context) error {
 // image and namespace create events call this, so nothing re-applies the
 // mirror until one of those fires again or the watcher restarts.
 func (w *containerdWatcher) applyNamespace(ctx context.Context, ns string) error {
-	// containerd namespace names may contain uppercase or underscores, which
-	// are invalid in K8s object names. Skip the mirror; containers in such a
-	// namespace are still mirrored. Whether a mirror name is hashed turns on
-	// the container's own ID, not on the namespace holding it; the namespace
-	// enters only as hash input, to keep hashed names unique across them.
-	if len(validation.IsDNS1123Subdomain(ns)) > 0 {
-		logf.FromContext(ctx).WithName("containerd-watcher").
-			V(1).Info("Skipping ContainerNamespace mirror for non-DNS1123 namespace", "namespace", ns)
-		return nil
-	}
-
-	applyConfig := containersv1alpha1apply.ContainerNamespace(ns, w.apiNamespace)
+	applyConfig := containersv1alpha1apply.ContainerNamespace(
+		kubernetesNameFromContainerNamespace(ns),
+		w.apiNamespace)
 
 	return w.k8s.Apply(ctx, applyConfig,
 		client.ForceOwnership, client.FieldOwner(controllerName))
 }
 
 // removeNamespace deletes the ContainerNamespace mirror for a containerd
-// namespace that is gone. A name applyNamespace skipped never got a mirror,
-// and passing it to the API server would be rejected as an invalid name.
+// namespace that is gone.
 func (w *containerdWatcher) removeNamespace(ctx context.Context, ns string) error {
-	if len(validation.IsDNS1123Subdomain(ns)) > 0 {
-		return nil
+	return w.removeMirrorResource(
+		ctx,
+		&containersv1alpha1.ContainerNamespace{},
+		kubernetesNameFromContainerNamespace(ns))
+}
+
+func kubernetesNameFromContainerNamespace(ns string) string {
+	if len(validation.IsDNS1123Subdomain(ns)) == 0 {
+		return ns
 	}
-	return w.removeMirrorResource(ctx, &containersv1alpha1.ContainerNamespace{}, ns)
+	hash := sha256.Sum256([]byte(ns))
+	return fmt.Sprintf("cns-%x", hash[:])
 }
