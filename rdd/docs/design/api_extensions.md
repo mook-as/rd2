@@ -87,11 +87,12 @@ further transition without some change to the extension resource spec.
 
 <table>
 <tr><th>Type<th>Reason<th>Status<th>Description<th>Terminal</tr>
-<tr><td rowspan=13>Installed
+<tr><td rowspan=14>Installed
       <td>Resolving<td>False<td>Image reference is being resolved<td>
   <tr><td>ResolveFailed<td>False<td>Image reference could not be resolved<td>:heavy_check_mark:
   <tr><td>Downloading<td>False<td>Image is being downloaded<td>
   <tr><td>DownloadFailed<td>False<td>Extension image failed to download<td>:heavy_check_mark:
+  <tr><td>EngineNotReady<td>False<td>The container engine is not available
   <tr><td>Extracting<td>False<td>Extension files are being extracted<td>
   <tr><td>ExtractFailed<td>False<td>Extension extraction failed / invalid image<td>:heavy_check_mark:
   <tr><td>PostInstallRunning<td>False<td>Running extension post-install script<td>
@@ -116,6 +117,9 @@ further transition without some change to the extension resource spec.
   <tr><td>Stopping<td>False<td>Extension is being stopped<td>
   <tr><td>Uninstalling<td>False<td>Extension is being removed<td>
   <tr><td>Broken<td>False<td>User interaction required<td>:heavy_check_mark:
+<tr><td rowspan=2>ContainerEngineReady
+      <td>NotReady<td>False<td>Container engine has not been synchronized
+  <tr><td>Ready<td>True<td>Container engine is ready for use
 </table>
 
 Notes:
