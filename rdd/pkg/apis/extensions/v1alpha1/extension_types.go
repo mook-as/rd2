@@ -30,6 +30,10 @@ const (
 	// ExtensionConditionReady aggregates Installed and Started (and
 	// uninstall progress) into the overall extension lifecycle state.
 	ExtensionConditionReady = "Ready"
+
+	// ExtensionConditionContainerEngineReady reports whether the container
+	// engine (e.g., Docker or containerd) is ready for extension operations.
+	ExtensionConditionContainerEngineReady = "ContainerEngineReady"
 )
 
 // Reasons for the Installed condition.
@@ -46,6 +50,9 @@ const (
 	// ExtensionInstalledReasonDownloadFailed means the extension image
 	// failed to download.  Terminal.
 	ExtensionInstalledReasonDownloadFailed = "DownloadFailed"
+	// ExtensionInstalledReasonEngineNotReady means the container engine is not
+	// ready for extension operations.  Terminal.
+	ExtensionInstalledReasonEngineNotReady = "EngineNotReady"
 	// ExtensionInstalledReasonExtracting means the extension files are
 	// being extracted.
 	ExtensionInstalledReasonExtracting = "Extracting"
@@ -115,6 +122,16 @@ const (
 	// ExtensionReadyReasonBroken means user interaction is required.
 	// Terminal.
 	ExtensionReadyReasonBroken = "Broken"
+)
+
+// Reasons for the ContainerEngineReady condition.
+const (
+	// ExtensionContainerEngineReadyReasonNotReady means the container engine is
+	// not currently ready.
+	ExtensionContainerEngineReadyReasonNotReady = "NotReady"
+	// ExtensionContainerEngineReadyReasonReady means the container engine is
+	// ready for use.
+	ExtensionContainerEngineReadyReasonReady = "Ready"
 )
 
 // ExtensionSpec defines the desired state of Extension.
@@ -189,6 +206,7 @@ type ExtensionStatus struct {
 	//   and had its post-install script (if any) run successfully.
 	// - "Started": the extension's containers (if any) have been started.
 	// - "Ready": aggregates the overall extension lifecycle state.
+	// - "ContainerEngineReady": the container engine can be used.
 	//
 	// The status of each condition is one of True, False, or Unknown.
 	//

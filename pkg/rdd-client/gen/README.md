@@ -1,4 +1,4 @@
-## @rancher/rdd-client@0.0.1-83dd0aa554a95d03c9d9bf1b6bda9824cbbe45cb993f887a8ddf83d33ebad9d3d558652017fe791cf52052304bcf138d1d67cab4f766cb45d7e9c19420325d89
+## @rancher/rdd-client@0.0.1-83dd0aa554a95d03c9d9bf1b6bda9824cbbe45cb993f887a8ddf83d33ebad9d3f1e1b6c8092c9f03febfc98d77e83b67efb33be24aa69f126bd2c6d79aa8f162
 
 This generator creates TypeScript/JavaScript client that utilizes fetch-api.
 
@@ -21,7 +21,7 @@ Navigate to the folder of your consuming project and run one of the following co
 _published:_
 
 ```
-npm install @rancher/rdd-client@0.0.1-83dd0aa554a95d03c9d9bf1b6bda9824cbbe45cb993f887a8ddf83d33ebad9d3d558652017fe791cf52052304bcf138d1d67cab4f766cb45d7e9c19420325d89 --save
+npm install @rancher/rdd-client@0.0.1-83dd0aa554a95d03c9d9bf1b6bda9824cbbe45cb993f887a8ddf83d33ebad9d3f1e1b6c8092c9f03febfc98d77e83b67efb33be24aa69f126bd2c6d79aa8f162 --save
 ```
 
 _unPublished (not recommended):_

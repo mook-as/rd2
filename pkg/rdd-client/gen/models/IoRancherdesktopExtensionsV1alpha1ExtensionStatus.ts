@@ -19,7 +19,7 @@ import { HttpFile } from '../http/http';
 */
 export class IoRancherdesktopExtensionsV1alpha1ExtensionStatus {
     /**
-    * conditions represent the state of the extension.  Known condition types include: - \"Installed\": the extension image has been downloaded, extracted,   and had its post-install script (if any) run successfully. - \"Started\": the extension\'s containers (if any) have been started. - \"Ready\": aggregates the overall extension lifecycle state.  The status of each condition is one of True, False, or Unknown.
+    * conditions represent the state of the extension.  Known condition types include: - \"Installed\": the extension image has been downloaded, extracted,   and had its post-install script (if any) run successfully. - \"Started\": the extension\'s containers (if any) have been started. - \"Ready\": aggregates the overall extension lifecycle state. - \"ContainerEngineReady\": the container engine can be used.  The status of each condition is one of True, False, or Unknown.
     */
     'conditions'?: Array<IoRancherdesktopAppV1alpha1AppStatusConditionsInner>;
     /**
