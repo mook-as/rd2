@@ -23,7 +23,7 @@ test-wix-helper:
 	( cd src/go/wix-helper && go$(EXE) test ./... )
 .PHONY: test-wix-helper
 
-lint: lint-rdd lint-bats lint-startup-profile lint-wix-helper
+lint: lint-rdd lint-bats lint-shell lint-startup-profile lint-wix-helper
 .PHONY: lint
 
 lint-go: lint-rdd lint-startup-profile lint-wix-helper
@@ -44,6 +44,20 @@ lint-startup-profile:
 lint-wix-helper:
 	( cd src/go/wix-helper && go$(EXE) tool golangci-lint run )
 .PHONY: lint-wix-helper
+
+# TODO: Currently, many of the scripts fail the check.
+# SHELL_FILES := $(shell git ls-files -- '**/*.sh' ':!rdd/bats/')
+SHELL_FILES := scripts/generate-rdd-client.sh
+
+lint-shell:
+	shellcheck --enable=all $(SHELL_FILES)
+	go -C rdd tool shfmt --indent=4 --diff $(foreach f,$(SHELL_FILES),../$(f))
+.PHONY: lint-shell
+
+lint-shell-fix:
+	shellcheck --enable=all $(SHELL_FILES)
+	go -C rdd tool shfmt --indent=4 --write $(foreach f,$(SHELL_FILES),../$(f))
+.PHONY: lint-shell-fix
 
 check: spelling
 .PHONY: check

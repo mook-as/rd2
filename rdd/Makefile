@@ -37,6 +37,10 @@ LDFLAGS := \
 	-s -w
 
 TAGS := sqlite_omit_load_extension
+# CGO_CFLAGS is part of every cgo package's build cache key, so bin/rdd, test
+# and lint-rdd all pass the same value. A target that left the flags out would
+# recompile go-sqlite3 instead of reusing the others' build cache.
+SQLITE_CFLAGS := -DSQLITE_ENABLE_DBSTAT_VTAB=1 -DSQLITE_USE_ALLOCA=1
 
 # DISTRO_IMAGE is the guest distro image bin/rdd and bin/lima-controller embed
 # under the with_distro tag. WSL2 imports a rootfs tarball, and Lima's other
@@ -112,7 +116,7 @@ FORCE:
 # other standalone controllers build without with_distro and need no image.
 bin/rdd$(EXE): $(GOLANG_SOURCES) $(EMBEDDED_SOURCES) $(GUESTAGENT_GZ) $(DISTRO_IMAGE)
 	WSLENV=${WSLENV}:CGO_CFLAGS:CGO_ENABLED:GOOS:GOARCH \
-	CGO_CFLAGS="-DSQLITE_ENABLE_DBSTAT_VTAB=1 -DSQLITE_USE_ALLOCA=1" CGO_ENABLED=1 \
+	CGO_CFLAGS="$(SQLITE_CFLAGS)" CGO_ENABLED=1 \
 	GOOS=$(TARGET_OS) GOARCH=$(TARGET_ARCH) \
 	go$(EXE) build -tags="$(TAGS) with_distro" -gcflags="all=${GCFLAGS}" -ldflags="$(LDFLAGS)" -o $@ ./cmd/rdd
 	$(call ATTACH_ENTITLEMENTS,$@)
@@ -179,12 +183,19 @@ generate-crds:
 	scripts/generate-crds.sh
 .PHONY: generate-crds
 
+# We do not run this as part of `make generate` as this requires the service
+# to be buildable and runnable.
+generate-typescript: bin/rdd$(EXE)
+	../scripts/generate-rdd-client.sh
+.PHONY: generate-typescript
+
 generate: generate-deepcopy generate-crds
 .PHONY: generate
 
-verify-generate: generate
+verify-generate: generate generate-typescript
 	@if [ -n "$$(git diff --name-only)" ]; then \
-		echo "ERROR: Generated files are out of date. Run 'make generate' and commit the result." >&2; \
+		printf "ERROR: Generated files are out of date. Run '%s' and commit the result.\n" \
+			"make generate generate-typescript" >&2; \
 		git diff --stat; \
 		exit 1; \
 	fi
@@ -195,15 +206,19 @@ run: bin/rdd$(EXE)
 .PHONY: run
 
 test: $(GOLANG_SOURCES) $(GUESTAGENT_GZ)
-	go$(EXE) test ./...
+	CGO_CFLAGS="$(SQLITE_CFLAGS)" \
+	go$(EXE) test -tags="$(TAGS)" ./...
 .PHONY: test
 
 lint-bats:
 	$(MAKE) -C bats lint
 .PHONY: lint-bats
 
+# golangci-lint compiles the packages it analyses, so it fills the build cache
+# that the other jobs restore.
 lint-rdd: $(GUESTAGENT_GZ)
-	go$(EXE) tool golangci-lint run
+	CGO_CFLAGS="$(SQLITE_CFLAGS)" \
+	go$(EXE) tool golangci-lint run --build-tags="$(TAGS)"
 .PHONY: lint-rdd
 
 lint: lint-bats lint-rdd

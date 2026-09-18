@@ -83,27 +83,31 @@ func (w *containerdWatcher) applyNamespace(ctx context.Context, ns string) error
 		return err
 	}
 
+	// Apply the name and the labels with separate field owners; this ensures that
+	// if we failed to get the labels, we do not overwrite the existing ones.
+	applyConfig.WithStatus(containersv1alpha1apply.ContainerNamespaceStatus().
+		WithName(ns))
+	err = w.k8s.Status().Apply(ctx, applyConfig,
+		client.ForceOwnership, client.FieldOwner(controllerName))
+	if err != nil {
+		return err
+	}
+
 	labels, err := w.cli.NamespaceService().Labels(ctx, ns)
-	if errdefs.IsNotFound(err) {
-		// If the namespace is not found, skip updating the status; the object will
-		// be deleted via the namespace delete event.  AI reviews claim this is
-		// unreachable because the error is never "not found"; however, the API does
-		// not indicate that, and that can be changed.
+	if err != nil {
+		// Do not log if the namespace disappeared: we'll handle a delete event in
+		// the future.
+		if !errdefs.IsNotFound(err) {
+			logf.FromContext(ctx).WithName("containerd-watcher").
+				Error(err, "Failed to get labels for namespace", "namespace", ns)
+		}
 		return nil
-	} else if err != nil {
-		// If we fail to get labels, don't update the labels but still update the
-		// name.  This is driven by containerd events, which does not requeue like a
-		// reconcile loop would.
-		labels = nil
-		logf.FromContext(ctx).WithName("containerd-watcher").
-			Error(err, "Failed to get labels for namespace", "namespace", ns)
 	}
 
 	applyConfig.WithStatus(containersv1alpha1apply.ContainerNamespaceStatus().
-		WithName(ns).
 		WithLabels(labels))
 	return w.k8s.Status().Apply(ctx, applyConfig,
-		client.ForceOwnership, client.FieldOwner(controllerName))
+		client.ForceOwnership, client.FieldOwner(controllerName+"-labels"))
 }
 
 // removeNamespace deletes the ContainerNamespace mirror for a containerd

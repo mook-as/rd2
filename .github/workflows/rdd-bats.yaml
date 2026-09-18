@@ -184,11 +184,11 @@ jobs:
       with:
         persist-credentials: false
         submodules: recursive
-    - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+    - uses: $/.github/actions/setup-rdd-go
       if: needs.check-paths.outputs.should-run
       with:
-        go-version-file: rdd/go.mod
-        cache-dependency-path: rdd/go.sum
+        # Lint RDD writes the cache for the other platforms.
+        save: ${{ matrix.runs-on == 'macos-15-intel' }}
 
     - name: "Windows: disable Compatibility Telemetry"
       if: needs.check-paths.outputs.should-run && runner.os == 'Windows'

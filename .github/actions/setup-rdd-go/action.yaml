@@ -1,0 +1,59 @@
+name: Setup Go for rdd
+description: >-
+  Installs the Go toolchain as specified in rdd/go.mod, and restores caches for
+  it. On rdd/go.sum mismatch, restores based on runner and Go version.
+
+inputs:
+  save:
+    description: >-
+      Whether this job may write the cache. The first job to finish claims the
+      key, so only Lint RDD and the BATS jobs enable it. Lint RDD compiles the
+      dependency graph of everything it analyses, so its entry already holds
+      the packages that the jobs building rdd need. The BATS jobs enable it
+      only on macos-15-intel, because nothing else in CI runs on that runner.
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+  - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+    with:
+      cache: false
+      go-version-file: rdd/go.mod
+
+  # GOCACHE / GOMODCACHE varies per platform, so ask the toolchain for both
+  # paths.
+  - id: go-env
+    shell: bash
+    env:
+      SAVE: >-
+        ${{ inputs.save == 'true' && github.event_name == 'push'
+        && github.ref == 'refs/heads/main' }}
+    run: |
+      {
+        echo "build-path=$(go env GOCACHE)"
+        echo "module-path=$(go env GOMODCACHE)"
+        echo "prefix=go-$RUNNER_OS-$RUNNER_ARCH-$(go env GOVERSION)-"
+        echo "save=$SAVE"
+      } | tee -a "$GITHUB_OUTPUT"
+
+  # A run can restore an entry created on its own branch, on its base branch,
+  # or on the default branch. Only main's entries are therefore visible to
+  # every job, so only main writes.
+  - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+    if: steps.go-env.outputs.save == 'true'
+    with:
+      path: |
+        ${{ steps.go-env.outputs.build-path }}
+        ${{ steps.go-env.outputs.module-path }}
+      key: ${{ steps.go-env.outputs.prefix }}${{ hashFiles('rdd/go.sum') }}
+      restore-keys: ${{ steps.go-env.outputs.prefix }}
+
+  - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+    if: steps.go-env.outputs.save != 'true'
+    with:
+      path: |
+        ${{ steps.go-env.outputs.build-path }}
+        ${{ steps.go-env.outputs.module-path }}
+      key: ${{ steps.go-env.outputs.prefix }}${{ hashFiles('rdd/go.sum') }}
+      restore-keys: ${{ steps.go-env.outputs.prefix }}
