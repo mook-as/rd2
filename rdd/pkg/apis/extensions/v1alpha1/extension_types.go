@@ -34,6 +34,12 @@ const (
 	// ExtensionConditionContainerEngineReady reports whether the container
 	// engine (e.g., Docker or containerd) is ready for extension operations.
 	ExtensionConditionContainerEngineReady = "ContainerEngineReady"
+
+	// ExtensionConditionExtracted reports whether the extension image has
+	// been extracted onto disk.  This is a sub-phase of Installed, tracked
+	// separately so it can be reconciled independently of downloading and
+	// running the post-install script.
+	ExtensionConditionExtracted = "Extracted"
 )
 
 // Reasons for the Installed condition.
@@ -50,15 +56,15 @@ const (
 	// ExtensionInstalledReasonDownloadFailed means the extension image
 	// failed to download.  Terminal.
 	ExtensionInstalledReasonDownloadFailed = "DownloadFailed"
-	// ExtensionInstalledReasonEngineNotReady means the container engine is not
-	// ready for extension operations.  Terminal.
-	ExtensionInstalledReasonEngineNotReady = "EngineNotReady"
 	// ExtensionInstalledReasonExtracting means the extension files are
 	// being extracted.
 	ExtensionInstalledReasonExtracting = "Extracting"
 	// ExtensionInstalledReasonExtractFailed means the extension extraction
 	// failed, or the image was invalid.  Terminal.
 	ExtensionInstalledReasonExtractFailed = "ExtractFailed"
+	// ExtensionInstalledReasonExtracted means the extension extraction
+	// completed successfully.
+	ExtensionInstalledReasonExtracted = "Extracted"
 	// ExtensionInstalledReasonPostInstallRunning means the extension's
 	// post-install script is running.
 	ExtensionInstalledReasonPostInstallRunning = "PostInstallRunning"
@@ -132,6 +138,32 @@ const (
 	// ExtensionContainerEngineReadyReasonReady means the container engine is
 	// ready for use.
 	ExtensionContainerEngineReadyReasonReady = "Ready"
+)
+
+// Reasons for the Extracted condition.
+const (
+	// ExtensionExtractedReasonEngineNotReady means the container engine is not
+	// ready for extension operations.  Terminal.
+	ExtensionExtractedReasonEngineNotReady = "EngineNotReady"
+	// ExtensionExtractedReasonPreparing means extraction is setting up.
+	ExtensionExtractedReasonPreparing = "Preparing"
+	// ExtensionExtractedReasonMetadata means extension metadata is
+	// being extracted.
+	ExtensionExtractedReasonMetadata = "ExtractingMetadata"
+	// ExtensionExtractedReasonIcon means the extension icon is
+	// being extracted.
+	ExtensionExtractedReasonIcon = "ExtractingIcon"
+	// ExtensionExtractedReasonUI means the extension user
+	// interface files are being extracted.
+	ExtensionExtractedReasonUI = "ExtractingUI"
+	// ExtensionExtractedReasonExecutable means the extension host
+	// executables are being extracted.
+	ExtensionExtractedReasonExecutable = "ExtractingExecutable"
+	// ExtensionExtractedReasonCompleted means the extension has been
+	// extracted.  Terminal.
+	ExtensionExtractedReasonCompleted = "Completed"
+	// ExtensionExtractedReasonFailed means the extraction has failed. Terminal.
+	ExtensionExtractedReasonFailed = "Failed"
 )
 
 // ExtensionSpec defines the desired state of Extension.

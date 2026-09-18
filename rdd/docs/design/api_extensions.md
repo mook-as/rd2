@@ -92,9 +92,9 @@ further transition without some change to the extension resource spec.
   <tr><td>ResolveFailed<td>False<td>Image reference could not be resolved<td>:heavy_check_mark:
   <tr><td>Downloading<td>False<td>Image is being downloaded<td>
   <tr><td>DownloadFailed<td>False<td>Extension image failed to download<td>:heavy_check_mark:
-  <tr><td>EngineNotReady<td>False<td>The container engine is not available
   <tr><td>Extracting<td>False<td>Extension files are being extracted<td>
-  <tr><td>ExtractFailed<td>False<td>Extension extraction failed / invalid image<td>:heavy_check_mark:
+  <tr><td>ExtractFailed<td>False<td>Extension extraction failed<td>:heavy_check_mark:
+  <tr><td>Extracted<td>False<td>Extension files have been extracted
   <tr><td>PostInstallRunning<td>False<td>Running extension post-install script<td>
   <tr><td>PostInstallFailed<td>False<td>Extension post-install script failed<td>:heavy_check_mark:
   <tr><td>Installed<td>True<td>Image has been installed successfully<td>:heavy_check_mark:
@@ -102,6 +102,15 @@ further transition without some change to the extension resource spec.
   <tr><td>Deleting<td>False<td>Extension files being deleted<td>
   <tr><td>DeleteFailed<td>False<td>Extension files could not be deleted; deletion is automatically retried<td>
   <tr><td>Uninstalled<td>True<td>Extension was removed; object will go away<td>:heavy_check_mark:
+<tr><td rowspan=8>Extracted
+  <td>EngineNotReady<td>False<td>The container engine is not available
+  <tr><td>Preparing<td>False<td>Extraction is setting up
+  <tr><td>ExtractingMetadata<td>False<td>Extension metadata is being extracted
+  <tr><td>ExtractingIcon<td>False<td>Extension icon is being extracted
+  <tr><td>ExtractingUI<td>False<td>Extension user interface files are being extracted
+  <tr><td>ExtractingExecutable<td>False<td>Extension host executables are being extracted
+  <tr><td>Completed<td>True<td>Extension has been extracted<td>:heavy_check_mark:
+  <tr><td>Failed<td>False<td>Extension extraction has failed<td>:heavy_check_mark:
 <tr><td rowspan=6>Started
       <td>Installing<td>False<td>Extension is still being installed<td>
   <tr><td>Starting<td>False<td>Extension is being started<td>
