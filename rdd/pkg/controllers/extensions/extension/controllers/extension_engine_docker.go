@@ -48,7 +48,18 @@ func (d *dockerEngine) connect(ctx context.Context) error {
 		return fmt.Errorf("failed to ping Docker: %w", err)
 	}
 
-	d.cli.Store(cli)
+	oldCli := d.cli.Swap(cli)
+	if oldCli != nil {
+		_ = oldCli.Close()
+	}
+	return nil
+}
+
+func (d *dockerEngine) disconnect(_ context.Context) error {
+	cli := d.cli.Swap(nil)
+	if cli != nil {
+		return cli.Close()
+	}
 	return nil
 }
 

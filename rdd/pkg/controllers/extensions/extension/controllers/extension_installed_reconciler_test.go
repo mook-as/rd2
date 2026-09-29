@@ -31,19 +31,37 @@ func newInstalledReconcilerTestClient(t *testing.T, objs ...client.Object) clien
 	assert.NilError(t, containersv1alpha1.AddToScheme(scheme))
 	assert.NilError(t, extensionsv1alpha1.AddToScheme(scheme))
 
+	var exts []*extensionsv1alpha1.Extension
+	for _, obj := range objs {
+		if ext, ok := obj.(*extensionsv1alpha1.Extension); ok {
+			if ext.UID == "" {
+				ext.UID = types.UID("uid-" + ext.Name)
+			}
+			exts = append(exts, ext)
+		}
+	}
+	for _, obj := range objs {
+		if pull, ok := obj.(*containersv1alpha1.ImagePullRequest); ok && len(pull.OwnerReferences) == 0 {
+			for _, ext := range exts {
+				if pull.Labels[imagePullRequestExtensionLabel] == ext.Name {
+					_ = ctrl.SetControllerReference(ext, pull, scheme)
+					break
+				}
+			}
+		}
+	}
+
 	builder := fake.NewClientBuilder().
 		WithScheme(scheme).
 		WithObjects(objs...)
-	for _, obj := range objs {
-		if ext, ok := obj.(*extensionsv1alpha1.Extension); ok {
-			builder = builder.WithStatusSubresource(ext)
-		}
+	for _, ext := range exts {
+		builder = builder.WithStatusSubresource(ext)
 	}
 
 	return builder.Build()
 }
 
-func TestExtensionInstalledReconcilerDownloadCreatesImagePullRequestWhenMissing(t *testing.T) {
+func TestExtensionReconcilerDownloadCreatesImagePullRequestWhenMissing(t *testing.T) {
 	ext := &extensionsv1alpha1.Extension{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "test-extension",
@@ -55,11 +73,10 @@ func TestExtensionInstalledReconcilerDownloadCreatesImagePullRequestWhenMissing(
 		},
 	}
 	c := newInstalledReconcilerTestClient(t, ext)
-	r := &ExtensionInstalledReconciler{Client: c}
+	r := &ExtensionReconciler{Client: c}
 
-	result, err := r.download(t.Context(), ext)
-	assert.NilError(t, err)
-	assert.Equal(t, result, (ctrl.Result{}))
+	err := r.download(t.Context(), ext)
+	assertNoErrorOrRequeue(t, err)
 
 	var pulls containersv1alpha1.ImagePullRequestList
 	assert.NilError(t, c.List(t.Context(), &pulls, client.InNamespace(ext.Namespace)))
@@ -73,7 +90,7 @@ func TestExtensionInstalledReconcilerDownloadCreatesImagePullRequestWhenMissing(
 	assert.Equal(t, pull.OwnerReferences[0].Name, ext.Name)
 }
 
-func TestExtensionInstalledReconcilerDownloadWaitsWhilePullInProgress(t *testing.T) {
+func TestExtensionReconcilerDownloadWaitsWhilePullInProgress(t *testing.T) {
 	ext := &extensionsv1alpha1.Extension{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "test-extension",
@@ -106,18 +123,17 @@ func TestExtensionInstalledReconcilerDownloadWaitsWhilePullInProgress(t *testing
 		},
 	}
 	c := newInstalledReconcilerTestClient(t, ext, pull)
-	r := &ExtensionInstalledReconciler{Client: c}
+	r := &ExtensionReconciler{Client: c}
 
-	result, err := r.download(t.Context(), ext)
-	assert.NilError(t, err)
-	assert.Equal(t, result, (ctrl.Result{}))
+	err := r.download(t.Context(), ext)
+	assertNoErrorOrRequeue(t, err)
 
 	updated := &extensionsv1alpha1.Extension{}
 	assert.NilError(t, c.Get(t.Context(), client.ObjectKeyFromObject(ext), updated))
 	assert.Assert(t, apimeta.FindStatusCondition(updated.Status.Conditions, extensionsv1alpha1.ExtensionConditionInstalled) == nil)
 }
 
-func TestExtensionInstalledReconcilerDownloadSetsExtractingWhenPullFinished(t *testing.T) {
+func TestExtensionReconcilerDownloadSetsExtractingWhenPullFinished(t *testing.T) {
 	ext := &extensionsv1alpha1.Extension{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "test-extension",
@@ -150,11 +166,10 @@ func TestExtensionInstalledReconcilerDownloadSetsExtractingWhenPullFinished(t *t
 		},
 	}
 	c := newInstalledReconcilerTestClient(t, ext, pull)
-	r := &ExtensionInstalledReconciler{Client: c}
+	r := &ExtensionReconciler{Client: c}
 
-	result, err := r.download(t.Context(), ext)
-	assert.NilError(t, err)
-	assert.Equal(t, result, (ctrl.Result{}))
+	err := r.download(t.Context(), ext)
+	assertNoErrorOrRequeue(t, err)
 
 	updated := &extensionsv1alpha1.Extension{}
 	assert.NilError(t, c.Get(t.Context(), client.ObjectKeyFromObject(ext), updated))
@@ -165,7 +180,7 @@ func TestExtensionInstalledReconcilerDownloadSetsExtractingWhenPullFinished(t *t
 	assert.Equal(t, installed.Message, "Extracting extension image")
 }
 
-func TestExtensionInstalledReconcilerDownloadSetsDownloadFailedWhenPullFails(t *testing.T) {
+func TestExtensionReconcilerDownloadSetsDownloadFailedWhenPullFails(t *testing.T) {
 	ext := &extensionsv1alpha1.Extension{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "test-extension",
@@ -199,11 +214,10 @@ func TestExtensionInstalledReconcilerDownloadSetsDownloadFailedWhenPullFails(t *
 		},
 	}
 	c := newInstalledReconcilerTestClient(t, ext, pull)
-	r := &ExtensionInstalledReconciler{Client: c}
+	r := &ExtensionReconciler{Client: c}
 
-	result, err := r.download(t.Context(), ext)
-	assert.NilError(t, err)
-	assert.Equal(t, result, (ctrl.Result{}))
+	err := r.download(t.Context(), ext)
+	assertNoErrorOrRequeue(t, err)
 
 	updated := &extensionsv1alpha1.Extension{}
 	assert.NilError(t, c.Get(t.Context(), client.ObjectKeyFromObject(ext), updated))
@@ -211,10 +225,10 @@ func TestExtensionInstalledReconcilerDownloadSetsDownloadFailedWhenPullFails(t *
 	assert.Assert(t, installed != nil)
 	assert.Equal(t, installed.Status, metav1.ConditionFalse)
 	assert.Equal(t, installed.Reason, extensionsv1alpha1.ExtensionInstalledReasonFailed)
-	assert.Equal(t, installed.Message, "registry request failed")
+	assert.Equal(t, installed.Message, "Failed to download extension image: registry request failed")
 }
 
-func TestExtensionInstalledReconcilerDownloadDeletesDuplicatePullRequests(t *testing.T) {
+func TestExtensionReconcilerDownloadDeletesDuplicatePullRequests(t *testing.T) {
 	ext := &extensionsv1alpha1.Extension{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "test-extension",
@@ -269,11 +283,10 @@ func TestExtensionInstalledReconcilerDownloadDeletesDuplicatePullRequests(t *tes
 		},
 	}
 	c := newInstalledReconcilerTestClient(t, ext, pull1, pull2)
-	r := &ExtensionInstalledReconciler{Client: c}
+	r := &ExtensionReconciler{Client: c}
 
-	result, err := r.download(t.Context(), ext)
-	assert.NilError(t, err)
-	assert.Equal(t, result, (ctrl.Result{}))
+	err := r.download(t.Context(), ext)
+	assertNoErrorOrRequeue(t, err)
 
 	var pulls containersv1alpha1.ImagePullRequestList
 	assert.NilError(t, c.List(t.Context(), &pulls,
@@ -283,7 +296,7 @@ func TestExtensionInstalledReconcilerDownloadDeletesDuplicatePullRequests(t *tes
 	assert.Equal(t, len(pulls.Items), 1)
 }
 
-func TestExtensionInstalledReconcilerCreateImagePullRequest(t *testing.T) {
+func TestExtensionReconcilerCreateImagePullRequest(t *testing.T) {
 	t.Run("happy case", func(t *testing.T) {
 		ext := &extensionsv1alpha1.Extension{
 			ObjectMeta: metav1.ObjectMeta{
@@ -296,9 +309,9 @@ func TestExtensionInstalledReconcilerCreateImagePullRequest(t *testing.T) {
 			},
 		}
 		c := newInstalledReconcilerTestClient(t, ext)
-		r := &ExtensionInstalledReconciler{Client: c}
+		r := &ExtensionReconciler{Client: c}
 
-		assert.NilError(t, r.createImagePullRequest(t.Context(), ext))
+		assertNoErrorOrRequeue(t, r.createImagePullRequest(t.Context(), ext))
 
 		var pulls containersv1alpha1.ImagePullRequestList
 		assert.NilError(t, c.List(t.Context(), &pulls, client.InNamespace(ext.Namespace)))
@@ -326,9 +339,9 @@ func TestExtensionInstalledReconcilerCreateImagePullRequest(t *testing.T) {
 			},
 		}
 		c := newInstalledReconcilerTestClient(t, ext)
-		r := &ExtensionInstalledReconciler{Client: c}
+		r := &ExtensionReconciler{Client: c}
 
-		assert.NilError(t, r.createImagePullRequest(t.Context(), ext))
+		assertNoErrorOrRequeue(t, r.createImagePullRequest(t.Context(), ext))
 
 		var pulls containersv1alpha1.ImagePullRequestList
 		assert.NilError(t, c.List(t.Context(), &pulls, client.InNamespace(ext.Namespace)))

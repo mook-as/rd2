@@ -7,19 +7,21 @@ package controllers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
-	"sync"
 
+	v1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/retry"
-	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/rancher-sandbox/rancher-desktop-daemon/pkg/apis/extensions/v1alpha1"
+	"github.com/rancher-sandbox/rancher-desktop-daemon/pkg/util/atomicmap"
 )
 
 // extractionStep is the descriptive name of each step, used in status messages.
@@ -64,15 +66,14 @@ type extensionExtractor struct {
 	// for processes which may outlive any individual reconcile.
 	ctx context.Context
 
-	// state holds the current extraction state and is protected by stateMu.
-	state   map[types.UID]extractState
-	stateMu sync.Mutex
+	// state holds the current extraction state.
+	state atomicmap.AtomicMap[types.UID, extractState]
 
-	prepare           func(ctx context.Context, ext *v1alpha1.Extension, e engine) (ctrl.Result, error)
-	extractMetadata   func(ctx context.Context, ext *v1alpha1.Extension, e engine) (ctrl.Result, error)
-	extractIcon       func(ctx context.Context, ext *v1alpha1.Extension, e engine) (ctrl.Result, error)
-	extractUI         func(ctx context.Context, ext *v1alpha1.Extension, e engine) (ctrl.Result, error)
-	extractExecutable func(ctx context.Context, ext *v1alpha1.Extension, e engine) (ctrl.Result, error)
+	prepare           func(ctx context.Context, ext *v1alpha1.Extension, e engine) error
+	extractMetadata   func(ctx context.Context, ext *v1alpha1.Extension, e engine) error
+	extractIcon       func(ctx context.Context, ext *v1alpha1.Extension, e engine) error
+	extractUI         func(ctx context.Context, ext *v1alpha1.Extension, e engine) error
+	extractExecutable func(ctx context.Context, ext *v1alpha1.Extension, e engine) error
 
 	// extractStep implements the scaffolding for one step of the extraction
 	// process.  [currentStep] represents the current step of the extraction
@@ -115,38 +116,33 @@ type extractEntry struct {
 	isDirectory bool
 }
 
-func (r *extensionExtractor) prepareImpl(ctx context.Context, ext *v1alpha1.Extension, e engine) (ctrl.Result, error) {
+func (r *extensionExtractor) prepareImpl(ctx context.Context, ext *v1alpha1.Extension, e engine) error {
 	// Check to make sure we don't have any duplicate state for this extension.
-	r.stateMu.Lock()
-	state := r.state[ext.GetUID()]
-	delete(r.state, ext.GetUID())
-	r.stateMu.Unlock()
+	state, _ := r.state.LoadAndDelete(ext.GetUID())
 	state.destroy()
 
 	if e == nil {
-		return ctrl.Result{}, r.setExtractedCondition(ctx, ext, metav1.ConditionFalse,
+		return r.setExtractedCondition(ctx, ext, metav1.ConditionFalse,
 			v1alpha1.ExtensionExtractedReasonEngineNotReady, "The container engine is not ready")
 	}
 	// Create a container for export; make sure to use the controller context.
 	result, err := e.createForExport(r.ctx, ext)
 	if err != nil {
-		return ctrl.Result{}, r.setExtractedCondition(ctx, ext, metav1.ConditionFalse,
+		return r.setExtractedCondition(ctx, ext, metav1.ConditionFalse,
 			v1alpha1.ExtensionExtractedReasonPreparing, fmt.Sprintf("Failed to create container for export: %v", err))
 	}
 
 	// Store the new state for this extension.
-	r.stateMu.Lock()
-	r.state[ext.GetUID()] = extractState{
+	r.state.Store(ext.GetUID(), extractState{
 		containerID: result.id,
 		cleanup:     result.cleanup,
-	}
-	r.stateMu.Unlock()
+	})
 
-	return ctrl.Result{}, r.setExtractedCondition(ctx, ext, metav1.ConditionFalse,
+	return r.setExtractedCondition(ctx, ext, metav1.ConditionFalse,
 		v1alpha1.ExtensionExtractedReasonMetadata, "Metadata extraction in progress")
 }
 
-func (r *extensionExtractor) extractMetadataImpl(ctx context.Context, ext *v1alpha1.Extension, e engine) (ctrl.Result, error) {
+func (r *extensionExtractor) extractMetadataImpl(ctx context.Context, ext *v1alpha1.Extension, e engine) error {
 	var dir string
 	err := r.extractStep(ctx, ext, e, extractionStepMetadata, v1alpha1.ExtensionExtractedReasonIcon,
 		func(ctx context.Context) (extractPrepareResult, error) {
@@ -176,38 +172,50 @@ func (r *extensionExtractor) extractMetadataImpl(ctx context.Context, ext *v1alp
 				if err := r.Get(ctx, client.ObjectKeyFromObject(ext), &latest); err != nil {
 					return err
 				}
-				file, err := os.Open(filepath.Join(dir, "metadata.json"))
+				var buf v1.JSON
+				var err error
+				buf.Raw, err = os.ReadFile(filepath.Join(dir, "metadata.json"))
 				if err != nil {
-					return fmt.Errorf("failed to open metadata file: %w", err)
+					return fmt.Errorf("failed to read metadata file: %w", err)
 				}
-				defer file.Close()
-				if err := json.NewDecoder(file).Decode(&latest.Status.Metadata); err != nil {
+				latest.Status.Metadata = &buf
+				var manifest ExtensionManifest
+				if err := json.Unmarshal(buf.Raw, &manifest); err != nil {
 					return err
+				}
+				if ui, ok := manifest.UI["dashboard-tab"]; ok {
+					latest.Status.UI = &v1alpha1.ExtensionUIStatus{
+						DashboardTab: &v1alpha1.ExtensionDashboardTabStatus{
+							Title:  ui.Title,
+							Src:    ui.Src,
+							Socket: manifest.VM.Exposes.Socket != "" || ui.Backend.Socket != "",
+						},
+					}
 				}
 				return r.Status().Update(ctx, &latest)
 			})
 		})
-	return ctrl.Result{}, err
+	return err
 }
 
-func (r *extensionExtractor) extractIconImpl(ctx context.Context, ext *v1alpha1.Extension, e engine) (ctrl.Result, error) {
+func (r *extensionExtractor) extractIconImpl(ctx context.Context, ext *v1alpha1.Extension, e engine) error {
 	manifest, err := getManifest(ext)
 	if err != nil {
-		return ctrl.Result{}, r.setExtractedCondition(ctx, ext, metav1.ConditionFalse,
+		return r.setExtractedCondition(ctx, ext, metav1.ConditionFalse,
 			v1alpha1.ExtensionExtractedReasonFailed,
 			err.Error())
 	}
 	if manifest == nil {
-		return ctrl.Result{}, r.setExtractedCondition(ctx, ext, metav1.ConditionFalse,
+		return r.setExtractedCondition(ctx, ext, metav1.ConditionFalse,
 			v1alpha1.ExtensionExtractedReasonFailed,
 			"Extension metadata is not available")
 	}
 	if manifest.Icon == "" {
-		return ctrl.Result{}, r.setExtractedCondition(ctx, ext, metav1.ConditionFalse,
+		return r.setExtractedCondition(ctx, ext, metav1.ConditionFalse,
 			v1alpha1.ExtensionExtractedReasonUI,
 			"Extension manifest does not specify an icon; skipping icon extraction")
 	}
-	err = r.extractStep(ctx, ext, e, extractionStepIcon, v1alpha1.ExtensionExtractedReasonUI,
+	return r.extractStep(ctx, ext, e, extractionStepIcon, v1alpha1.ExtensionExtractedReasonUI,
 		func(ctx context.Context) (extractPrepareResult, error) {
 			dir, err := extensionInstallDir(ext)
 			if err != nil {
@@ -223,29 +231,28 @@ func (r *extensionExtractor) extractIconImpl(ctx context.Context, ext *v1alpha1.
 				},
 			}, nil
 		}, nil)
-	return ctrl.Result{}, err
 }
 
-func (r *extensionExtractor) extractUIImpl(ctx context.Context, ext *v1alpha1.Extension, e engine) (ctrl.Result, error) {
+func (r *extensionExtractor) extractUIImpl(ctx context.Context, ext *v1alpha1.Extension, e engine) error {
 	manifest, err := getManifest(ext)
 	if err != nil {
-		return ctrl.Result{}, r.setExtractedCondition(ctx, ext, metav1.ConditionFalse,
+		return r.setExtractedCondition(ctx, ext, metav1.ConditionFalse,
 			v1alpha1.ExtensionExtractedReasonFailed,
 			err.Error())
 	}
 	if manifest == nil {
-		return ctrl.Result{}, r.setExtractedCondition(ctx, ext, metav1.ConditionFalse,
+		return r.setExtractedCondition(ctx, ext, metav1.ConditionFalse,
 			v1alpha1.ExtensionExtractedReasonFailed,
 			"Extension metadata is not available")
 	}
 	ui, ok := manifest.UI["dashboard-tab"]
 	if !ok {
 		// No UI; skip to the next state.
-		return ctrl.Result{}, r.setExtractedCondition(ctx, ext, metav1.ConditionFalse,
+		return r.setExtractedCondition(ctx, ext, metav1.ConditionFalse,
 			v1alpha1.ExtensionExtractedReasonExecutable,
 			"Extension does not have UI")
 	}
-	err = r.extractStep(ctx, ext, e, extractionStepUI, v1alpha1.ExtensionExtractedReasonExecutable,
+	return r.extractStep(ctx, ext, e, extractionStepUI, v1alpha1.ExtensionExtractedReasonExecutable,
 		func(ctx context.Context) (extractPrepareResult, error) {
 			dir, err := extensionInstallDir(ext)
 			if err != nil {
@@ -271,18 +278,17 @@ func (r *extensionExtractor) extractUIImpl(ctx context.Context, ext *v1alpha1.Ex
 				},
 			}, nil
 		}, nil)
-	return ctrl.Result{}, err
 }
 
-func (r *extensionExtractor) extractExecutableImpl(ctx context.Context, ext *v1alpha1.Extension, e engine) (ctrl.Result, error) {
+func (r *extensionExtractor) extractExecutableImpl(ctx context.Context, ext *v1alpha1.Extension, e engine) error {
 	manifest, err := getManifest(ext)
 	if err != nil {
-		return ctrl.Result{}, r.setExtractedCondition(ctx, ext, metav1.ConditionFalse,
+		return r.setExtractedCondition(ctx, ext, metav1.ConditionFalse,
 			v1alpha1.ExtensionExtractedReasonFailed,
 			err.Error())
 	}
 	if manifest == nil {
-		return ctrl.Result{}, r.setExtractedCondition(ctx, ext, metav1.ConditionFalse,
+		return r.setExtractedCondition(ctx, ext, metav1.ConditionFalse,
 			v1alpha1.ExtensionExtractedReasonFailed,
 			"Extension metadata is not available")
 	}
@@ -293,11 +299,11 @@ func (r *extensionExtractor) extractExecutableImpl(ctx context.Context, ext *v1a
 		}
 	}
 	if len(binaries) < 1 {
-		return ctrl.Result{}, r.setExtractedCondition(ctx, ext, metav1.ConditionFalse,
+		return r.setExtractedCondition(ctx, ext, metav1.ConditionFalse,
 			v1alpha1.ExtensionExtractedReasonFinishing,
 			"Extension does not have any binaries for the current OS")
 	}
-	err = r.extractStep(ctx, ext, e, extractionStepExecutable, v1alpha1.ExtensionExtractedReasonFinishing,
+	return r.extractStep(ctx, ext, e, extractionStepExecutable, v1alpha1.ExtensionExtractedReasonFinishing,
 		func(ctx context.Context) (extractPrepareResult, error) {
 			dir, err := extensionInstallDir(ext)
 			if err != nil {
@@ -320,7 +326,6 @@ func (r *extensionExtractor) extractExecutableImpl(ctx context.Context, ext *v1a
 			}
 			return result, nil
 		}, nil)
-	return ctrl.Result{}, err
 }
 
 func (r *extensionExtractor) extractStepImpl(
@@ -332,9 +337,8 @@ func (r *extensionExtractor) extractStepImpl(
 	prepare func(context.Context) (extractPrepareResult, error),
 	finalize func(context.Context) error,
 ) error {
-	r.stateMu.Lock()
-	state := r.state[ext.GetUID()]
-	r.stateMu.Unlock()
+	log := logf.FromContext(ctx)
+	state, _ := r.state.Load(ext.GetUID())
 
 	if state.containerID == "" {
 		return r.setExtractedCondition(ctx, ext, metav1.ConditionFalse,
@@ -359,7 +363,11 @@ func (r *extensionExtractor) extractStepImpl(
 
 	prepareResult, err := prepare(ctx)
 	if err != nil {
-		return nil
+		if _, ok := errors.AsType[requeueError](err); ok {
+			log.Error(err, "Requeue not supported during prepare step")
+		} else {
+			return err
+		}
 	}
 	if !prepareResult.success {
 		return nil
@@ -369,9 +377,7 @@ func (r *extensionExtractor) extractStepImpl(
 
 	state.step = currentStep
 	state.cancel = extractCancel
-	r.stateMu.Lock()
-	r.state[ext.GetUID()] = state
-	r.stateMu.Unlock()
+	r.state.Store(ext.GetUID(), state)
 
 	go func() {
 		defer extractCancel()
@@ -397,8 +403,10 @@ func (r *extensionExtractor) extractStepImpl(
 		selectLoop:
 			for {
 				select {
-				case res := <-ch:
+				case res, ok := <-ch:
 					switch {
+					case !ok:
+						return
 					case res.err != nil:
 						_ = r.setExtractedCondition(extractCtx, ext, metav1.ConditionFalse,
 							v1alpha1.ExtensionExtractedReasonFailed,
@@ -443,11 +451,9 @@ func (r *extensionExtractor) extractStepImpl(
 }
 
 func (r *extensionExtractor) abort(uid types.UID) {
-	r.stateMu.Lock()
-	state := r.state[uid]
-	delete(r.state, uid)
-	r.stateMu.Unlock()
-	state.destroy()
+	if state, ok := r.state.LoadAndDelete(uid); ok {
+		state.destroy()
+	}
 }
 
 // setExtractedCondition sets the extracted condition for the given extension
@@ -455,11 +461,7 @@ func (r *extensionExtractor) abort(uid types.UID) {
 // also cancels any ongoing extraction process.
 func (r *extensionExtractor) setExtractedCondition(ctx context.Context, ext *v1alpha1.Extension, status metav1.ConditionStatus, reason, message string) error {
 	if reason == v1alpha1.ExtensionExtractedReasonFailed {
-		r.stateMu.Lock()
-		state, ok := r.state[ext.GetUID()]
-		delete(r.state, ext.GetUID())
-		r.stateMu.Unlock()
-		if ok {
+		if state, ok := r.state.LoadAndDelete(ext.GetUID()); ok {
 			state.destroy()
 		}
 	}
@@ -479,6 +481,9 @@ func (r *extensionExtractor) setExtractedCondition(ctx context.Context, ext *v1a
 		if !changed {
 			return nil
 		}
-		return r.Status().Update(ctx, latest)
+		if err := r.Status().Update(ctx, latest); err != nil {
+			return err
+		}
+		return requeueError(0)
 	})
 }

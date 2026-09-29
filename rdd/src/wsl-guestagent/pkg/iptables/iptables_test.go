@@ -22,10 +22,9 @@ import (
 
 	"github.com/docker/go-connections/nat"
 	limaiptables "github.com/lima-vm/lima/pkg/guestagent/iptables"
-	"github.com/stretchr/testify/require"
-
 	"github.com/rancher-sandbox/rancher-desktop/src/wsl-guestagent/pkg/iptables"
 	"github.com/rancher-sandbox/rancher-desktop/src/wsl-guestagent/pkg/utils"
+	"github.com/stretchr/testify/require"
 )
 
 func TestForwardPorts(t *testing.T) {

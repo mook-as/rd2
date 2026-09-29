@@ -33,7 +33,6 @@ import (
 	"github.com/Masterminds/log-go"
 	"github.com/docker/go-connections/nat"
 	"github.com/lima-vm/lima/pkg/guestagent/procnettcp"
-
 	"github.com/rancher-sandbox/rancher-desktop/src/wsl-guestagent/pkg/tracker"
 	"github.com/rancher-sandbox/rancher-desktop/src/wsl-guestagent/pkg/utils"
 )

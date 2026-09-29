@@ -31,8 +31,6 @@ import (
 
 	"github.com/Masterminds/log-go"
 	"github.com/docker/go-connections/nat"
-	"golang.org/x/sync/errgroup"
-
 	"github.com/rancher-sandbox/rancher-desktop/src/wsl-guestagent/pkg/containerd"
 	"github.com/rancher-sandbox/rancher-desktop/src/wsl-guestagent/pkg/docker"
 	"github.com/rancher-sandbox/rancher-desktop/src/wsl-guestagent/pkg/forwarder"
@@ -40,6 +38,7 @@ import (
 	"github.com/rancher-sandbox/rancher-desktop/src/wsl-guestagent/pkg/kube"
 	"github.com/rancher-sandbox/rancher-desktop/src/wsl-guestagent/pkg/procnet"
 	"github.com/rancher-sandbox/rancher-desktop/src/wsl-guestagent/pkg/tracker"
+	"golang.org/x/sync/errgroup"
 )
 
 const (

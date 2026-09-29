@@ -7,6 +7,7 @@ package controllers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -22,7 +23,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
@@ -59,6 +59,10 @@ var _ engine = &fakeEngine{}
 
 func (f *fakeEngine) connect(context.Context) error {
 	return f.connectErr
+}
+
+func (f *fakeEngine) disconnect(context.Context) error {
+	return nil
 }
 
 func (f *fakeEngine) createForExport(ctx context.Context, ext *extensionsv1alpha1.Extension) (engineCreateForExportResult, error) {
@@ -142,7 +146,7 @@ func newExtractedReconcilerTestClient(t *testing.T, objs ...client.Object) clien
 }
 
 // newExtractor builds a bare extensionExtractor wired up with the given
-// client, without the ExtensionExtractedReconciler wrapper. This is used by
+// client, without the ExtensionReconciler wrapper. This is used by
 // tests that want to exercise a single helper method (e.g. prepare or
 // extractStep) in isolation; the engine (if any) is passed directly to the
 // relevant method rather than being stored on the extractor.
@@ -151,7 +155,6 @@ func newExtractor(t *testing.T, c client.Client, _ engine) *extensionExtractor {
 	extractor := &extensionExtractor{
 		Client: c,
 		ctx:    t.Context(),
-		state:  make(map[types.UID]extractState),
 	}
 	extractor.prepare = extractor.prepareImpl
 	extractor.extractMetadata = extractor.extractMetadataImpl
@@ -164,7 +167,7 @@ func newExtractor(t *testing.T, c client.Client, _ engine) *extensionExtractor {
 
 // stubSteps wraps an extensionExtractor with every step field defaulted to
 // a no-op implementation returning a zero ctrl.Result and a nil error, used
-// to test ExtensionExtractedReconciler.reconcileExtension's dispatch logic
+// to test ExtensionReconciler.reconcileExtension's dispatch logic
 // (i.e. which step is invoked for which Extracted condition reason) in
 // isolation, without needing a real engine or any of the individual steps'
 // own logic. setExtractedCondition is left as the real implementation
@@ -182,8 +185,8 @@ type stubSteps struct {
 // implementation. engineReady indicates whether newReconcilerWithStubSteps
 // should populate the reconciler's engine.
 func newStubSteps(engineReady bool) *stubSteps {
-	noop := func(context.Context, *extensionsv1alpha1.Extension, engine) (ctrl.Result, error) {
-		return ctrl.Result{}, nil
+	noop := func(context.Context, *extensionsv1alpha1.Extension, engine) error {
+		return nil
 	}
 	s := &stubSteps{
 		extensionExtractor: &extensionExtractor{
@@ -198,22 +201,23 @@ func newStubSteps(engineReady bool) *stubSteps {
 	return s
 }
 
-// newReconcilerWithStubSteps builds an ExtensionExtractedReconciler whose
+// newReconcilerWithStubSteps builds an ExtensionReconciler whose
 // steps are a stubSteps, so that reconcileExtension's dispatch logic can be
 // tested without exercising any individual step's real implementation. The
 // reconciler's engine is populated from steps.engineReady, since the engine
-// is tracked on ExtensionExtractedReconciler rather than by the steps
+// is tracked on ExtensionReconciler rather than by the steps
 // implementation.
-func newReconcilerWithStubSteps(t *testing.T, c client.Client, steps *stubSteps) *ExtensionExtractedReconciler {
+func newReconcilerWithStubSteps(t *testing.T, c client.Client, steps *stubSteps) *ExtensionReconciler {
 	t.Helper()
 	steps.Client = c
 	var e engine
 	if steps.engineReady {
 		e = &fakeEngine{}
 	}
-	r := &ExtensionExtractedReconciler{
-		extensionExtractor: steps.extensionExtractor,
-		engine:             e,
+	r := &ExtensionReconciler{
+		Client:    c,
+		extractor: steps.extensionExtractor,
+		engine:    e,
 	}
 	return r
 }
@@ -266,7 +270,7 @@ func waitForExtractedReason(t *testing.T, c client.Client, ext *extensionsv1alph
 	return nil
 }
 
-func TestExtensionExtractedReconcilerExtractMetadataFinalizeFailureIsNotOverwritten(t *testing.T) {
+func TestExtensionReconcilerExtractMetadataFinalizeFailureIsNotOverwritten(t *testing.T) {
 	// Regression test for the bug where a `finalize` failure (e.g. the
 	// exported metadata.json cannot be opened/decoded) was silently
 	// overwritten by the "completed successfully" transition to the next
@@ -280,12 +284,10 @@ func TestExtensionExtractedReconcilerExtractMetadataFinalizeFailureIsNotOverwrit
 		exportFn: writeFileExportFn(t, map[string][]byte{}),
 	}
 	extractor := newExtractor(t, c, fe)
-	r := &ExtensionExtractedReconciler{extensionExtractor: extractor}
-	extractor.stateMu.Lock()
-	extractor.state[ext.GetUID()] = extractState{containerID: "fake-container-id"}
-	extractor.stateMu.Unlock()
+	r := &ExtensionReconciler{Client: c, extractor: extractor}
+	extractor.state.Store(ext.GetUID(), extractState{containerID: "fake-container-id"})
 
-	_, err := r.extractMetadata(t.Context(), ext, fe)
+	err := r.extractor.extractMetadata(t.Context(), ext, fe)
 	assert.NilError(t, err)
 
 	condition := waitForExtractedReason(t, c, ext, extensionsv1alpha1.ExtensionExtractedReasonFailed)
@@ -300,7 +302,7 @@ func TestExtensionExtractedReconcilerExtractMetadataFinalizeFailureIsNotOverwrit
 	assert.Equal(t, final.Reason, extensionsv1alpha1.ExtensionExtractedReasonFailed)
 }
 
-func TestExtensionExtractedReconcilerExtractMetadataSucceeds(t *testing.T) {
+func TestExtensionReconcilerExtractMetadataSucceeds(t *testing.T) {
 	ext := newTestExtension(t, "test-extension", extensionsv1alpha1.ExtensionExtractedReasonMetadata)
 	c := newExtractedReconcilerTestClient(t, ext)
 
@@ -309,12 +311,10 @@ func TestExtensionExtractedReconcilerExtractMetadataSucceeds(t *testing.T) {
 		exportFn: writeFileExportFn(t, map[string][]byte{"metadata.json": metadata}),
 	}
 	extractor := newExtractor(t, c, fe)
-	r := &ExtensionExtractedReconciler{extensionExtractor: extractor}
-	extractor.stateMu.Lock()
-	extractor.state[ext.GetUID()] = extractState{containerID: "fake-container-id"}
-	extractor.stateMu.Unlock()
+	r := &ExtensionReconciler{Client: c, extractor: extractor}
+	extractor.state.Store(ext.GetUID(), extractState{containerID: "fake-container-id"})
 
-	_, err := r.extractMetadata(t.Context(), ext, fe)
+	err := r.extractor.extractMetadata(t.Context(), ext, fe)
 	assert.NilError(t, err)
 
 	condition := waitForExtractedReason(t, c, ext, extensionsv1alpha1.ExtensionExtractedReasonIcon)
@@ -328,7 +328,7 @@ func TestExtensionExtractedReconcilerExtractMetadataSucceeds(t *testing.T) {
 	assert.Equal(t, manifest.Icon, "icon.png")
 }
 
-func TestExtensionExtractedReconcilerExtractStepGuardsAgainstReentry(t *testing.T) {
+func TestExtensionReconcilerExtractStepGuardsAgainstReentry(t *testing.T) {
 	// Regression test: calling extractStep twice in quick succession for the
 	// same step must not start a second concurrent export.
 	ext := newTestExtension(t, "test-extension", extensionsv1alpha1.ExtensionExtractedReasonMetadata)
@@ -352,15 +352,13 @@ func TestExtensionExtractedReconcilerExtractStepGuardsAgainstReentry(t *testing.
 		},
 	}
 	extractor := newExtractor(t, c, fe)
-	r := &ExtensionExtractedReconciler{extensionExtractor: extractor}
-	extractor.stateMu.Lock()
-	extractor.state[ext.GetUID()] = extractState{containerID: "fake-container-id"}
-	extractor.stateMu.Unlock()
+	r := &ExtensionReconciler{Client: c, extractor: extractor}
+	extractor.state.Store(ext.GetUID(), extractState{containerID: "fake-container-id"})
 
-	_, err := r.extractMetadata(t.Context(), ext, fe)
+	err := r.extractor.extractMetadata(t.Context(), ext, fe)
 	assert.NilError(t, err)
 	// Second call while the first is still in flight (blocked on `release`).
-	_, err = r.extractMetadata(t.Context(), ext, fe)
+	err = r.extractor.extractMetadata(t.Context(), ext, fe)
 	assert.NilError(t, err)
 
 	close(release)
@@ -374,39 +372,35 @@ func TestExtensionExtractedReconcilerExtractStepGuardsAgainstReentry(t *testing.
 	assert.Equal(t, callCount, 1, "export should only be invoked once despite two extractStep calls")
 }
 
-func TestExtensionExtractedReconcilerSetExtractedConditionFailedClearsState(t *testing.T) {
+func TestExtensionReconcilerSetExtractedConditionFailedClearsState(t *testing.T) {
 	// Regression test for stale state: once the Failed reason is set, any
 	// in-flight cancel/cleanup must be invoked and the state entry removed so
 	// it cannot be mistaken for a still-running step.
 	ext := newTestExtension(t, "test-extension", extensionsv1alpha1.ExtensionExtractedReasonMetadata)
 	c := newExtractedReconcilerTestClient(t, ext)
 	extractor := newExtractor(t, c, &fakeEngine{})
-	r := &ExtensionExtractedReconciler{extensionExtractor: extractor}
+	r := &ExtensionReconciler{Client: c, extractor: extractor}
 
 	cancelled := false
 	cleanedUp := false
-	extractor.stateMu.Lock()
-	extractor.state[ext.GetUID()] = extractState{
+	extractor.state.Store(ext.GetUID(), extractState{
 		containerID: "fake-container-id",
 		step:        extractionStepMetadata,
 		cancel:      func() { cancelled = true },
 		cleanup:     func() { cleanedUp = true },
-	}
-	extractor.stateMu.Unlock()
+	})
 
-	assert.NilError(t, r.setExtractedCondition(t.Context(), ext, metav1.ConditionFalse,
+	assertNoErrorOrRequeue(t, r.extractor.setExtractedCondition(t.Context(), ext, metav1.ConditionFalse,
 		extensionsv1alpha1.ExtensionExtractedReasonFailed, "boom"))
 
 	assert.Assert(t, cancelled, "cancel should have been called")
 	assert.Assert(t, cleanedUp, "cleanup should have been called")
 
-	extractor.stateMu.Lock()
-	_, ok := extractor.state[ext.GetUID()]
-	extractor.stateMu.Unlock()
+	_, ok := extractor.state.Load(ext.GetUID())
 	assert.Assert(t, !ok, "state entry should have been removed")
 }
 
-func TestExtensionExtractedReconcilerExtractIconFailsOnInvalidMetadata(t *testing.T) {
+func TestExtensionReconcilerExtractIconFailsOnInvalidMetadata(t *testing.T) {
 	// Guards against the nil-pointer panic that used to occur when
 	// Status.Metadata was nil/invalid but the pipeline had advanced anyway.
 	ext := newTestExtension(t, "test-extension", extensionsv1alpha1.ExtensionExtractedReasonIcon)
@@ -416,10 +410,10 @@ func TestExtensionExtractedReconcilerExtractIconFailsOnInvalidMetadata(t *testin
 	ext.Status.Metadata = &apiextensionsv1.JSON{Raw: []byte(`"not-an-object"`)}
 	c := newExtractedReconcilerTestClient(t, ext)
 	extractor := newExtractor(t, c, &fakeEngine{})
-	r := &ExtensionExtractedReconciler{extensionExtractor: extractor}
+	r := &ExtensionReconciler{Client: c, extractor: extractor}
 
-	_, err := r.extractIcon(t.Context(), ext, &fakeEngine{})
-	assert.NilError(t, err)
+	err := r.extractor.extractIcon(t.Context(), ext, &fakeEngine{})
+	assertNoErrorOrRequeue(t, err)
 
 	updated := &extensionsv1alpha1.Extension{}
 	assert.NilError(t, c.Get(t.Context(), client.ObjectKeyFromObject(ext), updated))
@@ -428,16 +422,16 @@ func TestExtensionExtractedReconcilerExtractIconFailsOnInvalidMetadata(t *testin
 	assert.Equal(t, condition.Reason, extensionsv1alpha1.ExtensionExtractedReasonFailed)
 }
 
-func TestExtensionExtractedReconcilerExtractUISkipsWhenNoUI(t *testing.T) {
+func TestExtensionReconcilerExtractUISkipsWhenNoUI(t *testing.T) {
 	ext := newTestExtension(t, "test-extension", extensionsv1alpha1.ExtensionExtractedReasonUI)
 	metadata := []byte(`{"host":{"binaries":null}}`)
 	ext.Status.Metadata = &apiextensionsv1.JSON{Raw: metadata}
 	c := newExtractedReconcilerTestClient(t, ext)
 	extractor := newExtractor(t, c, &fakeEngine{})
-	r := &ExtensionExtractedReconciler{extensionExtractor: extractor}
+	r := &ExtensionReconciler{Client: c, extractor: extractor}
 
-	_, err := r.extractUI(t.Context(), ext, &fakeEngine{})
-	assert.NilError(t, err)
+	err := r.extractor.extractUI(t.Context(), ext, &fakeEngine{})
+	assertNoErrorOrRequeue(t, err)
 
 	updated := &extensionsv1alpha1.Extension{}
 	assert.NilError(t, c.Get(t.Context(), client.ObjectKeyFromObject(ext), updated))
@@ -446,17 +440,17 @@ func TestExtensionExtractedReconcilerExtractUISkipsWhenNoUI(t *testing.T) {
 	assert.Equal(t, condition.Reason, extensionsv1alpha1.ExtensionExtractedReasonExecutable)
 }
 
-func TestExtensionExtractedReconcilerExtractExecutableCompletesWhenNoBinaries(t *testing.T) {
+func TestExtensionReconcilerExtractExecutableCompletesWhenNoBinaries(t *testing.T) {
 	ext := newTestExtension(t, "test-extension", extensionsv1alpha1.ExtensionExtractedReasonExecutable)
 	metadata := []byte(`{"host":{"binaries":null}}`)
 	ext.Status.Metadata = &apiextensionsv1.JSON{Raw: metadata}
 	c := newExtractedReconcilerTestClient(t, ext)
 	fe := &fakeEngine{}
 	extractor := newExtractor(t, c, fe)
-	r := &ExtensionExtractedReconciler{extensionExtractor: extractor, engine: fe}
+	r := &ExtensionReconciler{Client: c, extractor: extractor, engine: fe}
 
-	_, err := r.extractExecutable(t.Context(), ext, fe)
-	assert.NilError(t, err)
+	err := r.extractor.extractExecutable(t.Context(), ext, fe)
+	assertNoErrorOrRequeue(t, err)
 
 	updated := &extensionsv1alpha1.Extension{}
 	assert.NilError(t, c.Get(t.Context(), client.ObjectKeyFromObject(ext), updated))
@@ -465,30 +459,31 @@ func TestExtensionExtractedReconcilerExtractExecutableCompletesWhenNoBinaries(t 
 	assert.Equal(t, condition.Reason, extensionsv1alpha1.ExtensionExtractedReasonFinishing)
 	assert.Equal(t, condition.Status, metav1.ConditionFalse)
 
-	_, err = r.reconcileExtension(t.Context(), updated)
-	assert.NilError(t, err)
+	err = r.reconcileExtracted(t.Context(), updated)
+	assertNoErrorOrRequeue(t, err)
 	assert.NilError(t, c.Get(t.Context(), client.ObjectKeyFromObject(ext), updated))
 	condition = apimeta.FindStatusCondition(updated.Status.Conditions, extensionsv1alpha1.ExtensionConditionExtracted)
 	assert.Equal(t, condition.Reason, extensionsv1alpha1.ExtensionExtractedReasonCompleted)
 	assert.Equal(t, condition.Status, metav1.ConditionFalse)
 
-	_, err = r.reconcileExtension(t.Context(), updated)
-	assert.NilError(t, err)
+	err = r.reconcileExtracted(t.Context(), updated)
+	assertNoErrorOrRequeue(t, err)
 	assert.NilError(t, c.Get(t.Context(), client.ObjectKeyFromObject(ext), updated))
 	condition = apimeta.FindStatusCondition(updated.Status.Conditions, extensionsv1alpha1.ExtensionConditionExtracted)
 	assert.Equal(t, condition.Reason, extensionsv1alpha1.ExtensionExtractedReasonCompleted)
 	assert.Equal(t, condition.Status, metav1.ConditionTrue)
 }
 
-func TestExtensionExtractedReconcilerReconcileAppClearsEngineWhenNotReady(t *testing.T) {
+func TestExtensionReconcilerReconcileAppClearsEngineWhenNotReady(t *testing.T) {
 	// Regression test: once an engine has been stored, a subsequent App
 	// state where no engine is configured/ready must clear r.engine, not
 	// leave the stale engine pointer in place.
 	c := newExtractedReconcilerTestClient(t)
 	extractor := newExtractor(t, c, nil)
-	r := &ExtensionExtractedReconciler{
-		extensionExtractor: extractor,
-		engine:             &fakeEngine{},
+	r := &ExtensionReconciler{
+		Client:    c,
+		extractor: extractor,
+		engine:    &fakeEngine{},
 	}
 
 	_, err := r.reconcileApp(t.Context(), nil)
@@ -497,12 +492,13 @@ func TestExtensionExtractedReconcilerReconcileAppClearsEngineWhenNotReady(t *tes
 	assert.Assert(t, r.engine == nil, "engine should be cleared when there is no App")
 }
 
-func TestExtensionExtractedReconcilerReconcileAppClearsEngineOnConnectFailure(t *testing.T) {
+func TestExtensionReconcilerReconcileAppClearsEngineOnConnectFailure(t *testing.T) {
 	c := newExtractedReconcilerTestClient(t)
 	extractor := newExtractor(t, c, nil)
-	r := &ExtensionExtractedReconciler{
-		extensionExtractor: extractor,
-		engine:             &fakeEngine{},
+	r := &ExtensionReconciler{
+		Client:    c,
+		extractor: extractor,
+		engine:    &fakeEngine{},
 	}
 
 	// reconcileApp only special-cases "moby"/"containerd"; anything else
@@ -513,29 +509,25 @@ func TestExtensionExtractedReconcilerReconcileAppClearsEngineOnConnectFailure(t 
 	assert.Assert(t, r.engine == nil)
 }
 
-func TestExtensionExtractedReconcilerReconcileDeleteDestroysStateAndRemovesFinalizer(t *testing.T) {
+func TestExtensionReconcilerReconcileDeleteDestroysStateAndRemovesFinalizer(t *testing.T) {
 	ext := newTestExtension(t, "test-extension", extensionsv1alpha1.ExtensionExtractedReasonMetadata)
 	now := metav1.Now()
 	ext.DeletionTimestamp = &now
 	c := newExtractedReconcilerTestClient(t, ext)
 	extractor := newExtractor(t, c, &fakeEngine{})
-	r := &ExtensionExtractedReconciler{extensionExtractor: extractor}
+	r := &ExtensionReconciler{Client: c, extractor: extractor}
 
 	destroyed := false
-	extractor.stateMu.Lock()
-	extractor.state[ext.GetUID()] = extractState{
+	extractor.state.Store(ext.GetUID(), extractState{
 		containerID: "fake-container-id",
 		cancel:      func() { destroyed = true },
-	}
-	extractor.stateMu.Unlock()
+	})
 
-	_, err := r.reconcileExtension(t.Context(), ext)
-	assert.NilError(t, err)
+	err := r.reconcileExtracted(t.Context(), ext)
+	assertNoErrorOrRequeue(t, err)
 	assert.Assert(t, destroyed)
 
-	extractor.stateMu.Lock()
-	_, ok := extractor.state[ext.GetUID()]
-	extractor.stateMu.Unlock()
+	_, ok := extractor.state.Load(ext.GetUID())
 	assert.Assert(t, !ok)
 
 	updated := &extensionsv1alpha1.Extension{}
@@ -565,74 +557,74 @@ func extractedCondition(t *testing.T, c client.Client, ext *extensionsv1alpha1.E
 	return cond
 }
 
-func TestExtensionExtractedReconcilerReconcileExtensionHasNoConditionYet(t *testing.T) {
+func TestExtensionReconcilerReconcileExtensionHasNoConditionYet(t *testing.T) {
 	ext := newTestExtension(t, "test-extension", "")
 	ext.Status.Conditions = nil
 	c := newExtractedReconcilerTestClient(t, ext)
 	steps := newStubSteps(true)
 	r := newReconcilerWithStubSteps(t, c, steps)
 
-	_, err := r.reconcileExtension(t.Context(), ext)
-	assert.NilError(t, err)
+	err := r.reconcileExtracted(t.Context(), ext)
+	assertNoErrorOrRequeue(t, err)
 	updated := &extensionsv1alpha1.Extension{}
 	assert.NilError(t, c.Get(t.Context(), client.ObjectKeyFromObject(ext), updated))
 	assert.Assert(t, apimeta.FindStatusCondition(updated.Status.Conditions, extensionsv1alpha1.ExtensionConditionExtracted) == nil)
 }
 
-func TestExtensionExtractedReconcilerReconcileExtensionCompletedTrueIsNoop(t *testing.T) {
+func TestExtensionReconcilerReconcileExtensionCompletedTrueIsNoop(t *testing.T) {
 	ext := newTestExtension(t, "test-extension", extensionsv1alpha1.ExtensionExtractedReasonCompleted)
 	ext.Status.Conditions[0].Status = metav1.ConditionTrue
 	c := newExtractedReconcilerTestClient(t, ext)
 	steps := newStubSteps(true)
 	r := newReconcilerWithStubSteps(t, c, steps)
 
-	_, err := r.reconcileExtension(t.Context(), ext)
-	assert.NilError(t, err)
+	err := r.reconcileExtracted(t.Context(), ext)
+	assertNoErrorOrRequeue(t, err)
 	cond := extractedCondition(t, c, ext)
 	assert.Equal(t, cond.Status, metav1.ConditionTrue)
 	assert.Equal(t, cond.Reason, extensionsv1alpha1.ExtensionExtractedReasonCompleted)
 }
 
-func TestExtensionExtractedReconcilerReconcileExtensionCompletedFalseFlipsToTrue(t *testing.T) {
+func TestExtensionReconcilerReconcileExtensionCompletedFalseFlipsToTrue(t *testing.T) {
 	ext := newTestExtension(t, "test-extension", extensionsv1alpha1.ExtensionExtractedReasonCompleted)
 	c := newExtractedReconcilerTestClient(t, ext)
 	steps := newStubSteps(true)
 	r := newReconcilerWithStubSteps(t, c, steps)
 
-	_, err := r.reconcileExtension(t.Context(), ext)
-	assert.NilError(t, err)
+	err := r.reconcileExtracted(t.Context(), ext)
+	assertNoErrorOrRequeue(t, err)
 	cond := extractedCondition(t, c, ext)
 	assert.Equal(t, cond.Status, metav1.ConditionTrue)
 	assert.Equal(t, cond.Reason, extensionsv1alpha1.ExtensionExtractedReasonCompleted)
 }
 
-func TestExtensionExtractedReconcilerReconcileExtensionFailedIsNoop(t *testing.T) {
+func TestExtensionReconcilerReconcileExtensionFailedIsNoop(t *testing.T) {
 	ext := newTestExtension(t, "test-extension", extensionsv1alpha1.ExtensionExtractedReasonFailed)
 	c := newExtractedReconcilerTestClient(t, ext)
 	steps := newStubSteps(true)
 	r := newReconcilerWithStubSteps(t, c, steps)
 
-	_, err := r.reconcileExtension(t.Context(), ext)
-	assert.NilError(t, err)
+	err := r.reconcileExtracted(t.Context(), ext)
+	assertNoErrorOrRequeue(t, err)
 	cond := extractedCondition(t, c, ext)
 	assert.Equal(t, cond.Status, metav1.ConditionFalse)
 	assert.Equal(t, cond.Reason, extensionsv1alpha1.ExtensionExtractedReasonFailed)
 }
 
-func TestExtensionExtractedReconcilerReconcileExtensionSetsEngineNotReadyWhenNoEngine(t *testing.T) {
+func TestExtensionReconcilerReconcileExtensionSetsEngineNotReadyWhenNoEngine(t *testing.T) {
 	ext := newTestExtension(t, "test-extension", extensionsv1alpha1.ExtensionExtractedReasonPreparing)
 	c := newExtractedReconcilerTestClient(t, ext)
 	steps := newStubSteps(false)
 	r := newReconcilerWithStubSteps(t, c, steps)
 
-	_, err := r.reconcileExtension(t.Context(), ext)
-	assert.NilError(t, err)
+	err := r.reconcileExtracted(t.Context(), ext)
+	assertNoErrorOrRequeue(t, err)
 	cond := extractedCondition(t, c, ext)
 	assert.Equal(t, cond.Status, metav1.ConditionFalse)
 	assert.Equal(t, cond.Reason, extensionsv1alpha1.ExtensionExtractedReasonEngineNotReady)
 }
 
-func TestExtensionExtractedReconcilerReconcileExtensionEngineNotReadyWaits(t *testing.T) {
+func TestExtensionReconcilerReconcileExtensionEngineNotReadyWaits(t *testing.T) {
 	ext := newTestExtension(t, "test-extension", extensionsv1alpha1.ExtensionExtractedReasonEngineNotReady)
 	c := newExtractedReconcilerTestClient(t, ext)
 	steps := newStubSteps(true)
@@ -641,14 +633,14 @@ func TestExtensionExtractedReconcilerReconcileExtensionEngineNotReadyWaits(t *te
 	// Given the engine is ready (steps.engineReady == true), reconcileExtension
 	// advances the condition from EngineNotReady to Preparing rather than
 	// waiting; see I2 in the review for more detail.
-	_, err := r.reconcileExtension(t.Context(), ext)
-	assert.NilError(t, err)
+	err := r.reconcileExtracted(t.Context(), ext)
+	assertNoErrorOrRequeue(t, err)
 	cond := extractedCondition(t, c, ext)
 	assert.Equal(t, cond.Status, metav1.ConditionFalse)
 	assert.Equal(t, cond.Reason, extensionsv1alpha1.ExtensionExtractedReasonPreparing)
 }
 
-func TestExtensionExtractedReconcilerReconcileExtensionDispatchesToStep(t *testing.T) {
+func TestExtensionReconcilerReconcileExtensionDispatchesToStep(t *testing.T) {
 	testCases := []struct {
 		reason string
 		setFn  func(steps *stubSteps, called *bool)
@@ -656,45 +648,45 @@ func TestExtensionExtractedReconcilerReconcileExtensionDispatchesToStep(t *testi
 		{
 			reason: extensionsv1alpha1.ExtensionExtractedReasonPreparing,
 			setFn: func(steps *stubSteps, called *bool) {
-				steps.prepare = func(_ context.Context, _ *extensionsv1alpha1.Extension, _ engine) (ctrl.Result, error) {
+				steps.prepare = func(_ context.Context, _ *extensionsv1alpha1.Extension, _ engine) error {
 					*called = true
-					return ctrl.Result{}, nil
+					return nil
 				}
 			},
 		},
 		{
 			reason: extensionsv1alpha1.ExtensionExtractedReasonMetadata,
 			setFn: func(steps *stubSteps, called *bool) {
-				steps.extractMetadata = func(_ context.Context, _ *extensionsv1alpha1.Extension, _ engine) (ctrl.Result, error) {
+				steps.extractMetadata = func(_ context.Context, _ *extensionsv1alpha1.Extension, _ engine) error {
 					*called = true
-					return ctrl.Result{}, nil
+					return nil
 				}
 			},
 		},
 		{
 			reason: extensionsv1alpha1.ExtensionExtractedReasonIcon,
 			setFn: func(steps *stubSteps, called *bool) {
-				steps.extractIcon = func(_ context.Context, _ *extensionsv1alpha1.Extension, _ engine) (ctrl.Result, error) {
+				steps.extractIcon = func(_ context.Context, _ *extensionsv1alpha1.Extension, _ engine) error {
 					*called = true
-					return ctrl.Result{}, nil
+					return nil
 				}
 			},
 		},
 		{
 			reason: extensionsv1alpha1.ExtensionExtractedReasonUI,
 			setFn: func(steps *stubSteps, called *bool) {
-				steps.extractUI = func(_ context.Context, _ *extensionsv1alpha1.Extension, _ engine) (ctrl.Result, error) {
+				steps.extractUI = func(_ context.Context, _ *extensionsv1alpha1.Extension, _ engine) error {
 					*called = true
-					return ctrl.Result{}, nil
+					return nil
 				}
 			},
 		},
 		{
 			reason: extensionsv1alpha1.ExtensionExtractedReasonExecutable,
 			setFn: func(steps *stubSteps, called *bool) {
-				steps.extractExecutable = func(_ context.Context, _ *extensionsv1alpha1.Extension, _ engine) (ctrl.Result, error) {
+				steps.extractExecutable = func(_ context.Context, _ *extensionsv1alpha1.Extension, _ engine) error {
 					*called = true
-					return ctrl.Result{}, nil
+					return nil
 				}
 			},
 		},
@@ -709,19 +701,30 @@ func TestExtensionExtractedReconcilerReconcileExtensionDispatchesToStep(t *testi
 			tc.setFn(steps, &called)
 			r := newReconcilerWithStubSteps(t, c, steps)
 
-			_, err := r.reconcileExtension(t.Context(), ext)
+			err := r.reconcileExtracted(t.Context(), ext)
 			assert.NilError(t, err)
 			assert.Assert(t, called, "expected the step for reason %q to be invoked", tc.reason)
 		})
 	}
 }
 
-func TestExtensionExtractedReconcilerReconcileExtensionUnknownReasonErrors(t *testing.T) {
+func TestExtensionReconcilerReconcileExtensionUnknownReasonErrors(t *testing.T) {
 	ext := newTestExtension(t, "test-extension", "some-unknown-reason")
 	c := newExtractedReconcilerTestClient(t, ext)
 	steps := newStubSteps(true)
 	r := newReconcilerWithStubSteps(t, c, steps)
 
-	_, err := r.reconcileExtension(t.Context(), ext)
+	err := r.reconcileExtracted(t.Context(), ext)
 	assert.ErrorContains(t, err, "unexpected extraction condition reason")
+}
+
+func assertNoErrorOrRequeue(t *testing.T, err error) {
+	t.Helper()
+	if err == nil {
+		return
+	}
+	if _, ok := errors.AsType[requeueError](err); ok {
+		return
+	}
+	assert.NilError(t, err)
 }

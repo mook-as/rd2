@@ -5,14 +5,19 @@
 package controllers
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
+
+	"github.com/distribution/reference"
 
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	containersv1alpha1 "github.com/rancher-sandbox/rancher-desktop-daemon/pkg/apis/containers/v1alpha1"
 	"github.com/rancher-sandbox/rancher-desktop-daemon/pkg/apis/extensions/v1alpha1"
+	"github.com/rancher-sandbox/rancher-desktop-daemon/pkg/instance"
 	"github.com/rancher-sandbox/rancher-desktop-daemon/pkg/util/api"
 )
 
@@ -49,4 +54,24 @@ func getManifest(ext *v1alpha1.Extension) (*ExtensionManifest, error) {
 		return nil, fmt.Errorf("failed to unmarshal extension manifest: %w", err)
 	}
 	return &manifest, nil
+}
+
+// extensionInstallDir returns the directory extract copies an extension's
+// files into (and that deleteFiles removes), unique to the extension.
+func extensionInstallDir(ext *v1alpha1.Extension) (string, error) {
+	// Encode the resolved image reference (status.image), excluding the
+	// tag / digest, as base64url so it is safe to use as a single path component,
+	// matching rancher-desktop 1's extension directory naming.
+
+	rawImage := ext.Status.Image
+	if rawImage == "" {
+		return "", fmt.Errorf("extension %s has no resolved image reference", ext.Name)
+	}
+	image, err := reference.ParseNormalizedNamed(rawImage)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse normalized named image: %w", err)
+	}
+	// image.Name() does not include the tag or digest.
+	encoded := base64.RawURLEncoding.EncodeToString([]byte(image.Name()))
+	return filepath.Join(instance.ExtensionDir(), encoded), nil
 }

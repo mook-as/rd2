@@ -23,12 +23,11 @@ import (
 
 	"github.com/containers/gvisor-tap-vsock/pkg/types"
 	"github.com/docker/go-connections/nat"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-
 	"github.com/rancher-sandbox/rancher-desktop/src/wsl-guestagent/pkg/forwarder"
 	"github.com/rancher-sandbox/rancher-desktop/src/wsl-guestagent/pkg/tracker"
 	guestagentType "github.com/rancher-sandbox/rancher-desktop/src/wsl-guestagent/pkg/types"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 const (

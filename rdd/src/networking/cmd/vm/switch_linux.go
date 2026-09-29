@@ -30,14 +30,13 @@ import (
 
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
+	"github.com/rancher-sandbox/rancher-desktop/src/networking/pkg/config"
+	"github.com/rancher-sandbox/rancher-desktop/src/networking/pkg/log"
 	"github.com/sirupsen/logrus"
 	"github.com/songgao/packets/ethernet"
 	"github.com/songgao/water"
 	"github.com/vishvananda/netlink"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
-
-	"github.com/rancher-sandbox/rancher-desktop/src/networking/pkg/config"
-	"github.com/rancher-sandbox/rancher-desktop/src/networking/pkg/log"
 )
 
 var (

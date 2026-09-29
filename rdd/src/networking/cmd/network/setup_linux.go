@@ -32,14 +32,13 @@ import (
 
 	"github.com/coreos/go-systemd/v22/dbus"
 	"github.com/linuxkit/virtsock/pkg/vsock"
+	"github.com/rancher-sandbox/rancher-desktop/src/networking/pkg/config"
+	"github.com/rancher-sandbox/rancher-desktop/src/networking/pkg/log"
+	rdvsock "github.com/rancher-sandbox/rancher-desktop/src/networking/pkg/vsock"
 	"github.com/sirupsen/logrus"
 	"github.com/vishvananda/netlink"
 	"github.com/vishvananda/netns"
 	"golang.org/x/sys/unix"
-
-	"github.com/rancher-sandbox/rancher-desktop/src/networking/pkg/config"
-	"github.com/rancher-sandbox/rancher-desktop/src/networking/pkg/log"
-	rdvsock "github.com/rancher-sandbox/rancher-desktop/src/networking/pkg/vsock"
 )
 
 var options struct {

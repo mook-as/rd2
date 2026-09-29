@@ -94,7 +94,7 @@ func (c *controller) setupWebhook(mgr ctrl.Manager) error {
 			admissionregistrationv1.Create,
 			admissionregistrationv1.Update,
 		},
-		Validator: &controllers.ExtensionValidator{Reader: mgr.GetClient()},
+		Validator: &controllers.ExtensionValidator{Reader: mgr.GetAPIReader()},
 	}
 
 	managers, err := base.SetupWebhookForResource(mgr, &v1alpha1.Extension{}, validatingConfig)
@@ -116,25 +116,7 @@ func (c *controller) RegisterWithManager(ctx context.Context, mgr ctrl.Manager) 
 		return err
 	}
 
-	if err := (&controllers.ExtensionInstalledReconciler{
-		Client: mgr.GetClient(),
-	}).SetupWithManager(ctx, mgr); err != nil {
-		return err
-	}
-
-	if err := (&controllers.ExtensionStartedReconciler{
-		Client: mgr.GetClient(),
-	}).SetupWithManager(mgr); err != nil {
-		return err
-	}
-
-	if err := controllers.NewExtensionExtractedReconciler(ctx, mgr).SetupWithManager(mgr); err != nil {
-		return err
-	}
-
-	if err := (&controllers.ExtensionReadyReconciler{
-		Client: mgr.GetClient(),
-	}).SetupWithManager(mgr); err != nil {
+	if err := controllers.NewExtensionReconciler(ctx, mgr).SetupWithManager(mgr); err != nil {
 		return err
 	}
 

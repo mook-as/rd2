@@ -22,10 +22,9 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/sirupsen/logrus"
-
 	"github.com/rancher-sandbox/rancher-desktop/src/networking/pkg/log"
 	"github.com/rancher-sandbox/rancher-desktop/src/networking/pkg/portproxy"
+	"github.com/sirupsen/logrus"
 )
 
 var (

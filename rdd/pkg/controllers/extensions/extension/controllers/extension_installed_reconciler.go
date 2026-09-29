@@ -7,12 +7,10 @@ package controllers
 import (
 	"context"
 	"crypto/sha1"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"slices"
 	"time"
 
@@ -20,23 +18,17 @@ import (
 
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/event"
-	"sigs.k8s.io/controller-runtime/pkg/handler"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	containersv1alpha1 "github.com/rancher-sandbox/rancher-desktop-daemon/pkg/apis/containers/v1alpha1"
 	"github.com/rancher-sandbox/rancher-desktop-daemon/pkg/apis/extensions/v1alpha1"
 	"github.com/rancher-sandbox/rancher-desktop-daemon/pkg/controllers/base"
-	"github.com/rancher-sandbox/rancher-desktop-daemon/pkg/instance"
 	"github.com/rancher-sandbox/rancher-desktop-daemon/pkg/util/api"
-	"github.com/rancher-sandbox/rancher-desktop-daemon/pkg/util/atomicmap"
 )
 
 // installedFinalizer is added to Extension resources so uninstall can run
@@ -47,6 +39,8 @@ const installedFinalizer = "extensions.rancherdesktop.io/installed"
 // imagePullRequestExtensionLabel labels ImagePullRequest objects created by
 // this reconciler with the owning Extension's name, so an existing request
 // can be found via a label selector instead of a deterministic name.
+// Note that this is only an aid; the controller owner reference is still the
+// authoritive source of ownership.
 const imagePullRequestExtensionLabel = "extensions.rancherdesktop.io/extension"
 
 // extensionNamespace is the container namespace extension images are
@@ -70,22 +64,6 @@ const (
 // +kubebuilder:rbac:groups=app.rancherdesktop.io,resources=apps,verbs=get;list;watch
 // +kubebuilder:rbac:groups=containers.rancherdesktop.io,resources=imagepullrequests,verbs=get;list;watch;create;update;patch;delete
 
-// ExtensionInstalledReconciler reconciles an Extension object's Installed
-// condition: downloading and extracting the image, running its post-install
-// script, and (on deletion) running the pre-uninstall script and cleaning up
-// extracted files.
-type ExtensionInstalledReconciler struct {
-	client.Client
-	// ctx is the context that lasts for the lifetime of the reconciler; used
-	// for processes which may outlive any individual reconcile.
-	ctx context.Context
-	// scripts tracks the in-flight processes for the install/uninstall scripts.
-	scripts atomicmap.AtomicMap[types.UID, scriptState]
-	// requeueCh is used to signal that a reconcile should be requeued for the
-	// given extension.
-	requeueCh chan event.TypedGenericEvent[*v1alpha1.Extension]
-}
-
 type scriptState struct {
 	cmd       *exec.Cmd
 	completed bool
@@ -93,36 +71,39 @@ type scriptState struct {
 	err       error
 }
 
-var _ reconcile.ObjectReconciler[*v1alpha1.Extension] = &ExtensionInstalledReconciler{}
-
-// Reconcile implements the [reconcile.ObjectReconciler] interface for the ExtensionInstalledReconciler.
-func (r *ExtensionInstalledReconciler) Reconcile(ctx context.Context, ext *v1alpha1.Extension) (ctrl.Result, error) {
+// reconcileInstalled reconciles an Extension object's Installed condition.
+// If this returns non-nil, the installed condition must be set.
+func (r *ExtensionReconciler) reconcileInstalled(ctx context.Context, ext *v1alpha1.Extension) error {
 	log := logf.FromContext(ctx)
 
 	log.V(1).Info("Reconciling Extension Installed condition",
 		"name", ext.Name, "namespace", ext.Namespace)
 
-	if base.IsBeingDeleted(ext) {
-		return r.reconcileDelete(ctx, ext)
-	}
-
 	if !controllerutil.ContainsFinalizer(ext, installedFinalizer) {
-		return ctrl.Result{}, base.AddFinalizerWithRetry(ctx, r.Client, ext, installedFinalizer)
+		if err := base.AddFinalizerWithRetry(ctx, r.Client, ext, installedFinalizer); err != nil {
+			return err
+		}
+		return requeueError(0)
 	}
 
 	installed := apimeta.FindStatusCondition(ext.Status.Conditions, v1alpha1.ExtensionConditionInstalled)
 
 	switch {
-	case installed == nil, installed.Reason == v1alpha1.ExtensionInstalledReasonResolving:
-		return ctrl.Result{}, r.resolveImage(ctx, ext)
+	case installed == nil:
+		return r.setInstalledCondition(ctx, ext,
+			metav1.ConditionFalse, v1alpha1.ExtensionInstalledReasonResolving,
+			"Resolving extension image reference")
+
+	case installed.Reason == v1alpha1.ExtensionInstalledReasonResolving:
+		return r.resolveImage(ctx, ext)
 
 	case installed.ObservedGeneration < ext.Generation:
 		// spec.image has changed since the Installed condition was last
 		// updated; restart the pipeline from the top. Uninstall is handled
-		// separately (via reconcileDelete above) and never reaches here, so
+		// separately (via reconcileDelete) and never reaches here, so
 		// this only applies to the install pipeline, which is always safe
 		// to restart.
-		return ctrl.Result{}, r.setInstalledCondition(ctx, ext,
+		return r.setInstalledCondition(ctx, ext,
 			metav1.ConditionFalse, v1alpha1.ExtensionInstalledReasonResolving,
 			"Resolving extension image reference")
 
@@ -130,40 +111,39 @@ func (r *ExtensionInstalledReconciler) Reconcile(ctx context.Context, ext *v1alp
 		return r.download(ctx, ext)
 
 	case installed.Reason == v1alpha1.ExtensionInstalledReasonExtracting:
-		return ctrl.Result{}, r.extract(ctx, ext)
+		return r.extract(ctx, ext)
 
 	case installed.Reason == v1alpha1.ExtensionInstalledReasonExtracted:
-		return ctrl.Result{}, r.setInstalledCondition(ctx, ext,
+		return r.setInstalledCondition(ctx, ext,
 			metav1.ConditionFalse, v1alpha1.ExtensionInstalledReasonPostInstallRunning,
 			"Extension image extracted successfully")
 
 	case installed.Reason == v1alpha1.ExtensionInstalledReasonPostInstallRunning:
 		pending, err := r.runScript(ext, scriptPhaseInstall)
 		if err != nil {
-			return ctrl.Result{}, r.setInstalledCondition(ctx, ext,
+			return r.setInstalledCondition(ctx, ext,
 				metav1.ConditionFalse, v1alpha1.ExtensionInstalledReasonFailed,
 				fmt.Sprintf("failed to run post-install script: %v", err))
 		}
 		if pending {
-			return ctrl.Result{}, nil
+			return nil
 		}
-		return ctrl.Result{}, r.setInstalledCondition(ctx, ext,
+		return r.setInstalledCondition(ctx, ext,
 			metav1.ConditionTrue, v1alpha1.ExtensionInstalledReasonInstalled,
 			"Extension installed successfully")
 
 	case installed.Reason == v1alpha1.ExtensionInstalledReasonFailed,
-		installed.Reason == v1alpha1.ExtensionInstalledReasonInstalled:
-		// Terminal states (or Installed); the generation check above
-		// already handles restarting on a spec change, so there is nothing
-		// more to do here.
-		return ctrl.Result{}, nil
+		installed.Reason == v1alpha1.ExtensionInstalledReasonInstalled,
+		installed.Reason == v1alpha1.ExtensionInstalledReasonUninstalled:
+		// Terminal states; the generation check above already handles restarting on
+		// a spec change, so there is nothing more to do here.
+		return nil
 
 	default:
 		// Should never be reached: reconcileDelete handles Uninstalled (and
 		// the other delete-related reasons) once the extension is being
 		// deleted, and every other Installed reason is handled above.
-		log.Error(nil, "Unexpected Installed condition reason", "reason", installed.Reason)
-		return ctrl.Result{}, nil
+		return fmt.Errorf("unexpected Installed condition reason %q", installed.Reason)
 	}
 }
 
@@ -172,13 +152,14 @@ func (r *ExtensionInstalledReconciler) Reconcile(ctx context.Context, ext *v1alp
 // picking the highest semver tag, is not yet implemented). On success it
 // sets status.image and advances the Installed condition to Downloading; on
 // an invalid image reference it sets ResolveFailed (terminal).
-func (r *ExtensionInstalledReconciler) resolveImage(ctx context.Context, ext *v1alpha1.Extension) error {
+func (r *ExtensionReconciler) resolveImage(ctx context.Context, ext *v1alpha1.Extension) error {
 	named, err := reference.ParseNormalizedNamed(ext.Spec.Image)
 	if err != nil {
 		return r.setInstalledCondition(ctx, ext,
 			metav1.ConditionFalse, v1alpha1.ExtensionInstalledReasonFailed,
 			fmt.Sprintf("invalid image reference %q: %v", ext.Spec.Image, err))
 	}
+	// TODO: Pick the best tag.
 	resolved := reference.TagNameOnly(named).String()
 
 	key := client.ObjectKeyFromObject(ext)
@@ -188,14 +169,20 @@ func (r *ExtensionInstalledReconciler) resolveImage(ctx context.Context, ext *v1
 			return client.IgnoreNotFound(err)
 		}
 		latest.Status.Image = resolved
-		apimeta.SetStatusCondition(&latest.Status.Conditions, metav1.Condition{
+		changed := apimeta.SetStatusCondition(&latest.Status.Conditions, metav1.Condition{
 			Type:               v1alpha1.ExtensionConditionInstalled,
 			Status:             metav1.ConditionFalse,
 			ObservedGeneration: latest.Generation,
 			Reason:             v1alpha1.ExtensionInstalledReasonDownloading,
 			Message:            "Downloading extension image",
 		})
-		return r.Status().Update(ctx, latest)
+		if !changed {
+			return nil
+		}
+		if err := r.Status().Update(ctx, latest); err != nil {
+			return err
+		}
+		return requeueError(0)
 	})
 }
 
@@ -205,7 +192,7 @@ func (r *ExtensionInstalledReconciler) resolveImage(ctx context.Context, ext *v1
 // advances the Installed condition based on its Complete/Failed conditions:
 // Extracting on completion, DownloadFailed (terminal) on failure, or stays
 // at Downloading (requeuing) while the pull is still in progress.
-func (r *ExtensionInstalledReconciler) download(ctx context.Context, ext *v1alpha1.Extension) (ctrl.Result, error) {
+func (r *ExtensionReconciler) download(ctx context.Context, ext *v1alpha1.Extension) error {
 	var image containersv1alpha1.Image
 	err := r.Get(ctx, client.ObjectKey{
 		Namespace: ext.Namespace,
@@ -213,13 +200,13 @@ func (r *ExtensionInstalledReconciler) download(ctx context.Context, ext *v1alph
 	}, &image)
 	if err == nil {
 		// The image already exists; we can continue.
-		return ctrl.Result{}, r.setInstalledCondition(ctx, ext,
+		return r.setInstalledCondition(ctx, ext,
 			metav1.ConditionFalse, v1alpha1.ExtensionInstalledReasonExtracting,
 			"Extracting extension image")
 	}
 	if client.IgnoreNotFound(err) != nil {
 		// Failed to get image
-		return ctrl.Result{}, fmt.Errorf("failed to get image for extension %s: %w", ext.Name, err)
+		return fmt.Errorf("failed to get image for extension %s: %w", ext.Name, err)
 	}
 
 	var pullRequests containersv1alpha1.ImagePullRequestList
@@ -228,11 +215,15 @@ func (r *ExtensionInstalledReconciler) download(ctx context.Context, ext *v1alph
 		client.MatchingLabels{imagePullRequestExtensionLabel: ext.Name},
 	)
 	if err != nil {
-		return ctrl.Result{}, fmt.Errorf("failed to list ImagePullRequests for extension %s: %w", ext.Name, err)
+		return fmt.Errorf("failed to list ImagePullRequests for extension %s: %w", ext.Name, err)
 	}
 
+	pullRequests.Items = slices.DeleteFunc(pullRequests.Items, func(item containersv1alpha1.ImagePullRequest) bool {
+		return !metav1.IsControlledBy(&item, ext)
+	})
+
 	if len(pullRequests.Items) == 0 {
-		return ctrl.Result{}, r.createImagePullRequest(ctx, ext)
+		return r.createImagePullRequest(ctx, ext)
 	}
 
 	index := slices.IndexFunc(pullRequests.Items, func(item containersv1alpha1.ImagePullRequest) bool {
@@ -257,29 +248,30 @@ func (r *ExtensionInstalledReconciler) download(ctx context.Context, ext *v1alph
 
 	if pullRequest == nil {
 		// We had lots of previous pull requests, none of them correct.
-		return ctrl.Result{}, r.createImagePullRequest(ctx, ext)
+		return r.createImagePullRequest(ctx, ext)
 	}
 
 	if pullRequest.Spec.RepoTag != ext.Status.Image {
 		// status.image changed (e.g. the user updated spec.image's tag)
 		// since this ImagePullRequest was created; discard it and start a
 		// new pull for the current image.
-		if err := r.Delete(ctx, pullRequest); err != nil {
-			return ctrl.Result{}, client.IgnoreNotFound(fmt.Errorf(
+		err := r.Delete(ctx, pullRequest)
+		if client.IgnoreNotFound(err) != nil {
+			return fmt.Errorf(
 				"failed to delete stale ImagePullRequest %s for extension %s: %w",
-				pullRequest.Name, ext.Name, err))
+				pullRequest.Name, ext.Name, err)
 		}
-		return ctrl.Result{}, r.createImagePullRequest(ctx, ext)
+		return r.createImagePullRequest(ctx, ext)
 	}
 
 	cond := apimeta.FindStatusCondition(pullRequest.Status.Conditions,
 		containersv1alpha1.ImagePullRequestConditionSettled)
 	if cond == nil || cond.Status != metav1.ConditionTrue {
 		// Still downloading; wait for the ImagePullRequest's status to change.
-		return ctrl.Result{}, nil
+		return requeueError(0)
 	}
 	if cond.Reason == "Finished" {
-		return ctrl.Result{}, r.setInstalledCondition(ctx, ext,
+		return r.setInstalledCondition(ctx, ext,
 			metav1.ConditionFalse, v1alpha1.ExtensionInstalledReasonExtracting,
 			"Extracting extension image")
 	}
@@ -287,15 +279,15 @@ func (r *ExtensionInstalledReconciler) download(ctx context.Context, ext *v1alph
 	// Download failed
 	message := "Failed to download extension image"
 	if cond.Message != "" {
-		message = cond.Message
+		message = fmt.Sprintf("%s: %s", message, cond.Message)
 	}
-	return ctrl.Result{}, r.setInstalledCondition(ctx, ext,
+	return r.setInstalledCondition(ctx, ext,
 		metav1.ConditionFalse, v1alpha1.ExtensionInstalledReasonFailed, message)
 }
 
 // createImagePullRequest creates a new ImagePullRequest for ext.Status.Image,
 // labelled with imagePullRequestExtensionLabel and owned by ext.
-func (r *ExtensionInstalledReconciler) createImagePullRequest(ctx context.Context, ext *v1alpha1.Extension) error {
+func (r *ExtensionReconciler) createImagePullRequest(ctx context.Context, ext *v1alpha1.Extension) error {
 	generateName := ext.Name + "-pull-"
 	if len(generateName) > 63 {
 		// The name prefix is too long
@@ -322,12 +314,12 @@ func (r *ExtensionInstalledReconciler) createImagePullRequest(ctx context.Contex
 	}
 	// The ImagePullRequest's status will trigger another reconcile once
 	// the pull completes or fails (via Owns in SetupWithManager).
-	return nil
+	return requeueError(0)
 }
 
-// extract ensures that [ExtensionExtractedReconciler] is processing this the
+// extract ensures that the Extracted condition is processing this the
 // given extension, and handles when the Extracted condition is finished.
-func (r *ExtensionInstalledReconciler) extract(ctx context.Context, ext *v1alpha1.Extension) error {
+func (r *ExtensionReconciler) extract(ctx context.Context, ext *v1alpha1.Extension) error {
 	condition := apimeta.FindStatusCondition(ext.Status.Conditions, v1alpha1.ExtensionConditionExtracted)
 	switch {
 	case condition == nil:
@@ -348,12 +340,15 @@ func (r *ExtensionInstalledReconciler) extract(ctx context.Context, ext *v1alpha
 			if !changed {
 				return nil
 			}
-			return r.Status().Update(ctx, latest)
+			if err := r.Status().Update(ctx, latest); err != nil {
+				return err
+			}
+			return requeueError(0)
 		})
 	case condition.Reason == v1alpha1.ExtensionExtractedReasonFailed:
 		// Extraction failed; make sure the installed condition reflects this.
 		return r.setInstalledCondition(ctx, ext, metav1.ConditionFalse,
-			v1alpha1.ExtensionInstalledReasonFailed, condition.Message)
+			v1alpha1.ExtensionInstalledReasonFailed, fmt.Sprintf("extraction failed: %s", condition.Message))
 	case condition.Reason == v1alpha1.ExtensionExtractedReasonCompleted:
 		// Extraction completed successfully; proceed to the next step.
 		return r.setInstalledCondition(ctx, ext, metav1.ConditionFalse,
@@ -367,7 +362,7 @@ func (r *ExtensionInstalledReconciler) extract(ctx context.Context, ext *v1alpha
 // extract) from disk. Any pre-uninstall script is assumed to have already
 // been run (or attempted) by the time this is called; this only needs to
 // worry about the extracted files themselves.
-func (r *ExtensionInstalledReconciler) deleteFiles(ext *v1alpha1.Extension) error {
+func (r *ExtensionReconciler) deleteFiles(ext *v1alpha1.Extension) error {
 	installDir, err := extensionInstallDir(ext)
 	if err != nil {
 		return fmt.Errorf("failed to determine extension install directory: %w", err)
@@ -379,30 +374,10 @@ func (r *ExtensionInstalledReconciler) deleteFiles(ext *v1alpha1.Extension) erro
 	return nil
 }
 
-// extensionInstallDir returns the directory extract copies an extension's
-// files into (and that deleteFiles removes), unique to the extension.
-func extensionInstallDir(ext *v1alpha1.Extension) (string, error) {
-	// Encode the resolved image reference (status.image), excluding the
-	// tag / digest, as base64url so it is safe to use as a single path component,
-	// matching rancher-desktop 1's extension directory naming.
-
-	rawImage := ext.Status.Image
-	if rawImage == "" {
-		return "", fmt.Errorf("extension %s has no resolved image reference", ext.Name)
-	}
-	image, err := reference.ParseNormalizedNamed(rawImage)
-	if err != nil {
-		return "", fmt.Errorf("failed to parse normalized named image: %w", err)
-	}
-	// image.Name() does not include the tag or digest.
-	encoded := base64.RawURLEncoding.EncodeToString([]byte(image.Name()))
-	return filepath.Join(instance.ExtensionDir(), encoded), nil
-}
-
-// reconcileDelete handles uninstall: it runs the pre-uninstall script and
-// deletes extracted files (as tracked by the Installed condition's reason),
-// then removes installedFinalizer once cleanup has finished.
-func (r *ExtensionInstalledReconciler) reconcileDelete(ctx context.Context, ext *v1alpha1.Extension) (ctrl.Result, error) {
+// reconcileDeleteInstalled handles uninstall: it runs the pre-uninstall script
+// and deletes extracted files, then removes installedFinalizer once cleanup has
+// finished.
+func (r *ExtensionReconciler) reconcileDeleteInstalled(ctx context.Context, ext *v1alpha1.Extension) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 	if !controllerutil.ContainsFinalizer(ext, installedFinalizer) {
 		return ctrl.Result{}, nil
@@ -470,9 +445,9 @@ func (r *ExtensionInstalledReconciler) reconcileDelete(ctx context.Context, ext 
 	case installed.Reason == v1alpha1.ExtensionInstalledReasonFailed:
 		// Wait for deleteRetryDelay before handling the failed state, so that the
 		// user has a chance to see it, and so we don't flood with retries.
-		elapsed := time.Since(installed.LastTransitionTime.Time)
-		if elapsed < deleteRetryDelay {
-			return ctrl.Result{RequeueAfter: deleteRetryDelay - elapsed}, nil
+		delta := time.Until(installed.LastTransitionTime.Add(deleteRetryDelay))
+		if delta > 0 {
+			return ctrl.Result{RequeueAfter: delta}, nil
 		}
 		return ctrl.Result{}, r.reconcileDeleteFailed(ctx, ext)
 
@@ -488,7 +463,7 @@ func (r *ExtensionInstalledReconciler) reconcileDelete(ctx context.Context, ext 
 
 // reconcileFailed handles the reconciliation logic when the Installed condition
 // is in the Failed state.
-func (r *ExtensionInstalledReconciler) reconcileDeleteFailed(ctx context.Context, ext *v1alpha1.Extension) error {
+func (r *ExtensionReconciler) reconcileDeleteFailed(ctx context.Context, ext *v1alpha1.Extension) error {
 	// We don't know why we're in the failed state; try to delete the first thing
 	// available.
 	// 1: Stop containers
@@ -499,7 +474,7 @@ func (r *ExtensionInstalledReconciler) reconcileDeleteFailed(ctx context.Context
 		condition.Reason == v1alpha1.ExtensionStartedReasonStopped:
 		// The extension is not started, we can continue.
 	default:
-		// The extension is starting, started, or stopping; ExtensionStartedReconciler
+		// The extension is starting, started, or stopping; Started condition reconciliation
 		// will handle stopping it before we can delete it.
 		return nil
 	}
@@ -551,7 +526,7 @@ func (r *ExtensionInstalledReconciler) reconcileDeleteFailed(ctx context.Context
 
 // runScript manages running an install/uninstall script; it returns a boolean
 // indicating the script is still in progress.
-func (r *ExtensionInstalledReconciler) runScript(ext *v1alpha1.Extension, phase scriptPhase) (bool, error) {
+func (r *ExtensionReconciler) runScript(ext *v1alpha1.Extension, phase scriptPhase) (bool, error) {
 	existing, ok := r.scripts.Load(ext.GetUID())
 	if ok {
 		if existing.phase != phase {
@@ -622,38 +597,6 @@ func (r *ExtensionInstalledReconciler) runScript(ext *v1alpha1.Extension, phase 
 
 // setInstalledCondition sets the Installed condition on a freshly-fetched
 // copy of ext, retrying on conflict.
-func (r *ExtensionInstalledReconciler) setInstalledCondition(ctx context.Context, ext *v1alpha1.Extension, status metav1.ConditionStatus, reason, message string) error {
-	key := client.ObjectKeyFromObject(ext)
-	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
-		latest := &v1alpha1.Extension{}
-		if err := r.Get(ctx, key, latest); err != nil {
-			return client.IgnoreNotFound(err)
-		}
-		changed := apimeta.SetStatusCondition(&latest.Status.Conditions, metav1.Condition{
-			Type:               v1alpha1.ExtensionConditionInstalled,
-			Status:             status,
-			ObservedGeneration: latest.Generation,
-			Reason:             reason,
-			Message:            message,
-		})
-		if !changed {
-			return nil
-		}
-		return r.Status().Update(ctx, latest)
-	})
-}
-
-// SetupWithManager sets up the controller with the Manager.
-func (r *ExtensionInstalledReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager) error {
-	if r.requeueCh == nil {
-		r.requeueCh = make(chan event.TypedGenericEvent[*v1alpha1.Extension], 1024)
-	}
-	r.ctx = ctx
-	return ctrl.NewControllerManagedBy(mgr).
-		For(&v1alpha1.Extension{}).
-		Owns(&containersv1alpha1.ImagePullRequest{}).
-		WatchesRawSource(
-			source.Channel(r.requeueCh, &handler.TypedEnqueueRequestForObject[*v1alpha1.Extension]{})).
-		Named("extension-installed-reconciler").
-		Complete(reconcile.AsReconciler(mgr.GetClient(), r))
+func (r *ExtensionReconciler) setInstalledCondition(ctx context.Context, ext *v1alpha1.Extension, status metav1.ConditionStatus, reason, message string) error {
+	return r.setCondition(ctx, ext, v1alpha1.ExtensionConditionInstalled, status, reason, message)
 }

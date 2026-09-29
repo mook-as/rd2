@@ -27,10 +27,9 @@ import (
 
 	gvisorTypes "github.com/containers/gvisor-tap-vsock/pkg/types"
 	"github.com/docker/go-connections/nat"
-	"github.com/sirupsen/logrus"
-
-	"github.com/rancher-sandbox/rancher-desktop/src/wsl-guestagent/pkg/types"
 	"github.com/rancher-sandbox/rancher-desktop/src/networking/pkg/utils"
+	"github.com/rancher-sandbox/rancher-desktop/src/wsl-guestagent/pkg/types"
+	"github.com/sirupsen/logrus"
 )
 
 // ProxyConfig holds the configuration for a PortProxy instance.

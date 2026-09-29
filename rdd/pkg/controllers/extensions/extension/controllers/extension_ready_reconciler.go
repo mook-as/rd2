@@ -4,7 +4,7 @@
 
 // Package controllers implements the Extension reconcilers and validating
 // webhook. Reconciliation is split per status condition (e.g.
-// ExtensionReadyReconciler for Ready), mirroring the App resource's
+// Ready condition), mirroring the App resource's
 // per-condition reconcilers (AppReconciler, EngineReconciler,
 // KubernetesReconciler, etc.) elsewhere in this codebase.
 package controllers
@@ -15,33 +15,21 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/util/retry"
-	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/rancher-sandbox/rancher-desktop-daemon/pkg/apis/extensions/v1alpha1"
 )
 
-// ExtensionReadyReconciler reconciles an Extension object's Ready condition.
-type ExtensionReadyReconciler struct {
-	client.Client
-}
-
-var _ reconcile.ObjectReconciler[*v1alpha1.Extension] = &ExtensionReadyReconciler{}
-
-// +kubebuilder:rbac:groups=extensions.rancherdesktop.io,resources=extensions,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=extensions.rancherdesktop.io,resources=extensions/status,verbs=get;update;patch
-
-// Reconcile the Extension resource's Ready condition.
-func (r *ExtensionReadyReconciler) Reconcile(ctx context.Context, ext *v1alpha1.Extension) (ctrl.Result, error) {
+// reconcileReady reconciles the Ready condition for the Extension.
+func (r *ExtensionReconciler) reconcileReady(ctx context.Context, ext *v1alpha1.Extension) error {
 	log := logf.FromContext(ctx)
 
 	log.V(1).Info("Reconciling Extension Ready condition",
 		"name", ext.Name, "namespace", ext.Namespace)
 
 	key := client.ObjectKeyFromObject(ext)
-	if err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		latest := &v1alpha1.Extension{}
 		if err := r.Get(ctx, key, latest); err != nil {
 			return err
@@ -61,12 +49,12 @@ func (r *ExtensionReadyReconciler) Reconcile(ctx context.Context, ext *v1alpha1.
 		if !changed {
 			return nil
 		}
-		return r.Status().Update(ctx, latest)
-	}); err != nil {
-		return ctrl.Result{}, client.IgnoreNotFound(err)
-	}
-
-	return ctrl.Result{}, nil
+		if err := r.Status().Update(ctx, latest); err != nil {
+			return client.IgnoreNotFound(err)
+		}
+		// On success, start a new reconcile.
+		return requeueError(0)
+	})
 }
 
 // isInstalledTerminalFailure reports whether reason is one of the terminal
@@ -129,12 +117,4 @@ func readyConditionFor(installed, started *metav1.Condition) (status metav1.Cond
 		return metav1.ConditionFalse, v1alpha1.ExtensionReadyReasonStarting,
 			"Extension is being started"
 	}
-}
-
-// SetupWithManager sets up the controller with the Manager.
-func (r *ExtensionReadyReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewControllerManagedBy(mgr).
-		For(&v1alpha1.Extension{}).
-		Named("extension-ready-reconciler").
-		Complete(reconcile.AsReconciler(mgr.GetClient(), r))
 }

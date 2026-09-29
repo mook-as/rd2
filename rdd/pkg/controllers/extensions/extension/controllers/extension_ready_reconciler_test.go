@@ -14,7 +14,7 @@ import (
 	"github.com/rancher-sandbox/rancher-desktop-daemon/pkg/apis/extensions/v1alpha1"
 )
 
-func TestExtensionReadyReconcilerReadyConditionFor(t *testing.T) {
+func TestExtensionReconcilerReadyConditionFor(t *testing.T) {
 	cases := []struct {
 		name       string
 		installed  *metav1.Condition

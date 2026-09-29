@@ -64,6 +64,8 @@ type engineCreateForExportResult struct {
 type engine interface {
 	// Connect to the engine; this should be triggered on App changes.
 	connect(context.Context) error
+	// Disconnect from the engine.
+	disconnect(context.Context) error
 	// Create a container for the given extension, without starting.  This is
 	// meant for use with export; if exporting does not require a container, this
 	// method may be a no-op.  The given context must be valid past the point the

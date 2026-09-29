@@ -61,7 +61,7 @@ func (v *ExtensionValidator) validate(ctx context.Context, obj *v1alpha1.Extensi
 		return nil, fmt.Errorf("failed to list extensions: %w", err)
 	}
 	for _, ext := range list.Items {
-		if ext.GetUID() == obj.GetUID() {
+		if ext.GetNamespace() == obj.GetNamespace() && ext.GetName() == obj.GetName() {
 			continue
 		}
 		ref, err := reference.ParseNormalizedNamed(ext.Spec.Image)

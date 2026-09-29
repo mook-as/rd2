@@ -27,7 +27,7 @@ import (
 
 // The tests in this file exercise extensionExtractor's own methods (prepare,
 // extractStep, etc.) in isolation via newExtractor, without going through
-// ExtensionExtractedReconciler's dispatch logic. Shared test helpers (e.g.
+// ExtensionReconciler's extraction dispatch logic. Shared test helpers (e.g.
 // fakeEngine, newExtractor, newTestExtension, waitForExtractedReason) and
 // TestMain live in extension_extracted_reconciler_test.go.
 
@@ -39,8 +39,8 @@ func TestExtensionExtractorPrepare(t *testing.T) {
 		c := newExtractedReconcilerTestClient(t, ext)
 		r := newExtractor(t, c, nil)
 
-		_, err := r.prepare(t.Context(), ext, nil)
-		assert.NilError(t, err)
+		err := r.prepare(t.Context(), ext, nil)
+		assertNoErrorOrRequeue(t, err)
 
 		updated := &extensionsv1alpha1.Extension{}
 		assert.NilError(t, c.Get(t.Context(), client.ObjectKeyFromObject(ext), updated))
@@ -59,12 +59,10 @@ func TestExtensionExtractorPrepare(t *testing.T) {
 		}
 		r := newExtractor(t, c, fe)
 
-		_, err := r.prepare(t.Context(), ext, fe)
-		assert.NilError(t, err)
+		err := r.prepare(t.Context(), ext, fe)
+		assertNoErrorOrRequeue(t, err)
 
-		r.stateMu.Lock()
-		state := r.state[ext.GetUID()]
-		r.stateMu.Unlock()
+		state, _ := r.state.Load(ext.GetUID())
 		assert.Equal(t, state.containerID, "new-container-id")
 
 		updated := &extensionsv1alpha1.Extension{}
@@ -88,20 +86,16 @@ func TestExtensionExtractorPrepare(t *testing.T) {
 		r := newExtractor(t, c, fe)
 
 		destroyed := false
-		r.stateMu.Lock()
-		r.state[ext.GetUID()] = extractState{
+		r.state.Store(ext.GetUID(), extractState{
 			containerID: "stale-container-id",
 			cancel:      func() { destroyed = true },
-		}
-		r.stateMu.Unlock()
+		})
 
-		_, err := r.prepare(t.Context(), ext, fe)
-		assert.NilError(t, err)
+		err := r.prepare(t.Context(), ext, fe)
+		assertNoErrorOrRequeue(t, err)
 		assert.Assert(t, destroyed, "stale state should have been destroyed")
 
-		r.stateMu.Lock()
-		state := r.state[ext.GetUID()]
-		r.stateMu.Unlock()
+		state, _ := r.state.Load(ext.GetUID())
 		assert.Equal(t, state.containerID, "new-container-id")
 	})
 
@@ -114,8 +108,8 @@ func TestExtensionExtractorPrepare(t *testing.T) {
 			},
 		}
 		r := newExtractor(t, c, fe)
-		_, err := r.prepare(t.Context(), ext, fe)
-		assert.NilError(t, err)
+		err := r.prepare(t.Context(), ext, fe)
+		assertNoErrorOrRequeue(t, err)
 
 		updated := &extensionsv1alpha1.Extension{}
 		assert.NilError(t, c.Get(t.Context(), client.ObjectKeyFromObject(ext), updated))
@@ -140,7 +134,7 @@ func TestExtensionExtractorExtractStep(t *testing.T) {
 				prepareCalled = true
 				return extractPrepareResult{success: true}, nil
 			}, nil)
-		assert.NilError(t, err)
+		assertNoErrorOrRequeue(t, err)
 		assert.Assert(t, !prepareCalled, "prepare callback should not run without a containerID")
 
 		updated := &extensionsv1alpha1.Extension{}
@@ -162,9 +156,7 @@ func TestExtensionExtractorExtractStep(t *testing.T) {
 			exportFn: writeFileExportFn(t, map[string][]byte{"file.txt": []byte("hello")}),
 		}
 		r := newExtractor(t, c, fe)
-		r.stateMu.Lock()
-		r.state[ext.GetUID()] = extractState{containerID: "fake-container-id"}
-		r.stateMu.Unlock()
+		r.state.Store(ext.GetUID(), extractState{containerID: "fake-container-id"})
 
 		finalizeCalled := false
 		err := r.extractStep(t.Context(), ext, fe, extractionStepMetadata, extensionsv1alpha1.ExtensionExtractedReasonIcon,
@@ -200,9 +192,7 @@ func TestExtensionExtractorExtractStep(t *testing.T) {
 			exportFn: writeFileExportFn(t, map[string][]byte{"file.txt": []byte("hello")}),
 		}
 		r := newExtractor(t, c, fe)
-		r.stateMu.Lock()
-		r.state[ext.GetUID()] = extractState{containerID: "fake-container-id"}
-		r.stateMu.Unlock()
+		r.state.Store(ext.GetUID(), extractState{containerID: "fake-container-id"})
 
 		err := r.extractStep(t.Context(), ext, fe, extractionStepMetadata, extensionsv1alpha1.ExtensionExtractedReasonIcon,
 			func(_ context.Context) (extractPrepareResult, error) {
@@ -237,9 +227,7 @@ func TestExtensionExtractorExtractStep(t *testing.T) {
 			exportFn: failingExportFn(errors.New("export boom")),
 		}
 		r := newExtractor(t, c, fe)
-		r.stateMu.Lock()
-		r.state[ext.GetUID()] = extractState{containerID: "fake-container-id"}
-		r.stateMu.Unlock()
+		r.state.Store(ext.GetUID(), extractState{containerID: "fake-container-id"})
 
 		err := r.extractStep(t.Context(), ext, fe, extractionStepMetadata, extensionsv1alpha1.ExtensionExtractedReasonIcon,
 			func(_ context.Context) (extractPrepareResult, error) {
@@ -298,7 +286,7 @@ func TestExtensionExtractorExtractMetadataImpl(t *testing.T) {
 	var call stubExtractStepCall
 	captureExtractStep(r, &call)
 
-	_, err := r.extractMetadataImpl(t.Context(), ext, &fakeEngine{})
+	err := r.extractMetadataImpl(t.Context(), ext, &fakeEngine{})
 	assert.NilError(t, err)
 	assert.Equal(t, call.currentStep, extractionStepMetadata)
 	assert.Equal(t, call.nextReason, extensionsv1alpha1.ExtensionExtractedReasonIcon)
@@ -321,7 +309,7 @@ func TestExtensionExtractorExtractMetadataImpl(t *testing.T) {
 		assert.NilError(t, err)
 
 		err = call.finalize(t.Context())
-		assert.ErrorContains(t, err, "failed to open metadata file")
+		assert.ErrorContains(t, err, "failed to read metadata file")
 	})
 
 	t.Run("finalize", func(t *testing.T) {
@@ -352,7 +340,7 @@ func TestExtensionExtractorExtractIconImpl(t *testing.T) {
 	var call stubExtractStepCall
 	captureExtractStep(r, &call)
 
-	_, err := r.extractIconImpl(t.Context(), ext, &fakeEngine{})
+	err := r.extractIconImpl(t.Context(), ext, &fakeEngine{})
 	assert.NilError(t, err)
 	assert.Equal(t, call.currentStep, extractionStepIcon)
 	assert.Equal(t, call.nextReason, extensionsv1alpha1.ExtensionExtractedReasonUI)
@@ -378,8 +366,8 @@ func TestExtensionExtractorExtractUIImpl(t *testing.T) {
 		var call stubExtractStepCall
 		captureExtractStep(r, &call)
 
-		_, err := r.extractUIImpl(t.Context(), ext, &fakeEngine{})
-		assert.NilError(t, err)
+		err := r.extractUIImpl(t.Context(), ext, &fakeEngine{})
+		assertNoErrorOrRequeue(t, err)
 		assert.Assert(t, call.prepare == nil, "extractStep should not have been called")
 
 		updated := &extensionsv1alpha1.Extension{}
@@ -399,8 +387,8 @@ func TestExtensionExtractorExtractUIImpl(t *testing.T) {
 		var call stubExtractStepCall
 		captureExtractStep(r, &call)
 
-		_, err := r.extractUIImpl(t.Context(), ext, &fakeEngine{})
-		assert.NilError(t, err)
+		err := r.extractUIImpl(t.Context(), ext, &fakeEngine{})
+		assertNoErrorOrRequeue(t, err)
 		assert.Equal(t, call.currentStep, extractionStepUI)
 		assert.Equal(t, call.nextReason, extensionsv1alpha1.ExtensionExtractedReasonExecutable)
 
@@ -426,8 +414,8 @@ func TestExtensionExtractorExtractExecutableImpl(t *testing.T) {
 		var call stubExtractStepCall
 		captureExtractStep(r, &call)
 
-		_, err := r.extractExecutableImpl(t.Context(), ext, &fakeEngine{})
-		assert.NilError(t, err)
+		err := r.extractExecutableImpl(t.Context(), ext, &fakeEngine{})
+		assertNoErrorOrRequeue(t, err)
 		assert.Assert(t, call.prepare == nil, "extractStep should not have been called")
 
 		updated := &extensionsv1alpha1.Extension{}
@@ -447,8 +435,8 @@ func TestExtensionExtractorExtractExecutableImpl(t *testing.T) {
 		var call stubExtractStepCall
 		captureExtractStep(r, &call)
 
-		_, err := r.extractExecutableImpl(t.Context(), ext, &fakeEngine{})
-		assert.NilError(t, err)
+		err := r.extractExecutableImpl(t.Context(), ext, &fakeEngine{})
+		assertNoErrorOrRequeue(t, err)
 		assert.Equal(t, call.currentStep, extractionStepExecutable)
 		assert.Equal(t, call.nextReason, extensionsv1alpha1.ExtensionExtractedReasonFinishing)
 
