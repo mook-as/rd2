@@ -88,6 +88,7 @@ func (t *processTracker) run(
 	projectName string,
 	configs []string,
 	args []string,
+	env map[string]string,
 	onComplete func(),
 ) error {
 	// TODO: Support nerdctl here.
@@ -137,7 +138,7 @@ func (t *processTracker) run(
 
 	// Actually start the process.
 	var err error
-	state.cmd, err = t.executor(ctx, workingDir, cli, composeArgs...)
+	state.cmd, err = t.executor(ctx, workingDir, cli, env, composeArgs...)
 	if err != nil {
 		// Remove the stale state
 		t.Lock()

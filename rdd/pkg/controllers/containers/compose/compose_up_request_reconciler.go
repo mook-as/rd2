@@ -112,6 +112,7 @@ func (r *upRequestReconciler) initiateUp(ctx context.Context, upRequest *v1alpha
 		upRequest.Spec.Name,
 		upRequest.Spec.Configs,
 		[]string{"up", "--detach"},
+		upRequest.Spec.Env,
 		func() {
 			completionEvent := event.TypedGenericEvent[*v1alpha1.ComposeUpRequest]{
 				Object: upRequest,

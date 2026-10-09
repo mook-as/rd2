@@ -115,6 +115,33 @@ func (r *reconciler) reconcileCompose(ctx context.Context, req composeRequest) (
 		return ctrl.Result{}, err
 	}
 
+	hasMembers := apimeta.FindStatusCondition(project.Status.Conditions, v1alpha1.ComposeProjectConditionHasMembers)
+	if hasMembers != nil && hasMembers.Status == metav1.ConditionUnknown {
+		// HasMembers needs to be reconciled; do that first, as this is needed
+		// whether we are being deleted or not.
+		return ctrl.Result{}, retry.RetryOnConflict(retry.DefaultRetry, func() error {
+			var latest v1alpha1.ComposeProject
+			if err := r.Get(ctx, req.NamespacedName, &latest); err != nil {
+				return err
+			}
+			status := metav1.ConditionFalse
+			reason := v1alpha1.ComposeHasMembersReasonDeleted
+			message := "no members found"
+			if len(latest.Status.Containers) > 0 {
+				status = metav1.ConditionTrue
+				reason = v1alpha1.ComposeHasMembersReasonFound
+				message = fmt.Sprintf("found %d members", len(latest.Status.Containers))
+			}
+			apimeta.SetStatusCondition(&latest.Status.Conditions, metav1.Condition{
+				Type:    v1alpha1.ComposeProjectConditionHasMembers,
+				Status:  status,
+				Reason:  reason,
+				Message: message,
+			})
+			return r.Status().Update(ctx, &latest)
+		})
+	}
+
 	if project.GetDeletionTimestamp().IsZero() {
 		// Not being deleted; make sure the finalizer is present so that we can
 		// intercept deletion to run `docker compose down`.
@@ -126,7 +153,6 @@ func (r *reconciler) reconcileCompose(ctx context.Context, req composeRequest) (
 			// The finalizer was added; requeue to continue processing the project.
 			return ctrl.Result{}, nil
 		}
-		hasMembers := apimeta.FindStatusCondition(project.Status.Conditions, v1alpha1.ComposeProjectConditionHasMembers)
 		if hasMembers == nil {
 			// Since we only create Compose objects from reconciles triggered by
 			// resources, getting here means we're in the middle of that.  However,
@@ -140,29 +166,6 @@ func (r *reconciler) reconcileCompose(ctx context.Context, req composeRequest) (
 			// Delete the object; we're probably stuck waiting for members that will
 			// never appear.
 			return ctrl.Result{}, r.Delete(ctx, &project)
-		} else if hasMembers.Status == metav1.ConditionUnknown {
-			// HasMembers needs to be reconciled.
-			return ctrl.Result{}, retry.RetryOnConflict(retry.DefaultRetry, func() error {
-				var latest v1alpha1.ComposeProject
-				if err := r.Get(ctx, req.NamespacedName, &latest); err != nil {
-					return err
-				}
-				status := metav1.ConditionFalse
-				reason := v1alpha1.ComposeHasMembersReasonDeleted
-				message := "no members found"
-				if len(latest.Status.Containers) > 0 {
-					status = metav1.ConditionTrue
-					reason = v1alpha1.ComposeHasMembersReasonFound
-					message = fmt.Sprintf("found %d members", len(latest.Status.Containers))
-				}
-				apimeta.SetStatusCondition(&latest.Status.Conditions, metav1.Condition{
-					Type:    v1alpha1.ComposeProjectConditionHasMembers,
-					Status:  status,
-					Reason:  reason,
-					Message: message,
-				})
-				return r.Status().Update(ctx, &latest)
-			})
 		} else if hasMembers.Status == metav1.ConditionFalse {
 			// No members; queue for deletion.
 			reapDelay := getReapDelay(&project)
@@ -192,13 +195,29 @@ func (r *reconciler) reconcileCompose(ctx context.Context, req composeRequest) (
 		return ctrl.Result{}, nil
 	case hasState && state.err != nil:
 		// `docker compose down` has finished with an error; log the error, and
-		// retry.  If `docker compose down` failed to remove the containers, we'll
-		// run it again.
-		logf.FromContext(ctx).Error(state.err,
-			"docker compose down failed; will retry",
-			"name", req.NamespacedName, "output", state.cmd.output())
+		// delete the containers manually.  This may happen if `docker compose down`
+		// does not have enough information to execute, e.g. because it is lacking
+		// environment variables or other required context.
 		r.procs.delete(project.GetUID())
-		return ctrl.Result{RequeueAfter: reconcileRetryDelay}, nil
+		var errs []error
+		for _, container := range project.Status.Containers {
+			// Delete each container directly.
+			var c v1alpha1.Container
+			key := types.NamespacedName{Namespace: project.Namespace, Name: container.Name}
+			err := r.Get(ctx, key, &c)
+			if err == nil {
+				err = r.Delete(ctx, &c)
+			}
+			errs = append(errs, client.IgnoreNotFound(err))
+		}
+		logf.FromContext(ctx).Error(state.err,
+			"docker compose down failed; removing containers manually",
+			"name", req.NamespacedName, "output", state.cmd.output(),
+			"containers", project.Status.Containers,
+			"error", errors.Join(errs...))
+		// Removing the containers will trigger reconcile from the containers going
+		// away, so we don't need to manually requeue here.
+		return ctrl.Result{}, errors.Join(errs...)
 	case hasState && len(project.Status.Containers) > 0:
 		// `docker compose down` has finished, but there are still members.  Remove
 		// the state, and pause for a second; normally, this should be enough time
@@ -250,6 +269,7 @@ func (r *reconciler) initiateProjectDown(project *v1alpha1.ComposeProject) error
 		project.Status.Name,
 		project.Status.Configs,
 		[]string{"down", "--remove-orphans"},
+		nil,
 		func() {
 			completionEvent := event.TypedGenericEvent[*v1alpha1.ComposeProject]{
 				Object: project,

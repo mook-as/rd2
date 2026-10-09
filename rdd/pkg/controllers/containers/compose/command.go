@@ -6,6 +6,7 @@ package compose
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/rancher-sandbox/rancher-desktop-daemon/pkg/instance"
 	"github.com/rancher-sandbox/rancher-desktop-daemon/pkg/util/ringbuf"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 const killTimeout = 5 * time.Second
@@ -33,7 +35,7 @@ type command interface {
 }
 
 // commandExecutor starts a process.
-type commandExecutor func(ctx context.Context, workingDir, exe string, args ...string) (command, error)
+type commandExecutor func(ctx context.Context, workingDir, exe string, env map[string]string, args ...string) (command, error)
 
 // commandImpl is used to document the cross-platform implementations of the
 // [command] interface.
@@ -99,19 +101,24 @@ type spawnOptions struct {
 // uses exec.CommandContext to start a process.
 //
 // Docker is configured to use the RDD docker context.
-func defaultCommandExecutor(ctx context.Context, workingDir, exe string, args ...string) (command, error) {
+func defaultCommandExecutor(ctx context.Context, workingDir, exe string, env map[string]string, args ...string) (command, error) {
 	buf := ringbuf.New(4096)
 	opts := spawnOptions{
 		executable: exe,
 		args:       args,
 		dir:        workingDir,
 		stderr:     buf,
+		env:        os.Environ(),
+	}
+	for k, v := range env {
+		opts.env = append(opts.env, fmt.Sprintf("%s=%s", k, v))
 	}
 	// Remove DOCKER_HOST= because that interferes with DOCKER_CONTEXT.
-	opts.env = append(slices.DeleteFunc(os.Environ(), func(v string) bool {
+	opts.env = append(slices.DeleteFunc(opts.env, func(v string) bool {
 		key, _, found := strings.Cut(v, "=")
 		return found && strings.EqualFold(key, "DOCKER_HOST")
 	}), "DOCKER_CONTEXT="+instance.Name())
+	logf.FromContext(ctx).Info("running compose command", "executable", exe, "args", args, "env", opts.env)
 	c := &concreteCommandExecutor{
 		done:   make(chan struct{}),
 		buffer: buf,
