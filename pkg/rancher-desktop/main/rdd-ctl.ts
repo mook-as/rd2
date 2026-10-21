@@ -176,4 +176,3 @@ export async function isFirstRunNeeded(): Promise<boolean> {
 }
 
 getIpcMainProxy(console).handle('rdd/kube-config', () => fetchConfig());
-mainEvents.handle('rdd/kube-config', () => fetchConfig());
