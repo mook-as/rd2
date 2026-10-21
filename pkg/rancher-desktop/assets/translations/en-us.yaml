@@ -1046,6 +1046,7 @@ kubernetesPrefs:
     legendTextCached: Kubernetes version (cached versions only)
     otherVersions: Other Versions
     recommendedVersions: Recommended Versions
+    unavailable: Loading versions...
 preferencesWindow:
   close:
     detail: There are preferences with changes that have not been applied. All unsaved preferences will be lost.
