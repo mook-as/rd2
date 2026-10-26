@@ -1,71 +1,58 @@
-<script lang="ts">
-import { defineComponent } from 'vue';
+<script setup lang="ts">
+import { computed } from 'vue';
+import { useStore } from 'vuex';
 
 import RadioButton from '@pkg/components/form/RadioButton.vue';
 import RadioGroup from '@pkg/components/form/RadioGroup.vue';
 
-interface pathManagementOptions {
+defineOptions({ name: 'path-management-selector' });
+
+interface PathManagementOption {
   label:       string,
   value:       string,
   description: string
 }
 
-export default defineComponent({
-  name:       'path-management-selector',
-  components: {
-    RadioGroup,
-    RadioButton,
-  },
-  props: {
-    value: {
-      type:    String,
-      default: 'rcFiles',
-    },
-    row: {
-      type:    Boolean,
-      default: false,
-    },
-    showLabel: {
-      type:    Boolean,
-      default: true,
-    },
-    isLocked: {
-      type:    Boolean,
-      default: false,
-    },
-  },
-  emits:    ['input'],
-  computed: {
-    options(): pathManagementOptions[] {
-      return [
-        {
-          label:       this.t('pathManagement.options.rcFiles.label'),
-          value:       'rcFiles',
-          description: this.t('pathManagement.options.rcFiles.description'),
-        },
-        {
-          label:       this.t('pathManagement.options.manual.label'),
-          value:       'manual',
-          description: this.t('pathManagement.options.manual.description'),
-        },
-      ];
-    },
-    groupName(): string {
-      return 'pathManagement';
-    },
-    label(): string {
-      return this.showLabel ? this.t('pathManagement.label') : '';
-    },
-    tooltip(): string {
-      return this.showLabel ? this.t('pathManagement.tooltip') : '';
-    },
-  },
-  methods: {
-    updateVal(value: string) {
-      this.$emit('input', value);
-    },
-  },
+const {
+  value = 'rcFiles',
+  row = false,
+  showLabel = true,
+  isLocked = false,
+} = defineProps<{
+  value?:     string,
+  row?:       boolean,
+  showLabel?: boolean,
+  isLocked?:  boolean
+}>();
+
+const emit = defineEmits({
+  input: (value: string) => true,
 });
+
+const store = useStore();
+const t = computed(() => store.getters['i18n/t']);
+
+const options = computed<PathManagementOption[]>(() => [
+  {
+    label:       t.value('pathManagement.options.rcFiles.label'),
+    value:       'rcFiles',
+    description: t.value('pathManagement.options.rcFiles.description'),
+  },
+  {
+    label:       t.value('pathManagement.options.manual.label'),
+    value:       'manual',
+    description: t.value('pathManagement.options.manual.description'),
+  },
+]);
+
+const groupName = 'pathManagement';
+
+const label = computed(() => showLabel ? t.value('pathManagement.label') : '');
+const tooltip = computed(() => showLabel ? t.value('pathManagement.tooltip') : '');
+
+function updateVal(value: string) {
+  emit('input', value);
+}
 </script>
 
 <template>
