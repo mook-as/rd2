@@ -393,6 +393,10 @@ ipcMainProxy.handle('show-message-box-rd', async(_event, options: Electron.Messa
 
 ipcMainProxy.handle('get-locked-fields', () => ({}));
 
+ipcMainProxy.handle('get-paths', () => {
+  return paths;
+});
+
 function showErrorDialog(title: string, message: string, fatal?: boolean) {
   if (noModalDialogs) {
     console.log(`Fatal Error:\n${ title }\n\n${ message }`);
