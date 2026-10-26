@@ -101,7 +101,7 @@ function updateVal(value: AddPath) {
   padding: 2px;
 }
 
-.path-management :deep(label) {
+.path-management :deep(.radio-label) {
   color: var(--input-label);
 }
 </style>
