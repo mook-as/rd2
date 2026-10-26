@@ -84,7 +84,10 @@ function updateVal(value: AddPath) {
         @update:value="updateVal(option.value)"
       >
         <template #description>
-          <span v-html="option.description" />
+          <span
+            v-clean-html="option.description"
+            data-testid="description"
+          />
         </template>
       </radio-button>
     </template>

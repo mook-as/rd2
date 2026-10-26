@@ -304,4 +304,10 @@ export function getPaths(rddOverride?: string, platformOverride?: supportedPlatf
   }
 }
 
-export default getPaths();
+const paths = getPaths();
+export default paths;
+/**
+ * The keys available for paths.  If we failed to get paths, this may not
+ * include all values.
+ */
+export const pathKeys = Object.keys(paths) as (keyof Paths)[];
