@@ -1,10 +1,20 @@
 <script setup lang="ts">
-import { onMounted } from 'vue';
+import { onMounted, provide, readonly, ref } from 'vue';
 import { useStore } from 'vuex';
 
+import { binDirInjectionKey } from '@pkg/types/injectionKeys';
 import { ipcRenderer } from '@pkg/utils/ipcRenderer';
 
 const store = useStore();
+const binDir = ref('~/.rd2/bin');
+
+ipcRenderer.invoke('get-paths').then(result => {
+  binDir.value = result.bin_dir;
+}).catch(e => {
+  console.error('Failed to get paths:', e);
+});
+
+provide(binDirInjectionKey, readonly(binDir));
 
 defineOptions({ name: 'preferences-layout' });
 

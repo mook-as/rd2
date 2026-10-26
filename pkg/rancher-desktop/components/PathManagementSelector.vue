@@ -1,57 +1,50 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, inject, ref } from 'vue';
 import { useStore } from 'vuex';
 
 import RadioButton from '@pkg/components/form/RadioButton.vue';
 import RadioGroup from '@pkg/components/form/RadioGroup.vue';
+import { binDirInjectionKey } from '@pkg/types/injectionKeys';
+import { escapeHtml } from '@pkg/utils/string';
+import { IoRancherdesktopAppV1alpha1AppSpecApplicationAddPathEnum as AddPath } from '@rdd-client';
 
 defineOptions({ name: 'path-management-selector' });
 
-interface PathManagementOption {
-  label:       string,
-  value:       string,
-  description: string
-}
-
 const {
-  value = 'rcFiles',
   row = false,
   showLabel = true,
-  isLocked = false,
+  disabled = false,
 } = defineProps<{
-  value?:     string,
   row?:       boolean,
   showLabel?: boolean,
-  isLocked?:  boolean
+  disabled?:  boolean,
 }>();
-
-const emit = defineEmits({
-  input: (value: string) => true,
-});
 
 const store = useStore();
 const t = computed(() => store.getters['i18n/t']);
+const preferences = computed(() => store.getters['preferences/preferences']);
+const isPreferenceLocked = computed(() => store.getters['preferences/isPreferenceLocked']);
+const isLocked = computed(() => !!isPreferenceLocked.value?.('application.addPath'));
+const currentValue = computed(() => preferences.value.application?.addPath ?? AddPath.Manual);
 
-const options = computed<PathManagementOption[]>(() => [
-  {
-    label:       t.value('pathManagement.options.rcFiles.label'),
-    value:       'rcFiles',
-    description: t.value('pathManagement.options.rcFiles.description'),
-  },
-  {
-    label:       t.value('pathManagement.options.manual.label'),
-    value:       'manual',
-    description: t.value('pathManagement.options.manual.description'),
-  },
-]);
+const binDir = inject(binDirInjectionKey, ref('~/.rd2/bin'));
+
+const options = computed(() =>
+  Object.values(AddPath).map(key => ({
+    label:       t.value(`pathManagement.options.${ key }.label`),
+    value:       key,
+    description: t.value(`pathManagement.options.${ key }.description`, { binDir: escapeHtml(binDir.value) }),
+  } as const)));
 
 const groupName = 'pathManagement';
 
 const label = computed(() => showLabel ? t.value('pathManagement.label') : '');
-const tooltip = computed(() => showLabel ? t.value('pathManagement.tooltip') : '');
+const tooltip = computed(() => showLabel
+  ? { content: t.value('pathManagement.tooltip', { binDir: escapeHtml(binDir.value) }), html: true }
+  : '');
 
-function updateVal(value: string) {
-  emit('input', value);
+function updateVal(value: AddPath) {
+  store.dispatch('preferences/modify', { key: 'application.addPath', value });
 }
 </script>
 
@@ -60,30 +53,34 @@ function updateVal(value: string) {
     :name="groupName"
     :label="label"
     :tooltip="tooltip"
-    :value="value"
+    :value="currentValue"
     :options="options"
     :row="row"
-    :disabled="isLocked"
+    :disabled="isLocked || disabled"
+    data-testid="path-management-selector"
+    :data-value="currentValue"
     :class="{ 'locked-radio': isLocked }"
     class="path-management"
     @update:value="updateVal"
   >
     <template
-      v-if="showLabel"
+      v-if="showLabel && $slots.label"
       #label
     >
       <slot name="label" />
     </template>
-    <template #1="{ option, isDisabled, mode }">
+    <template
+      v-for="(option, index) in options"
+      #[index]="{ isDisabled }"
+      :key="groupName + '-' + option.value"
+    >
       <radio-button
-        v-bind="$attrs"
-        :key="groupName + '-' + option.value"
         :name="groupName"
-        :value="value"
+        :value="currentValue"
         :label="option.label"
         :val="option.value"
         :disabled="isDisabled"
-        :mode="mode"
+        :data-testid="`path-management-${option.value}`"
         @update:value="updateVal(option.value)"
       >
         <template #description>
