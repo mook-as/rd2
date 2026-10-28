@@ -1,14 +1,16 @@
-<script lang="ts">
-import { defineComponent } from 'vue';
+<script setup lang="ts">
+import { onMounted } from 'vue';
+import { useStore } from 'vuex';
 
 import { ipcRenderer } from '@pkg/utils/ipcRenderer';
 
-export default defineComponent({
-  name: 'preferences-layout',
-  mounted() {
-    this.$store.dispatch('i18n/init').catch(ex => console.error(ex));
-    ipcRenderer.send('preferences/load');
-  },
+const store = useStore();
+
+defineOptions({ name: 'preferences-layout' });
+
+onMounted(() => {
+  store.dispatch('i18n/init').catch(ex => console.error(ex));
+  ipcRenderer.send('preferences/load');
 });
 </script>
 
@@ -20,7 +22,7 @@ export default defineComponent({
 
 <style lang="scss" src="@pkg/assets/styles/app.scss"></style>
 <style lang="scss" scoped>
-  .wrapper {
-    background-color: var(--body-bg);
-  }
+.wrapper {
+  background-color: var(--body-bg);
+}
 </style>
