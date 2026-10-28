@@ -600,6 +600,12 @@ export function openDialog(id: string, opts?: Electron.BrowserWindowConstructorO
 export async function openFirstRunDialog() {
   const window = openDialog('FirstRun', { frame: true });
 
+  window.webContents.on('ipc-message', (_event, channel) => {
+    if (channel === 'dialog/load') {
+      window.webContents.send('dialog/populate');
+    }
+  });
+
   await (new Promise<void>((resolve) => {
     window.on('closed', resolve);
   }));
