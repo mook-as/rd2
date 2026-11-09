@@ -26,7 +26,7 @@ const appLimaVMName = "rd"
 
 // containerdGuestSocket is the shared containerd socket inside the VM,
 // matching the guestSocket forward in the App controller's lima template.
-const containerdGuestSocket = "/run/k3s/containerd/containerd.sock"
+const containerdGuestSocket = "/run/containerd/containerd.sock"
 
 func newNerdctlCommand() *cobra.Command {
 	return &cobra.Command{
