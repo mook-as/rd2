@@ -4,7 +4,6 @@ import path from 'path';
 import { Electron } from '@/scripts/dependencies/electron';
 import { RDD } from '@/scripts/dependencies/rdd';
 import * as tools from '@/scripts/dependencies/tools';
-import { Wix } from '@/scripts/dependencies/wix';
 import buildUtils from '@/scripts/lib/build-utils';
 import {
   Dependency,
@@ -48,9 +47,7 @@ const unixDependencies: Dependency[] = [];
 const macOSDependencies: Dependency[] = [];
 
 // Dependencies that are specific to windows hosts.
-const windowsDependencies = [
-  new Wix(),
-];
+const windowsDependencies: Dependency[] = [];
 
 // Dependencies that are specific to WSL.
 const wslDependencies: Dependency[] = [];

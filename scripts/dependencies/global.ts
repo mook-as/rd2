@@ -3,7 +3,6 @@
 
 import { Electron } from '@/scripts/dependencies/electron';
 import * as tools from '@/scripts/dependencies/tools';
-import { Wix } from '@/scripts/dependencies/wix';
 import { VersionedDependency } from '@/scripts/lib/dependencies';
 
 export const globalDependencies: VersionedDependency[] = [
@@ -15,5 +14,4 @@ export const globalDependencies: VersionedDependency[] = [
   new tools.DockerProvidedCredHelpers(),
   new tools.ECRCredHelper(),
   new tools.Helm(),
-  new Wix(),
 ];

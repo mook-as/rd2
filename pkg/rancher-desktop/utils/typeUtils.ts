@@ -27,6 +27,14 @@ export type ReadWrite<T> = {
   -readonly [P in keyof T]: T[P];
 };
 
+export type RecursiveReadWrite<T> =
+  T extends (...args: any[]) => any ? T :
+    T extends readonly [...infer E] ? // Tuples
+      { -readonly [K in keyof E]: RecursiveReadWrite<E[K]> } :
+      T extends readonly (infer U)[] ? RecursiveReadWrite<U>[] :
+        T extends object ? { -readonly [K in keyof T]: RecursiveReadWrite<T[K]> } :
+          T;
+
 /** UpperAlpha is the set of upper-case alphabets. */
 type UpperAlpha =
   'A' | 'B' | 'C' | 'D' | 'E' | 'F' | 'G' | 'H' | 'I' | 'J' | 'K' | 'L' | 'M' |

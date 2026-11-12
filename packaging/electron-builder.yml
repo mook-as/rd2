@@ -48,17 +48,49 @@ dmg:
   iconSize: 100
   iconTextSize: 14
 win:
-  target: [ zip ]
+  # `yarn package` (e.g. CI's build on every commit to main) builds an
+  # unsigned .appx alongside the .zip, using the options in the `appx:`
+  # section below, so it can be installed on QA machines without waiting for
+  # a release. Only the .zip is signed later: release builds re-sign the
+  # files inside it and rebuild a *signed* .appx from that signed unpacked
+  # app via `electron-builder --prepackaged` (scripts/lib/sign-win32.ts),
+  # since that is the only point a real certificate (CSC_FINGERPRINT) is
+  # available to derive the appx Publisher identity from (see below).
+  #
+  # Note: this is the APPX packaging format, not MSIX -- electron-builder
+  # 26.x only has an `appx` target (it hardcodes the output file extension
+  # to .appx regardless of config). APPX and MSIX share the same manifest
+  # schema and install mechanism (Add-AppxPackage/PackageManager), so the
+  # custom manifest below still works unmodified.
+  target: [ zip, appx ]
   signtoolOptions:
     signingHashAlgorithms: [ sha256 ] # We only support Windows 10 + WSL2
   requestedExecutionLevel: asInvoker # The _app_ doesn't need privileges
   extraResources:
   - { from: rdd/bin, to: windows/bin/, filter: [ rdd.exe, rdd-forwarder.exe ] }
   extraFiles:
-  - build/wix/*
-  - build/license.rtf
   - { from: dist/signing-config-win.yaml, to: build/signing-config-win.yaml }
   - { from: dist/electron-builder.yaml, to: electron-builder.yml }
+appx:
+  # Override publisher with the test OID for installing unsigned packages.
+  # See https://learn.microsoft.com/en-us/windows/msix/package/unsigned-package
+  publisher: >-
+    CN=Rancher Desktop Test Publisher,
+    OID.2.25.311729368913984317654407730594956997722=1
+  publisherDisplayName: The Rancher Desktop Authors
+  identityName: io.rancherdesktop.app2
+  displayName: Rancher Desktop 2
+  # unvirtualizedResources is needed so the custom manifest's <Properties>
+  # virtualization exclusions (declared in build/appx/appxmanifest.xml) take
+  # effect. Store approval is not required for sideloaded apps that declare
+  # restricted capabilities.
+  capabilities: [ runFullTrust, unvirtualizedResources ]
+  customManifestPath: appx/appxmanifest.xml
+  # No addAutoLaunchExtension: RDD (the background service), not the Electron
+  # app, owns the user-togglable start-at-login behavior, so there is no need
+  # for a UWP StartupTask extension or electron-winstore-auto-launch here.
+  # Windows 10 1903+ is required for the unvirtualizedResources capability.
+  minVersion: 10.0.18362.0
 linux:
   category: Utility
   # Also names the .desktop file and its icon, so it must differ from

@@ -76,8 +76,8 @@ jobs:
           --repo ${{ github.repository }} \
           --pattern 'rancher-desktop-*.darwin.*.dmg' \
           --pattern 'rancher-desktop-*.darwin.*.dmg.sha512sum' \
-          --pattern 'rancher-desktop-*.windows.x86_64.msi' \
-          --pattern 'rancher-desktop-*.windows.x86_64.msi.sha512sum' \
+          --pattern 'rancher-desktop-*.windows.x86_64.appx' \
+          --pattern 'rancher-desktop-*.windows.x86_64.appx.sha512sum' \
           --pattern 'rancher-desktop-*.linux.x86_64.zip' \
           --pattern 'rancher-desktop-*.linux.x86_64.zip.sha512sum'
       env:
@@ -89,7 +89,7 @@ jobs:
       with:
         run-id: ${{ inputs.package-run }}
         github-token: ${{ github.token }}
-        pattern: 'rancher-desktop.{darwin.*.dmg,windows.x86_64.msi,linux.x86_64.zip}'
+        pattern: 'rancher-desktop.{darwin.*.dmg,windows.x86_64.appx,linux.x86_64.zip}'
         merge-multiple: true
     - name: Create checksums for Package workflow artifacts
       if: inputs.package-run != ''
@@ -121,8 +121,8 @@ jobs:
         name: application-win32.zip
         if-no-files-found: error
         path: |
-          rancher-desktop-*.windows.x86_64.msi
-          rancher-desktop-*.windows.x86_64.msi.sha512sum
+          rancher-desktop-*.windows.x86_64.appx
+          rancher-desktop-*.windows.x86_64.appx.sha512sum
     - name: Upload Linux artifacts
       uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:

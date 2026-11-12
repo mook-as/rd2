@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--suppress XmlUnusedNamespaceDeclaration -->
+<!--
+  Custom APPX manifest template (electron-builder's `appx.customManifestPath`).
+  (electron-builder 26.x's "appx" target produces a .appx file, but shares
+  the same manifest schema and virtualization features as MSIX.)
+
+  This is electron-builder's own default `appxmanifest.xml` template, plus
+  the `unvirtualizedResources` restricted capability and the `desktop6`/
+  `virtualization` XML namespaces needed to declare it, so a plain
+  (unpackaged) shell sees the same `PATH` and shim files that `rdd.exe`
+  writes.
+
+  File system write virtualization is disabled entirely (not scoped to a
+  specific directory): the actual bin directory rdd.exe writes shims to
+  varies with the `RDD_INSTANCE` environment variable (see
+  rdd/pkg/instance/instance.go's ShortDir/BinDir, e.g. ~/.rd2/bin rather than
+  a fixed `rancher-desktop` directory), so there is no single directory that
+  could be hardcoded into the manifest.
+
+  Registry write virtualization, however, is scoped to just
+  `HKCU\Environment` (where the user's `Path` value lives): unlike BinDir,
+  this location is fixed regardless of RDD_INSTANCE.
+
+  See the upstream docs this is based on:
+    https://learn.microsoft.com/en-us/windows/msix/desktop/flexible-virtualization
+    https://learn.microsoft.com/en-us/windows/uwp/packaging/app-capability-declarations
+-->
+<Package
+   xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+   xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+   xmlns:uap10="http://schemas.microsoft.com/appx/manifest/uap/windows10/10"
+   xmlns:desktop="http://schemas.microsoft.com/appx/manifest/desktop/windows10"
+   xmlns:desktop6="http://schemas.microsoft.com/appx/manifest/desktop/windows10/6"
+   xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+   IgnorableNamespaces="uap10 desktop6 rescap">
+  <!-- use single quotes to avoid double quotes escaping in the publisher value  -->
+  <Identity Name="${identityName}"
+    ProcessorArchitecture="${arch}"
+    Publisher='${publisher}'
+    Version="${version}" />
+  <Properties>
+    <DisplayName>${displayName}</DisplayName>
+    <PublisherDisplayName>${publisherDisplayName}</PublisherDisplayName>
+    <Description>${description}</Description>
+    <Logo>${logo}</Logo>
+    <!--
+      Pre-Windows 11 fallback: coarsely unvirtualize all of HKCU and AppData,
+      since the older OS has no mechanism to scope just HKCU\Environment or
+      just the (RDD_INSTANCE-dependent) bin directory. Windows 11+ ignores
+      these two elements in favor of the fine-grained ExcludedKeys
+      declaration below for the registry, but still needs the AppData
+      FileSystemWriteVirtualization disabled here, since there is no
+      fine-grained equivalent we can use for that (see the file-level
+      comment above).
+    -->
+    <desktop6:RegistryWriteVirtualization>disabled</desktop6:RegistryWriteVirtualization>
+    <desktop6:FileSystemWriteVirtualization>disabled</desktop6:FileSystemWriteVirtualization>
+  </Properties>
+  <Resources>
+    ${resourceLanguages}
+  </Resources>
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="${minVersion}" MaxVersionTested="${maxVersionTested}" />
+  </Dependencies>
+  ${capabilities}
+  <Applications>
+    <Application Id="${applicationId}" Executable="${executable}" EntryPoint="Windows.FullTrustApplication">
+      <uap:VisualElements
+       BackgroundColor="${backgroundColor}"
+       DisplayName="${displayName}"
+       Square150x150Logo="${square150x150Logo}"
+       Square44x44Logo="${square44x44Logo}"
+       Description="${description}">
+        ${defaultTile}
+        ${lockScreen}
+        ${splashScreen}
+      </uap:VisualElements>
+      ${extensions}
+    </Application>
+  </Applications>
+</Package>

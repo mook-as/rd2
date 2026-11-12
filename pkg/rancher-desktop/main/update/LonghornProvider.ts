@@ -375,7 +375,7 @@ export function findUpdateAsset(assets: GitHubReleaseAsset[], platform: Provider
   case 'darwin':
     return assets.find(asset => asset.name.endsWith(appArtifactSuffix(platform, arch, 'zip')));
   case 'win32':
-    return assets.find(asset => asset.name.endsWith(appArtifactSuffix(platform, arch, 'msi')));
+    return assets.find(asset => asset.name.endsWith(appArtifactSuffix(platform, arch, 'appx')));
   case 'linux':
     // AppImages come from OBS, which names them itself.
     return assets.find(asset => asset.name.endsWith('AppImage'));

@@ -6,7 +6,7 @@ describe(appArtifactName, () => {
   test.each([
     ['darwin', 'arm64', 'dmg', 'rancher-desktop-2.0.0-alpha.3.darwin.aarch64.dmg'],
     ['darwin', 'x64', 'zip', 'rancher-desktop-2.0.0-alpha.3.darwin.x86_64.zip'],
-    ['win32', 'x64', 'msi', 'rancher-desktop-2.0.0-alpha.3.windows.x86_64.msi'],
+    ['win32', 'x64', 'appx', 'rancher-desktop-2.0.0-alpha.3.windows.x86_64.appx'],
     ['linux', 'arm64', 'zip', 'rancher-desktop-2.0.0-alpha.3.linux.aarch64.zip'],
   ] as const)('names the %s %s %s', (platform, arch, ext, expected) => {
     expect(appArtifactName('2.0.0-alpha.3', platform, arch, ext)).toEqual(expected);

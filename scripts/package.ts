@@ -19,7 +19,6 @@ import * as plist from 'plist';
 import yaml from 'yaml';
 
 import buildUtils from './lib/build-utils';
-import buildInstaller from './lib/installer-win32';
 import { simpleSpawn } from './simple_process';
 
 import { spawnFile } from '@pkg/utils/childProcess';
@@ -229,15 +228,6 @@ class Builder {
     return options;
   }
 
-  async buildInstaller(config: CliOptions) {
-    const appDir = path.join(buildUtils.distDir, `win${ buildUtils.archSuffix }-unpacked`);
-
-    if (config.win && !process.argv.includes('--zip')) {
-      // Only build installer if we're not asked not to.
-      await buildInstaller(buildUtils.distDir, appDir, buildUtils.distDir);
-    }
-  }
-
   protected async createLinuxResources(config: Configuration) {
     const appData = 'packaging/linux/rancher-desktop-2.appdata.xml';
     const input = await fs.promises.readFile(appData, 'utf-8');
@@ -301,9 +291,7 @@ class Builder {
   }
 
   async run() {
-    const options = await this.package();
-
-    await this.buildInstaller(options);
+    await this.package();
   }
 }
 

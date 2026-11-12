@@ -63,7 +63,7 @@ mockModules({
   'electron-updater/out/MacUpdater':         { MacUpdater: FakeUpdater },
   'electron-updater/out/AppImageUpdater':    { AppImageUpdater: FakeUpdater },
   'electron-updater/out/ElectronAppAdapter': { ElectronAppAdapter: FakeElectronAppAdapter },
-  '@pkg/main/update/MSIUpdater':             { default: FakeUpdater },
+  '@pkg/main/update/AppxUpdater':             { default: FakeUpdater },
   '@pkg/main/update/LonghornProvider':       { default: class {}, hasQueuedUpdate, setHasQueuedUpdate },
   '@pkg/window':                             { send },
   '@pkg/main/mainEvents':                    { on: jest.fn() },

@@ -15,7 +15,7 @@
  *   GITHUB_REPOSITORY: The GitHub owner/repository (from GitHub Actions).
  *   GITHUB_SHA:        Commit hash (if creating a new release).
  *   GITHUB_ACTOR:      User that triggered this, github.actor
- *   RD_SETUP_MSI:      The installer (msi file) to upload.
+ *   RD_SETUP_APPX:     The installer (appx file) to upload.
  *   RD_MACX86_ZIP:     The macOS (x86_64) zip archive to upload.
  *   RD_MACARM_ZIP:     The macOS (aarch64) zip archive to upload.
  *   RD_BUILD_INFO:     Build information (dist/electron-builder.yaml from packaging)
@@ -125,7 +125,7 @@ async function getOctokit(): Promise<Octokit> {
 
 async function updateRelease(octokit: Octokit, owner: string, repo: string, tag: string) {
   const files = {
-    msi:    await getChecksum('RD_SETUP_MSI'),
+    appx:   await getChecksum('RD_SETUP_APPX'),
     macx86: await getChecksum('RD_MACX86_ZIP'),
     macarm: await getChecksum('RD_MACARM_ZIP'),
   };

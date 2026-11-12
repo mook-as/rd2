@@ -1,6 +1,7 @@
 {
   "name": "rancher-desktop",
   "productName": "Rancher Desktop 2",
+  "description": "Rancher Desktop 2",
   "license": "Apache-2.0",
   "version": "2.0.0-alpha.2",
   "author": {
@@ -33,7 +34,6 @@
     "build": "node scripts/ts-wrapper.js scripts/build.ts",
     "package": "node scripts/ts-wrapper.js scripts/package.ts",
     "sign": "node scripts/ts-wrapper.js scripts/sign.ts",
-    "wix": "node scripts/ts-wrapper.js scripts/wix.ts",
     "test": "yarn lint:nofix && yarn test:unit",
     "test:unit": "yarn test:unit:jest",
     "test:unit:i18n-report": "cd ./src/go/i18n-report/ && go test ./...",

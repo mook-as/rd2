@@ -183,6 +183,85 @@ jobs:
         persist-credentials: false
     - uses: $/.github/actions/yarn-install
     - run: yarn lint:typescript:nofix
+  lint-appx-manifest:
+    name: Lint AppX manifest
+    needs: get-pr-number
+    runs-on: windows-latest
+    if: ${{ ! needs.get-pr-number.outputs.number }}
+    steps:
+    - name: "Windows: Set up line endings"
+      run: |
+        git config --global --replace-all core.autocrlf false # spellchecker:ignore
+        git config --global --replace-all core.eol lf # spellchecker:ignore
+        git config --global --replace-all core.longpaths true # spellchecker:ignore
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+    - name: Validate AppX manifest with MakeAppx
+      shell: pwsh
+      run: |
+        $pkg = Get-Content package.json -Raw | ConvertFrom-Json
+        $description = [string]$pkg.description
+        if ([string]::IsNullOrWhiteSpace($description)) {
+          throw "package.json description is required for AppX manifest validation"
+        }
+
+        $makeAppx = (Get-Command makeappx.exe -ErrorAction SilentlyContinue).Source
+        if (-not $makeAppx) {
+          $sdk = Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\bin' -Recurse -Filter makeappx.exe -ErrorAction SilentlyContinue |
+            Sort-Object FullName -Descending |
+            Select-Object -First 1
+          if ($sdk) {
+            $makeAppx = $sdk.FullName
+          }
+        }
+        if (-not $makeAppx) {
+          throw "Could not find makeappx.exe in PATH or Windows SDK directories."
+        }
+
+        $staging = Join-Path $env:RUNNER_TEMP 'appx-manifest-validation'
+        if (Test-Path $staging) { Remove-Item -Recurse -Force $staging }
+        New-Item -ItemType Directory -Path (Join-Path $staging 'Assets') | Out-Null
+
+        [IO.File]::WriteAllBytes((Join-Path $staging 'Rancher Desktop 2.exe'), [byte[]](0))
+        [IO.File]::WriteAllBytes((Join-Path $staging 'Assets\StoreLogo.png'), [byte[]](0))
+        [IO.File]::WriteAllBytes((Join-Path $staging 'Assets\Square150x150Logo.png'), [byte[]](0))
+        [IO.File]::WriteAllBytes((Join-Path $staging 'Assets\Square44x44Logo.png'), [byte[]](0))
+
+        $manifest = Get-Content build/appx/appxmanifest.xml -Raw
+        $replacements = @{
+          '${identityName}' = 'io.rancherdesktop.app2'
+          '${arch}' = 'x64'
+          '${publisher}' = 'CN=Rancher Desktop Test Publisher'
+          '${version}' = '1.0.0.0'
+          '${displayName}' = 'Rancher Desktop 2'
+          '${publisherDisplayName}' = 'The Rancher Desktop Authors'
+          '${description}' = $description
+          '${logo}' = 'Assets\StoreLogo.png'
+          '${resourceLanguages}' = '    <Resource Language="en-US" />'
+          '${minVersion}' = '10.0.18362.0'
+          '${maxVersionTested}' = '10.0.26100.0'
+          '${capabilities}' = "  <Capabilities>`n    <rescap:Capability Name=`"runFullTrust`" />`n    <rescap:Capability Name=`"unvirtualizedResources`" />`n  </Capabilities>"
+          '${applicationId}' = 'RancherDesktop2'
+          '${executable}' = 'Rancher Desktop 2.exe'
+          '${backgroundColor}' = 'transparent'
+          '${square150x150Logo}' = 'Assets\Square150x150Logo.png'
+          '${square44x44Logo}' = 'Assets\Square44x44Logo.png'
+          '${defaultTile}' = ''
+          '${lockScreen}' = ''
+          '${splashScreen}' = ''
+          '${extensions}' = ''
+        }
+
+        foreach ($entry in $replacements.GetEnumerator()) {
+          $manifest = $manifest.Replace($entry.Key, $entry.Value)
+        }
+        Set-Content -Path (Join-Path $staging 'AppxManifest.xml') -Value $manifest -NoNewline -Encoding UTF8
+
+        & $makeAppx pack /o /d $staging /p (Join-Path $staging 'validation.appx')
+        if ($LASTEXITCODE -ne 0) {
+          throw "MakeAppx manifest validation failed with exit code $LASTEXITCODE"
+        }
 #  spelling:
 #    name: Check Spelling
 #    needs: get-pr-number

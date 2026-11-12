@@ -146,6 +146,7 @@ func main() {
 
 	cmd.AddCommand(
 		hostagent.NewCommand(),
+		newInstallUpdateCommand(),
 		newKubectlCommand(),
 		newNerdctlCommand(),
 		newRunCommand(),

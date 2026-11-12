@@ -4,7 +4,6 @@
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "moduleDetection": "force",
-    "jsx": "react",
     "lib": [
       "ESNext",
       "ESNext.AsyncIterable",
@@ -43,15 +42,12 @@
   "exclude": [
     "node_modules",
     "dist",
-    "dashboard",
-    "scripts/lib/installer-*.tsx",
-    "scripts/lib/installer-win32-gen.tsx"
+    "dashboard"
   ],
   "include": [
     "**/*",
     "**/*.ts",
     "**/*.d.ts",
-    "**/*.tsx",
     "**/*.vue",
     ".eslintrc.js"
   ]

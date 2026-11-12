@@ -15,6 +15,7 @@ require (
 	github.com/containerd/typeurl/v2 v2.3.0
 	github.com/containers/gvisor-tap-vsock v0.9.0
 	github.com/coreos/go-semver v0.3.1
+	github.com/deploymenttheory/go-bindings-winrt v0.6.1
 	github.com/diskfs/go-diskfs v1.9.4
 	github.com/distribution/reference v0.6.0
 	github.com/docker/cli v29.9.3+incompatible
@@ -160,6 +161,7 @@ require (
 	github.com/dave/dst v0.28.0 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/denis-tingaikin/go-header v0.5.0 // indirect
+	github.com/deploymenttheory/go-bindings-win32 v0.5.0 // indirect
 	github.com/digitalocean/go-libvirt v0.0.0-20220804181439-8648fbde413e // indirect
 	github.com/digitalocean/go-qemu v0.0.0-20221209210016-f035778c97f7 // indirect
 	github.com/dimchansky/utfbom v1.2.0 // indirect

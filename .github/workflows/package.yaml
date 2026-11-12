@@ -173,8 +173,8 @@ jobs:
       uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       if: matrix.platform == 'windows'
       with:
-        name: rancher-desktop.windows.${{ matrix.arch }}.msi
-        path: dist/rancher-desktop-*.windows.*.msi
+        name: rancher-desktop.windows.${{ matrix.arch }}.appx
+        path: dist/rancher-desktop-*.windows.*.appx
         if-no-files-found: error
     - name: Upload zip
       uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -378,7 +378,7 @@ jobs:
     - name: Verify installer signature
       shell: powershell
       run: |
-        $usedCert = (Get-AuthenticodeSignature -FilePath 'dist\rancher-desktop-*.windows.*.msi').SignerCertificate
+        $usedCert = (Get-AuthenticodeSignature -FilePath 'dist\rancher-desktop-*.windows.*.appx').SignerCertificate
         Write-Output $usedCert
         if ($usedCert.Thumbprint -ne $env:CSC_FINGERPRINT) {
           Throw "Installer signed with wrong certificate"

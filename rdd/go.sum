@@ -231,6 +231,10 @@ github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc h1:U9qPSI2PIWSS1
 github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/denis-tingaikin/go-header v0.5.0 h1:SRdnP5ZKvcO9KKRP1KJrhFR3RrlGuD+42t4429eC9k8=
 github.com/denis-tingaikin/go-header v0.5.0/go.mod h1:mMenU5bWrok6Wl2UsZjy+1okegmwQ3UgWl4V1D8gjlY=
+github.com/deploymenttheory/go-bindings-win32 v0.5.0 h1:B5qu2L+XvQRPe0/ni7Q9PAu3j3it94cyDJjGTeMLG/o=
+github.com/deploymenttheory/go-bindings-win32 v0.5.0/go.mod h1:J3mOfF0N1uFmI8Cm3GPtq1YJYnwAKUkOsmc36GYbm0w=
+github.com/deploymenttheory/go-bindings-winrt v0.6.1 h1:eSBtqkDVhtZGbl3EsR+K5rRFrYukZSCB8yjtm9XpOE0=
+github.com/deploymenttheory/go-bindings-winrt v0.6.1/go.mod h1:TlE8tDdtd8+rWkPDHVmGnIjcyPWneGMUhpOHk1iPVDI=
 github.com/digitalocean/go-libvirt v0.0.0-20220804181439-8648fbde413e h1:SCnqm8SjSa0QqRxXbo5YY//S+OryeJioe17nK+iDZpg=
 github.com/digitalocean/go-libvirt v0.0.0-20220804181439-8648fbde413e/go.mod h1:o129ljs6alsIQTc8d6eweihqpmmrbxZ2g1jhgjhPykI=
 github.com/digitalocean/go-qemu v0.0.0-20221209210016-f035778c97f7 h1:3OVJAbR131SnAXao7c9w8bFlAGH0oa29DCwsa88MJGk=

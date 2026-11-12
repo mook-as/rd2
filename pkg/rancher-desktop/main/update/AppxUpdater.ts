@@ -1,5 +1,4 @@
-import { spawn, spawnSync } from 'child_process';
-import path from 'path';
+import { spawn } from 'child_process';
 
 import { AllPublishOptions, newError } from 'builder-util-runtime';
 import { InstallOptions } from 'electron-updater/out/BaseUpdater';
@@ -10,17 +9,22 @@ import { verifySignature } from 'electron-updater/out/windowsExecutableCodeSigna
 import { Lazy } from 'lazy-val';
 
 import mainEvents from '@pkg/main/mainEvents';
-import paths from '@pkg/utils/paths';
+import { getRDDPath } from '@pkg/utils/paths';
 
 import type { AppAdapter } from 'electron-updater/out/AppAdapter';
 import type { DownloadExecutorResult, DownloadUpdateOptions } from 'electron-updater/out/AppUpdater';
 
 /**
- * MsiUpdater implements updating for Rancher Desktop's MSI-based installer.
+ * AppxUpdater implements updating for Rancher Desktop's APPX-based installer.
+ *
+ * There is no concept of an elevated (per-machine/admin) install any more:
+ * every install is a per-user sideload via `Add-AppxPackage`, so unlike the
+ * old MsiUpdater there is no `shouldElevate` check or MSIINSTALLPERUSER-style
+ * argument.
  */
 // We extend from NsisUpdater because extending BaseUpdater appears to cause
 // issues with AppImageUpdater (where it thinks BaseUpdater is undefined)?
-export default class MsiUpdater extends NsisUpdater {
+export default class AppxUpdater extends NsisUpdater {
   // eslint-disable-next-line no-useless-constructor -- This is used to change visibility
   constructor(options?: AllPublishOptions | null, app?: AppAdapter) {
     super(options, app);
@@ -29,15 +33,15 @@ export default class MsiUpdater extends NsisUpdater {
   // This implements an abstract method in BaseUpdater.
   protected doDownloadUpdate(downloadUpdateOptions: DownloadUpdateOptions): Promise<DownloadExecutorResult> {
     const { info, provider } = downloadUpdateOptions.updateInfoAndProvider;
-    const fileInfo = findFile(provider.resolveFiles(info), 'msi');
+    const fileInfo = findFile(provider.resolveFiles(info), 'appx');
 
     if (!fileInfo) {
-      throw newError(`Could not find update information for MSI installer version ${ info.version }`,
+      throw newError(`Could not find update information for APPX installer version ${ info.version }`,
         'ERR_UPDATER_INVALID_UPDATE_INFO');
     }
 
     return this.executeDownload({
-      fileExtension: 'msi',
+      fileExtension: 'appx',
       fileInfo,
       downloadUpdateOptions,
       task:          async(destinationFile, downloadOptions, packageFile, removeTempDirIfAny) => {
@@ -62,7 +66,8 @@ export default class MsiUpdater extends NsisUpdater {
   }
 
   // Verify that the given file is signed by the expected entity (as configured
-  // in electron-builder.yml).
+  // in electron-builder.yml).  APPX packages are Authenticode-signed just
+  // like exe/msi files, so the same verifier works unchanged.
   private async verifySignature_(destinationFile: string): Promise<string | null> {
     let publisherName: string | string[] | null;
 
@@ -85,8 +90,7 @@ export default class MsiUpdater extends NsisUpdater {
   }
 
   protected doInstall(options: InstallOptions): boolean {
-    const systemRoot = process.env.SystemRoot ?? 'C:\\Windows';
-    const msiexec = path.join(systemRoot, 'system32', 'msiexec.exe');
+    const rdd = getRDDPath();
     const installerPath = this.installerPath;
 
     if (!installerPath) {
@@ -96,29 +100,21 @@ export default class MsiUpdater extends NsisUpdater {
       return false;
     }
 
-    const args: string[] = [
-      '/norestart',
-      '/lv*', path.join(paths.log_dir, 'msiexec.log'),
-      '/i', installerPath,
-    ];
-    const elevate = options.isAdminRightsRequired || this.shouldElevate;
+    // Installs are always per-user sideloads now, so there is nothing
+    // equivalent to msiexec's /passive vs /quiet (no UAC prompt either way).
+    // We run `rdd install-update` (a thin wrapper over the WinRT
+    // Windows.Management.Deployment.PackageManager API) instead of spawning
+    // powershell.exe to run Add-AppxPackage, because PowerShell can be
+    // disabled or run in a constrained execution mode by policy in some
+    // corporate environments; rdd.exe is already shipped as part of the app
+    // and needs no shell. `--force-app-shutdown` lets the install close the
+    // running app for us instead of requiring that we have already exited.
+    const args: string[] = ['install-update', '--force-app-shutdown', installerPath];
 
-    if (options.isSilent && !elevate) {
-      args.push('/quiet');
-    } else {
-      args.push('/passive');
-    }
-
-    args.push(`MSIINSTALLPERUSER=${ elevate ? '0' : '1' }`);
-
-    if (options.isForceRunAfter) {
-      args.push('RDRUNAFTERINSTALL=1');
-    }
-
-    this._logger.debug?.(`Will invoke installer on restart with: msiexec ${ args.join(' ') }`);
+    this._logger.debug?.(`Will invoke installer on restart with: ${ rdd } ${ args.join(' ') }`);
     mainEvents.on('quit', () => {
-      this._logger.debug?.(`Running msiexec ${ args.join(' ') }`);
-      const proc = spawn(msiexec, args, {
+      this._logger.debug?.(`Running ${ rdd } ${ args.join(' ') }`);
+      const proc = spawn(rdd, args, {
         detached: true, stdio: 'ignore', windowsHide: true,
       });
 
@@ -127,28 +123,11 @@ export default class MsiUpdater extends NsisUpdater {
         this.dispatchError(err);
       });
       proc.on('exit', (code, signal) => {
-        this._logger.debug?.(`msiexec exited with ${ code }/${ signal }`);
+        this._logger.debug?.(`rdd install-update exited with ${ code }/${ signal }`);
       });
       proc.unref();
     });
 
     return true;
-  }
-
-  /**
-   * shouldElevate indicates whether we need elevation to install the update.
-   */
-  protected get shouldElevate(): boolean {
-    // An administrative install records this value; a per-user install does not.
-    const { error, status } = spawnSync(
-      'reg.exe',
-      ['query', 'HKLM\\SOFTWARE\\SUSE\\RancherDesktop', '/v', 'AdminInstall'],
-      { stdio: 'ignore', windowsHide: true });
-
-    if (error) {
-      this._logger.error(`Error accessing registry: ${ error }`);
-    }
-
-    return status === 0;
   }
 }

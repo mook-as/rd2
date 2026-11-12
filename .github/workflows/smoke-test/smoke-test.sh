@@ -225,30 +225,25 @@ win32_verify() {
 # executable.
 install_win32() {
     local archiveName=$1
+    local installDirectory
 
     win32_verify "$archiveName"
     mkdir -p "$(cygpath --unix "${LOGS_DIR}")"
-    msiexec.exe '/lv*x' "${LOGS_DIR}\\install.log" \
-        /i "$(cygpath --windows "$archiveName")" /passive ALLUSERS=1
-    # msiexec returns immediately and runs in the background; wait for that
-    # process to exit before continuing.
-    local deadline completed
-    deadline=$(( $(date +%s) + 10 * 60 ))
-    while [[ $(date +%s) -lt $deadline ]]; do
-        if tasklist.exe /FI "ImageName eq msiexec.exe" | grep msiexec; then
-            printf "Waiting for msiexec to finish: %s/%s\n" "$(date)" "$(date --date="@$deadline")"
-            sleep 10
-        else
-            completed=true
-            break
-        fi
-    done
-    if [[ -z "${completed:-}" ]]; then
-        echo "msiexec took too long to finish, aborting" >&2
+    if [[ "$archiveName" != *.appx ]]; then
+        echo "Expected an APPX archive, got: $archiveName" >&2
         exit 1
     fi
-    local installDirectory
-    installDirectory=$(cygpath --unix 'C:\Program Files\Rancher Desktop 2')
+    local pwsh=(pwsh.exe -NoLogo -NoProfile -NonInteractive -Command)
+    local archivePath
+    archivePath="$(cygpath --windows "$archiveName")"
+    "${pwsh[@]}" "Add-AppxPackage -ForceApplicationShutdown '$archivePath'"
+    installDirectory=$("${pwsh[@]}" "(Get-AppxPackage -Name 'io.rancherdesktop.app2').InstallLocation")
+    installDirectory=$(tr -d '\r' <<<"$installDirectory")
+    if [[ -z "$installDirectory" ]]; then
+        echo "Could not determine APPX install location" >&2
+        exit 1
+    fi
+    installDirectory=$(cygpath --unix "$installDirectory")
     local rdd="$installDirectory/resources/windows/bin/rdd.exe"
 
     local -a keys

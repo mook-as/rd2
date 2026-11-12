@@ -5,14 +5,16 @@
 import fs from 'fs';
 import path from 'path';
 
+import { Configuration as ElectronBuilderConfiguration } from 'app-builder-lib';
 import { getSignToolPath } from 'app-builder-lib/out/toolsets/windows';
-import defaults from 'lodash/defaultsDeep';
+import { build } from 'electron-builder';
 import merge from 'lodash/merge';
 import yaml from 'yaml';
 
+import { RecursiveReadWrite } from '@/pkg/rancher-desktop/utils/typeUtils';
 import buildUtils from '@/scripts/lib/build-utils';
 import { simpleSpawn } from '@/scripts/simple_process';
-import { rddArtifactName } from '@pkg/utils/releaseArtifacts';
+import { appArtifactName, rddArtifactName } from '@pkg/utils/releaseArtifacts';
 
 /** signFileFn is a function that signs a single file. */
 type signFileFn = (...filePath: string[]) => Promise<void>;
@@ -28,7 +30,6 @@ type verifyFileFn = (filePath: string) => Promise<boolean>;
  */
 const REQUIRED_WINDOWS_CONFIG = {
   signtoolOptions: { signingHashAlgorithms: ['sha256'] },
-  target:          'zip',
 };
 
 /**
@@ -37,18 +38,11 @@ const REQUIRED_WINDOWS_CONFIG = {
  * These are defaults that may be overridden (in electron-builder.yml).
  */
 const DEFAULT_WINDOWS_CONFIG = {
-  certificateSha1:        '', // set via CSC_FINGERPRINT
-  rfc3161TimeStampServer: 'http://timestamp.digicert.com',
+  signtoolOptions: {
+    certificateSha1:        '', // set via CSC_FINGERPRINT
+    rfc3161TimeStampServer: 'http://timestamp.digicert.com',
+  },
 };
-
-interface ElectronBuilderConfiguration {
-  productName:   string;
-  files?:        string[];
-  win?:          Partial<typeof DEFAULT_WINDOWS_CONFIG & typeof REQUIRED_WINDOWS_CONFIG> & { artifactName?: string };
-  extraMetadata: {
-    version: string;
-  }
-}
 
 export async function sign(workDir: string, outDir: string, rddFiles: string[]): Promise<string[]> {
   const certFingerprint = process.env.CSC_FINGERPRINT ?? '';
@@ -64,7 +58,7 @@ export async function sign(workDir: string, outDir: string, rddFiles: string[]):
   const unpackedDir = path.join(workDir, 'unpacked');
   const configPath = path.join(unpackedDir, 'electron-builder.yml');
   const configText = await fs.promises.readFile(configPath, 'utf-8');
-  const config = yaml.parse(configText) as ElectronBuilderConfiguration;
+  const config = yaml.parse(configText) as RecursiveReadWrite<ElectronBuilderConfiguration>;
 
   buildUtils.checkArchiveArch(config.win?.artifactName, config.extraMetadata.version, 'win32');
   const rddSource = buildUtils.findStandaloneRdd(rddFiles, config.extraMetadata.version, 'win32');
@@ -73,11 +67,13 @@ export async function sign(workDir: string, outDir: string, rddFiles: string[]):
   const signingConfigText = await fs.promises.readFile(signingConfigPath, 'utf-8');
   const signingConfig: Record<string, string[]> = yaml.parse(signingConfigText);
   const versionedAppName = `${ config.productName } ${ config.extraMetadata.version }`;
-
-  config.win ??= {};
-  defaults(config.win, DEFAULT_WINDOWS_CONFIG);
-  merge(config.win, REQUIRED_WINDOWS_CONFIG);
-  config.win.certificateSha1 = certFingerprint;
+  const winConfig = merge(
+    {},
+    DEFAULT_WINDOWS_CONFIG,
+    config.win,
+    REQUIRED_WINDOWS_CONFIG,
+    { signtoolOptions: { certificateSha1: certFingerprint } },
+  );
 
   const { path: toolPath } = await getSignToolPath(null, true);
   const toolArgs = [
@@ -86,7 +82,7 @@ export async function sign(workDir: string, outDir: string, rddFiles: string[]):
     '/sha1', certFingerprint,
     '/fd', 'SHA256',
     '/td', 'SHA256',
-    '/tr', config.win.rfc3161TimeStampServer!,
+    '/tr', winConfig.signtoolOptions.rfc3161TimeStampServer,
     '/du', 'https://rancherdesktop.io',
     '/d', versionedAppName,
   ];
@@ -117,7 +113,7 @@ export async function sign(workDir: string, outDir: string, rddFiles: string[]):
   }
 
   await signFn(...filesToSign);
-  const signedInstaller = await buildWiX(workDir, unpackedDir, outDir, signFn);
+  const signedInstaller = await buildAppx(unpackedDir, outDir, config);
 
   const rddDest = path.join(outDir, rddArtifactName(config.extraMetadata.version, 'win32', buildUtils.arch));
 
@@ -205,11 +201,49 @@ async function * findFiles(dir: string): AsyncIterable<string> {
   }
 }
 
-async function buildWiX(workDir: string, unpackedDir: string, outDir: string, signFn: signFileFn): Promise<string> {
-  const buildInstaller = (await import('./installer-win32')).default;
-  const installerPath = await buildInstaller(workDir, unpackedDir, outDir);
+/**
+ * Rebuild a signed .appx installer from the already-signed unpacked app,
+ * replacing the unsigned one `yarn package` already produced (see
+ * packaging/electron-builder.yml's `win.target`).
+ *
+ * This runs electron-builder's own `appx` target again, against the
+ * prepackaged (unpacked, signed) app directory, so that
+ * `config.win.certificateSha1` (set above) is available: electron-builder
+ * uses the certificate to both derive the appx `Publisher` (which must
+ * exactly match the cert's Subject, see computePublisherName in
+ * electron-builder) and to sign the resulting package -- neither of which
+ * is possible during `yarn package`, since no certificate is available then.
+ * @param unpackedDir Directory containing the already-signed, unpacked application.
+ * @param outDir Directory to write the built installer.
+ * @param config The electron-builder configuration (already has win.certificateSha1 set).
+ */
+async function buildAppx(unpackedDir: string, outDir: string, config: RecursiveReadWrite<ElectronBuilderConfiguration>): Promise<string> {
+  const outFile = path.join(outDir, appArtifactName(config.extraMetadata.version, 'win32', buildUtils.arch, 'appx'));
+  const signedConfig = structuredClone(config);
 
-  await signFn(installerPath);
+  // Unsigned package builds use fixed publisher metadata from
+  // electron-builder.yml. For signed packages, remove those overrides so
+  // electron-builder derives publisher metadata from the signing certificate.
+  if (signedConfig.appx) {
+    delete signedConfig.appx.publisher;
+    delete signedConfig.appx.publisherDisplayName;
+  }
+  signedConfig.win = {
+    ...signedConfig.win,
+    target:       ['appx'],
+    artifactName: path.basename(outFile),
+  };
 
-  return installerPath;
+  await build({
+    prepackaged: unpackedDir,
+    publish:     'never',
+    arm64:       buildUtils.arch === 'arm64',
+    x64:         buildUtils.arch === 'x64',
+    config:      {
+      ...signedConfig as ElectronBuilderConfiguration,
+      directories: { output: outDir },
+    },
+  });
+
+  return outFile;
 }

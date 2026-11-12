@@ -388,7 +388,7 @@ describe('LonghornProvider.getSha512Sum', () => {
       ok:         true,
       status:     200,
       statusText: 'OK',
-      text:       () => Promise.resolve(`${ hex }  rancher-desktop.msi\n`),
+      text:       () => Promise.resolve(`${ hex }  rancher-desktop.appx\n`),
     });
 
     await expect(makeProvider()['getSha512Sum']('https://example.test/cs'))
@@ -422,7 +422,7 @@ describe('LonghornProvider.getSha512Sum', () => {
 
 describe('LonghornProvider.checkForUpdates', () => {
   const cacheFile = path.join(cacheDir, 'updater-longhorn.json');
-  const assetName = appArtifactName('9.9.9', 'win32', process.arch, 'msi');
+  const assetName = appArtifactName('9.9.9', 'win32', process.arch, 'appx');
   const githubURL = 'https://api.github.com/repos/rancher-sandbox/rancher-desktop/releases/tags/v9.9.9';
   const serverURL = 'http://127.0.0.1:8314';
   let LonghornProviderClass: typeof import('../LonghornProvider').default;
@@ -459,7 +459,7 @@ describe('LonghornProvider.checkForUpdates', () => {
         body:         'Simulated release.',
         published_at: '2038-01-01T00:00:00Z',
         assets:       assetNames.flatMap((name, i) => [
-          { name, browser_download_url: `${ serverURL }/msi/${ i }`, size: 1 },
+          { name, browser_download_url: `${ serverURL }/appx/${ i }`, size: 1 },
           { name: `${ name }.sha512sum`, browser_download_url: `${ serverURL }/sha512sum/${ i }`, size: 1 },
         ]),
       }),
@@ -592,9 +592,9 @@ describe('LonghornProvider.checkForUpdates', () => {
   it('installs the release asset built for this architecture', async() => {
     const otherArch = process.arch === 'arm64' ? 'x64' : 'arm64';
 
-    mockRelease([appArtifactName('9.9.9', 'win32', otherArch, 'msi'), assetName]);
+    mockRelease([appArtifactName('9.9.9', 'win32', otherArch, 'appx'), assetName]);
     await makeProvider()['checkForUpdates']();
-    expect(JSON.parse(fs.readFileSync(cacheFile, 'utf-8')).file.url).toBe(`${ serverURL }/msi/1`);
+    expect(JSON.parse(fs.readFileSync(cacheFile, 'utf-8')).file.url).toBe(`${ serverURL }/appx/1`);
   });
 
   it('records the responder override when updates are forced', async() => {
@@ -644,8 +644,8 @@ describe('findUpdateAsset', () => {
     'rancher-desktop-9.9.9.darwin.aarch64.dmg',
     'rancher-desktop-9.9.9.darwin.aarch64.zip',
     'rancher-desktop-9.9.9.darwin.x86_64.zip',
-    'rancher-desktop-9.9.9.windows.aarch64.msi',
-    'rancher-desktop-9.9.9.windows.x86_64.msi',
+    'rancher-desktop-9.9.9.windows.aarch64.appx',
+    'rancher-desktop-9.9.9.windows.x86_64.appx',
   ].map(name => ({ name }) as GitHubReleaseAsset);
   let findUpdateAsset: typeof findUpdateAssetType;
 
@@ -656,8 +656,8 @@ describe('findUpdateAsset', () => {
   it.each([
     ['darwin', 'arm64', 'rancher-desktop-9.9.9.darwin.aarch64.zip'],
     ['darwin', 'x64', 'rancher-desktop-9.9.9.darwin.x86_64.zip'],
-    ['win32', 'arm64', 'rancher-desktop-9.9.9.windows.aarch64.msi'],
-    ['win32', 'x64', 'rancher-desktop-9.9.9.windows.x86_64.msi'],
+    ['win32', 'arm64', 'rancher-desktop-9.9.9.windows.aarch64.appx'],
+    ['win32', 'x64', 'rancher-desktop-9.9.9.windows.x86_64.appx'],
   ] as const)('picks the %s %s asset', (platform, arch, expected) => {
     expect(findUpdateAsset(assets, platform, arch)?.name).toBe(expected);
   });
