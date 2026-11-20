@@ -79,6 +79,16 @@ provision:
 
     set -o errexit -o nounset -o pipefail -o xtrace
 
+    if [[ "$(systemd-detect-virt)" == "wsl" ]]; then
+        # In WSL, we end up running both via lima running boot.sh directly
+        # (outside the network namespace), and via lima-init.service (inside the
+        # network namespace).  Return early in the former case.
+        if ! [[ "$(systemctl whoami 2>/dev/null || true)" =~ \.service$ ]]; then
+          # We're not running in a systemd service.
+          exit 0
+        fi
+    fi
+
     # Restart rancher-desktop.target on exit, even if a step below fails. The
     # container engine belongs to this target but does not depend on
     # Kubernetes, so a failed k3s install must not leave it stopped. --no-block
